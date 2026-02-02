@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getCurrentUser } from './lib/auth-edge';
+import { verifySession } from './lib/auth-edge';
 
 export async function middleware(request) {
     // console.log('Middleware running on path:', request.nextUrl.pathname);
@@ -15,8 +15,9 @@ export async function middleware(request) {
         return NextResponse.next();
     }
 
-    // Check for session
-    const user = await getCurrentUser();
+    // Check for session (Use request.cookies in Middleware, NOT next/headers)
+    const token = request.cookies.get('session')?.value;
+    const user = token ? await verifySession(token) : null;
 
     if (!user) {
         // Redirect to login if not authenticated
