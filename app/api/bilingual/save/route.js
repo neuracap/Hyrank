@@ -70,7 +70,13 @@ export async function POST(request) {
     } catch (error) {
         await client.query('ROLLBACK');
         console.error('Save error:', error);
-        return NextResponse.json({ error: 'Failed to save changes' }, { status: 500 });
+        console.error('Error stack:', error.stack);
+        console.error('Error message:', error.message);
+        return NextResponse.json({
+            error: 'Failed to save changes',
+            details: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        }, { status: 500 });
     } finally {
         client.release();
     }

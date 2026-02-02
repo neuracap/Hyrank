@@ -172,7 +172,8 @@ export default function BilingualList({ initialQuestions, total, currentPage, to
                 setQuestions(newQs);
                 alert('Saved successfully!');
             } else {
-                alert('Failed to save.');
+                const errorData = await res.json();
+                alert(`Failed to save.\n\nError: ${errorData.details || errorData.error}\n\n${errorData.stack || ''}`);
             }
         } catch (e) {
             console.error(e);
