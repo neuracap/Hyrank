@@ -1,0 +1,142 @@
+[
+  {
+    "column_name": "question_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "version_no",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "language",
+    "data_type": "text"
+  },
+  {
+    "column_name": "status",
+    "data_type": "text"
+  },
+  {
+    "column_name": "exam_section_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "difficulty",
+    "data_type": "smallint"
+  },
+  {
+    "column_name": "question_type",
+    "data_type": "text"
+  },
+  {
+    "column_name": "has_image",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "paper_session_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "source_question_no",
+    "data_type": "text"
+  },
+  {
+    "column_name": "body_json",
+    "data_type": "jsonb"
+  },
+  {
+    "column_name": "solution_json",
+    "data_type": "jsonb"
+  },
+  {
+    "column_name": "explanation_json",
+    "data_type": "jsonb"
+  },
+  {
+    "column_name": "meta_json",
+    "data_type": "jsonb"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "question_number_int",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "avg_accuracy_percent",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "avg_time_taken_ms",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "total_attempts",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "correct_attempts",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "difficulty_score",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "quality_rating",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "is_verified",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "verified_by_user_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "verified_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "reported_issue_count",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "question_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "version_no",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "language",
+    "data_type": "text"
+  },
+  {
+    "column_name": "asset_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "role",
+    "data_type": "text"
+  },
+  {
+    "column_name": "option_key",
+    "data_type": "text"
+  },
+  {
+    "column_name": "placement_json",
+    "data_type": "jsonb"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  }
+]

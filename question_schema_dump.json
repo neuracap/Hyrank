@@ -1,0 +1,14 @@
+[
+  {
+    "column_name": "question_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "canonical_code",
+    "data_type": "text"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  }
+]

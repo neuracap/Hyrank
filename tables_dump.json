@@ -1,0 +1,83 @@
+[
+  {
+    "table_name": "question_link_gap"
+  },
+  {
+    "table_name": "question_skill_map"
+  },
+  {
+    "table_name": "topic"
+  },
+  {
+    "table_name": "recommendation"
+  },
+  {
+    "table_name": "app_user"
+  },
+  {
+    "table_name": "raw_mmd_doc"
+  },
+  {
+    "table_name": "paper_session"
+  },
+  {
+    "table_name": "question_version"
+  },
+  {
+    "table_name": "question_links"
+  },
+  {
+    "table_name": "question_option"
+  },
+  {
+    "table_name": "test_question"
+  },
+  {
+    "table_name": "attempt_item"
+  },
+  {
+    "table_name": "attempt"
+  },
+  {
+    "table_name": "question_asset_map"
+  },
+  {
+    "table_name": "raw_asset"
+  },
+  {
+    "table_name": "exam"
+  },
+  {
+    "table_name": "question_topic_map"
+  },
+  {
+    "table_name": "user_skill_stats"
+  },
+  {
+    "table_name": "import_job"
+  },
+  {
+    "table_name": "asset"
+  },
+  {
+    "table_name": "test"
+  },
+  {
+    "table_name": "user_trait_stats"
+  },
+  {
+    "table_name": "exam_section"
+  },
+  {
+    "table_name": "asset_variant"
+  },
+  {
+    "table_name": "raw_question_candidate"
+  },
+  {
+    "table_name": "question"
+  },
+  {
+    "table_name": "skill"
+  }
+]

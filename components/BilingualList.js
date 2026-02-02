@@ -1,0 +1,850 @@
+'use client';
+
+import { useState } from 'react';
+import Latex from '@/components/Latex';
+import ImageEditor from '@/components/ImageEditor';
+
+export default function BilingualList({ initialQuestions, total, currentPage, totalPages, paperSessionId, engDocInfo, hinDocInfo }) {
+
+    // Helper to render links
+    const renderDocLink = (path, label, colorClass = "text-blue-600") => {
+        if (!path) return null;
+        const filename = path.split(/[/\\]/).pop();
+        const url = `/api/pdf?path=${encodeURIComponent(path)}`;
+        return (
+            <a href={url} target="_blank" rel="noopener noreferrer" className={`${colorClass} hover:underline flex items-center gap-1 bg-white border border-gray-200 px-2 py-1 rounded shadow-sm`} title={path}>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-gray-500">
+                    <path d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5H5.625Z" />
+                    <path d="M12.971 1.816A5.23 5.23 0 0 1 14.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 0 1 3.434 1.279 9.768 9.768 0 0 0-6.963-6.963Z" />
+                </svg>
+                <span className="truncate max-w-[150px]">{label || filename}</span>
+            </a>
+        );
+    };
+
+    const cleanNotesEng = engDocInfo?.notes ? engDocInfo.notes.replace(/ingested from\s*/i, '').trim() : null;
+    const cleanNotesHin = hinDocInfo?.notes ? hinDocInfo.notes.replace(/ingested from\s*/i, '').trim() : null;
+
+    const [questions, setQuestions] = useState(() => {
+        // Ensure every question has A, B, C, D options
+        const REQUIRED_OPTS = ['A', 'B', 'C', 'D'];
+
+        return initialQuestions.map(q => {
+            const fillOptions = (existingOpts) => {
+                const optMap = new Map(existingOpts.map(o => [o.opt_label, o]));
+                return REQUIRED_OPTS.map(label => ({
+                    opt_label: label,
+                    opt_text: optMap.get(label)?.opt_text || ''
+                }));
+            };
+
+            return {
+                ...q,
+                eng_options: fillOptions(q.eng_options || []),
+                hin_options: fillOptions(q.hin_options || [])
+            };
+        });
+    });
+
+    const [imageEditor, setImageEditor] = useState({
+        isOpen: false,
+        imageDataUrl: null,
+        targetQuestion: null,  // { index, lang, isOption, optIndex }
+    });
+
+    const [bulkCompleting, setBulkCompleting] = useState(false);
+
+    // Unified Direct Upload Function
+    const performUpload = async (fileBlob, index, lang, isOption, optIndex) => {
+        const q = questions[index];
+        const questionId = lang === 'eng' ? q.eng_id : q.hin_id;
+        const language = lang === 'eng' ? 'EN' : 'HI';
+        const version = lang === 'eng' ? q.eng_version : q.hin_version;
+        const role = isOption ? 'option' : 'stem';
+        const optionKey = isOption ? ['A', 'B', 'C', 'D'][optIndex] : '__STEM__';
+
+        const reader = new FileReader();
+        reader.readAsDataURL(fileBlob);
+        reader.onloadend = async () => {
+            const base64data = reader.result;
+            try {
+                const res = await fetch('/api/upload', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        data: base64data,
+                        question_id: questionId,
+                        language: language,
+                        version_no: version,
+                        role: role,
+                        option_key: optionKey
+                    })
+                });
+                const data = await res.json();
+                if (data.latexPath) {
+                    insertImageTag(data.latexPath, index, lang, optIndex);
+                } else {
+                    alert('Upload failed: ' + (data.error || 'Unknown error'));
+                }
+            } catch (e) {
+                console.error(e);
+                alert('Upload failed');
+            }
+        };
+    };
+
+    // Handle Ctrl+V Paste - DIRECT UPLOAD
+    const handlePaste = (e, index, lang, optIndex = null) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+
+        for (let item of items) {
+            if (item.type.startsWith('image/')) {
+                e.preventDefault();
+                const blob = item.getAsFile();
+                // Bypass Editor: Directly upload
+                performUpload(blob, index, lang, optIndex !== null, optIndex);
+                break;
+            }
+        }
+    };
+
+    const handleImageEditorSave = async (croppedBlob) => {
+        if (!imageEditor.targetQuestion) return;
+        const { index, lang, isOption, optIndex } = imageEditor.targetQuestion;
+        await performUpload(croppedBlob, index, lang, isOption, optIndex);
+        setImageEditor({ isOpen: false, imageDataUrl: null, targetQuestion: null });
+    };
+
+    const insertImageTag = (path, index, lang, optIndex = null) => {
+        const imageTag = `\\includegraphics{${path}}`;
+        const newQs = [...questions];
+        const targetQ = newQs[index];
+
+        if (lang === 'eng') {
+            if (optIndex !== null) {
+                targetQ.eng_options[optIndex].opt_text += ` ${imageTag}`;
+            } else {
+                targetQ.eng_text += `\n\n${imageTag}`;
+            }
+        } else {
+            if (optIndex !== null) {
+                targetQ.hin_options[optIndex].opt_text += ` ${imageTag}`;
+            } else {
+                targetQ.hin_text += `\n\n${imageTag}`;
+            }
+        }
+        setQuestions(newQs);
+    };
+
+    const handleImageUpload = async (file, index, lang, optIndex = null) => {
+        // Bypass Editor: Directly upload from file input
+        performUpload(file, index, lang, optIndex !== null, optIndex);
+    };
+
+    const handleSave = async (index) => {
+        const q = questions[index];
+
+        try {
+            const res = await fetch('/api/bilingual/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    link_id: q.link_id,
+                    english: {
+                        id: q.eng_id,
+                        version: q.eng_version,
+                        question_text: q.eng_text,
+                        options: q.eng_options
+                    },
+                    hindi: {
+                        id: q.hin_id,
+                        version: q.hin_version,
+                        question_text: q.hin_text,
+                        options: q.hin_options
+                    }
+                })
+            });
+
+            if (res.ok) {
+                const newQs = [...questions];
+                newQs[index] = { ...q, status: 'MANUALLY_CORRECTED', updated_score: 1.0 };
+                setQuestions(newQs);
+                alert('Saved successfully!');
+            } else {
+                alert('Failed to save.');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Error saving.');
+        }
+    };
+
+    const handleTextChange = (index, lang, field, value, optIndex = null) => {
+        const newQs = [...questions];
+        const targetQ = newQs[index];
+
+        if (lang === 'eng') {
+            if (optIndex !== null) {
+                targetQ.eng_options[optIndex].opt_text = value;
+            } else {
+                targetQ.eng_text = value;
+            }
+        } else {
+            if (optIndex !== null) {
+                targetQ.hin_options[optIndex].opt_text = value;
+            } else {
+                targetQ.hin_text = value;
+            }
+        }
+        setQuestions(newQs);
+    };
+
+    const handleTranslate = async (index, sourceLang) => {
+        const newQs = [...questions];
+        if (sourceLang === 'en') {
+            newQs[index].isTranslatingEng = true;
+        } else {
+            newQs[index].isTranslatingHin = true;
+        }
+        setQuestions(newQs);
+
+        const q = questions[index];
+        const textToTranslate = sourceLang === 'en' ? q.eng_text : q.hin_text;
+        const targetLang = sourceLang === 'en' ? 'hi' : 'en';
+
+        if (!textToTranslate) {
+            newQs[index].isTranslatingEng = false;
+            newQs[index].isTranslatingHin = false;
+            setQuestions([...newQs]);
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/translate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: textToTranslate, source: sourceLang, target: targetLang })
+            });
+            const data = await res.json();
+
+            const updatedQs = [...questions];
+            if (sourceLang === 'en') {
+                updatedQs[index].isTranslatingEng = false;
+                if (data.translatedText) updatedQs[index].eng_translation = data.translatedText;
+            } else {
+                updatedQs[index].isTranslatingHin = false;
+                if (data.translatedText) updatedQs[index].hin_translation = data.translatedText;
+            }
+            setQuestions(updatedQs);
+
+        } catch (e) {
+            alert('Translation failed');
+            const updatedQs = [...questions];
+            if (sourceLang === 'en') updatedQs[index].isTranslatingEng = false;
+            else updatedQs[index].isTranslatingHin = false;
+            setQuestions(updatedQs);
+        }
+    };
+
+    const handleBulkComplete = async () => {
+        const confirmMsg = `This will mark ALL ${total} question pairs in both English and Hindi papers as "Manually Corrected".
+
+This action will:
+- Set status to MANUALLY_CORRECTED for all questions
+- Set updated_score to 1.0 for all questions
+- Mark both paper sessions as reviewed
+
+Are you sure you want to proceed?`;
+
+        if (!confirm(confirmMsg)) {
+            return;
+        }
+
+        setBulkCompleting(true);
+
+        try {
+            const res = await fetch('/api/bilingual/bulk-complete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ paper_session_id: paperSessionId })
+            });
+
+            const data = await res.json();
+
+            if (res.ok) {
+                alert(`✅ Success! Updated ${data.updatedCount} question pairs.\n\nBoth paper sessions have been marked as reviewed.\n\nRefreshing page...`);
+                window.location.reload();
+            } else {
+                alert(`❌ Error: ${data.error}\n\n${data.details || ''}`);
+                setBulkCompleting(false);
+            }
+        } catch (e) {
+            console.error(e);
+            alert('❌ Error completing bulk update. Please try again.');
+            setBulkCompleting(false);
+        }
+    };
+
+    const formatText = (text) => {
+        if (!text) return text;
+
+        // Keywords that should have double line break before them
+        const keywords = [
+            '(Note:',
+            'Note:',
+            'नोट:',
+            '(नोट:',
+            'Statement:',
+            'Statements:',
+            'Conclusion:',
+            'Conclusions:',
+            'कथन:',
+            'निष्कर्ष:'
+        ];
+
+        let formatted = text;
+
+        // For each keyword, add double line break before it if not already present
+        keywords.forEach(keyword => {
+            // Look for instances of the keyword
+            let index = formatted.indexOf(keyword);
+
+            while (index !== -1) {
+                // Check what comes before the keyword
+                const before = formatted.substring(Math.max(0, index - 2), index);
+
+                if (before !== '\n\n') {
+                    // Need to add line breaks
+                    if (before.endsWith('\n')) {
+                        // Already has one newline, add one more
+                        formatted = formatted.substring(0, index) + '\n' + formatted.substring(index);
+                        index++; // Adjust index for the added character
+                    } else if (index > 0) {
+                        // No newlines, add two
+                        formatted = formatted.substring(0, index) + '\n\n' + formatted.substring(index);
+                        index += 2; // Adjust index for the added characters
+                    }
+                }
+
+                // Find next occurrence
+                index = formatted.indexOf(keyword, index + keyword.length);
+            }
+        });
+
+        return formatted;
+    };
+
+    const formatSentences = (text, lang) => {
+        if (!text) return text;
+
+        // Determine sentence ending based on language
+        const sentenceEnd = lang === 'eng' ? '.' : '।';
+
+        let formatted = text;
+        let index = formatted.indexOf(sentenceEnd);
+
+        while (index !== -1) {
+            // Check if there's content after the sentence ending
+            const afterIndex = index + sentenceEnd.length;
+
+            if (afterIndex < formatted.length) {
+                // Check what comes after the sentence ending
+                const after = formatted.substring(afterIndex, Math.min(afterIndex + 2, formatted.length));
+
+                // Only add line breaks if not already present
+                if (after !== '\n\n') {
+                    // Check if there's already one newline
+                    if (!after.startsWith('\n')) {
+                        // No newline, add two
+                        formatted = formatted.substring(0, afterIndex) + '\n\n' + formatted.substring(afterIndex);
+                        index = afterIndex + 2; // Move past the added newlines
+                    } else if (after.length >= 2 && after[1] !== '\n') {
+                        // Has one newline, add one more
+                        formatted = formatted.substring(0, afterIndex + 1) + '\n' + formatted.substring(afterIndex + 1);
+                        index = afterIndex + 2; // Move past the added newline
+                    } else {
+                        // Already has double newline
+                        index = afterIndex;
+                    }
+                }
+            }
+
+            // Find next sentence ending
+            index = formatted.indexOf(sentenceEnd, index + 1);
+        }
+
+        return formatted;
+    };
+
+    const handleFormatQuestion = (index, lang) => {
+        const newQs = [...questions];
+        const targetQ = newQs[index];
+
+        if (lang === 'eng') {
+            targetQ.eng_text = formatSentences(targetQ.eng_text, 'eng');
+        } else {
+            targetQ.hin_text = formatSentences(targetQ.hin_text, 'hin');
+        }
+
+        setQuestions(newQs);
+
+    };
+
+    const handleFormatAll = () => {
+        const confirmMsg = `This will format ALL ${questions.length} question pairs on this page by adding line spacing before keywords like Note, Statement, Conclusion, etc.\n\nYou will need to save each question manually.\n\nContinue?`;
+
+        if (!confirm(confirmMsg)) {
+            return;
+        }
+
+        const newQs = questions.map(q => ({
+            ...q,
+            eng_text: formatText(q.eng_text),
+            hin_text: formatText(q.hin_text)
+        }));
+
+        setQuestions(newQs);
+        alert('✅ Formatted all questions! Remember to save each question individually.');
+    };
+
+    const handleUnderline = (index, lang, isOption = false, optIndex = null) => {
+        // Get the textarea element
+        const textareaId = isOption
+            ? `${lang}-opt-${index}-${optIndex}`
+            : `${lang}-text-${index}`;
+        const textarea = document.getElementById(textareaId);
+
+        if (!textarea) return;
+
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const selectedText = textarea.value.substring(start, end);
+
+        if (!selectedText) {
+            alert('Please select some text first');
+            return;
+        }
+
+        // Wrap selected text with underline syntax
+        const wrappedText = `$\\underline{\\text{${selectedText}}}$`;
+        const newValue = textarea.value.substring(0, start) + wrappedText + textarea.value.substring(end);
+
+        // Update the state
+        handleTextChange(index, lang, isOption ? 'opt' : 'text', newValue, optIndex);
+
+        // Set cursor position after the inserted text
+        setTimeout(() => {
+            textarea.focus();
+            const newCursorPos = start + wrappedText.length;
+            textarea.setSelectionRange(newCursorPos, newCursorPos);
+        }, 0);
+    };
+
+    const handleFixLatex = async (index, lang) => {
+        const newQs = [...questions];
+        const targetQ = newQs[index];
+        const textToFix = lang === 'eng' ? targetQ.eng_text : targetQ.hin_text;
+
+        if (!textToFix) {
+            alert('No text to fix');
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/bilingual/fix-text', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: textToFix })
+            });
+
+            const data = await res.json();
+
+            if (res.ok && data.fixedText) {
+                if (lang === 'eng') {
+                    targetQ.eng_text = data.fixedText;
+                } else {
+                    targetQ.hin_text = data.fixedText;
+                }
+                setQuestions(newQs);
+
+                if (data.fixedText === textToFix) {
+                    alert('✅ No LaTeX errors found!');
+                } else {
+                    alert('✅ LaTeX syntax fixed!');
+                }
+            } else {
+                alert('❌ Error: ' + (data.error || 'Failed to fix LaTeX'));
+            }
+        } catch (e) {
+            console.error(e);
+            alert('❌ Error fixing LaTeX: ' + e.message);
+        }
+    };
+
+    const handleCopyOptions = (index) => {
+        const newQs = [...questions];
+        const targetQ = newQs[index];
+
+        // Copy all 4 options from English to Hindi
+        if (targetQ.eng_options && targetQ.eng_options.length > 0) {
+            targetQ.hin_options = targetQ.eng_options.map(opt => ({
+                ...opt,
+                opt_id: null // Reset ID for Hindi
+            }));
+
+            setQuestions(newQs);
+            alert('✅ Copied all 4 options from English to Hindi!');
+        } else {
+            alert('❌ No English options to copy');
+        }
+    };
+
+    return (
+        <div className="container mx-auto px-4 py-8">
+            <ImageEditor
+                isOpen={imageEditor.isOpen}
+                imageDataUrl={imageEditor.imageDataUrl}
+                onSave={handleImageEditorSave}
+                onCancel={() => setImageEditor({ ...imageEditor, isOpen: false })}
+            />
+
+            <header className="mb-8">
+                <div className="flex justify-between items-center mb-4">
+                    <div>
+                        <h1 className="text-2xl font-bold text-gray-900 mb-2">Bilingual Review Dashboard</h1>
+                        <p className="text-gray-500">Session ID: {paperSessionId}</p>
+                    </div>
+
+                    <div className="flex gap-3">
+                        <button
+                            onClick={handleFormatAll}
+                            className="px-4 py-2 rounded-lg font-bold text-sm uppercase tracking-wide transition-all shadow-md bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white"
+                            title="Format all questions by adding line spacing before Note, Statement, Conclusion keywords"
+                        >
+                            📝 Format All
+                        </button>
+
+                        <button
+                            onClick={handleBulkComplete}
+                            disabled={bulkCompleting}
+                            className={`px-6 py-3 rounded-lg font-bold text-sm uppercase tracking-wide transition-all shadow-lg ${bulkCompleting
+                                ? 'bg-gray-400 cursor-not-allowed'
+                                : 'bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white'
+                                }`}
+                            title="Mark all questions in both papers as manually corrected"
+                        >
+                            {bulkCompleting ? (
+                                <span className="flex items-center gap-2">
+                                    <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    Processing...
+                                </span>
+                            ) : (
+                                <span className="flex items-center gap-2">
+                                    ✅ Complete Review
+                                </span>
+                            )}
+                        </button>
+                    </div>
+                </div>
+
+                <div className="flex flex-wrap gap-4 mt-2 text-xs items-center">
+                    <div className="flex items-center gap-2">
+                        <span className="font-bold text-gray-400 uppercase text-[10px]">English:</span>
+                        {renderDocLink(engDocInfo?.source_pdf_path, "Source PDF", "text-blue-600")}
+                        {renderDocLink(cleanNotesEng, "Related PDF", "text-blue-600")}
+                        {renderDocLink(engDocInfo?.mmd_path, "MMD", "text-gray-600")}
+                    </div>
+
+                    {(hinDocInfo?.source_pdf_path || cleanNotesHin || hinDocInfo?.mmd_path) && (
+                        <div className="flex items-center gap-2 border-l pl-4 ml-2 border-gray-300">
+                            <span className="font-bold text-gray-400 uppercase text-[10px]">Hindi:</span>
+                            {renderDocLink(hinDocInfo?.source_pdf_path, "Source PDF", "text-orange-600")}
+                            {renderDocLink(cleanNotesHin, "Related PDF", "text-orange-600")}
+                            {renderDocLink(hinDocInfo?.mmd_path, "MMD", "text-gray-600")}
+                        </div>
+                    )}
+                </div>
+
+                <p className="text-sm text-gray-400 mt-2">Found {total} linked pairs (Page {currentPage} of {totalPages})</p>
+            </header>
+
+            <div className="space-y-12 mb-12">
+                {questions.map((q, index) => {
+                    const isLowScore = q.updated_score != null && q.updated_score < 0.8;
+                    const isCorrected = q.status === 'MANUALLY_CORRECTED';
+
+                    return (
+                        <div key={q.link_id} className={`rounded-lg shadow-sm border overflow-hidden ${isLowScore && !isCorrected ? 'border-red-500 bg-red-50 ring-2 ring-red-200' : 'bg-white border-gray-200'}`}>
+                            {isLowScore && !isCorrected && (
+                                <div className="bg-red-600 text-white text-xs font-bold px-4 py-1 flex justify-between items-center">
+                                    <span>⚠️ Low Confidence Match</span>
+                                    <span>Score: {Number(q.updated_score).toFixed(3)}</span>
+                                </div>
+                            )}
+                            <div className={`px-6 py-3 border-b flex justify-between items-center text-sm ${isLowScore && !isCorrected ? 'bg-red-100 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
+                                <div className="font-mono text-gray-500">Link ID: {q.link_id}</div>
+                                <div className="flex gap-4 items-center">
+                                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${q.status === 'PENDING' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
+                                        {q.status}
+                                    </span>
+                                    {q.similarity_score != null && (
+                                        <span className="text-gray-600" title="Similarity Score">
+                                            Sim: {Number(q.similarity_score).toFixed(3)}
+                                        </span>
+                                    )}
+                                    {q.updated_score != null && (
+                                        <span className={`font-bold ${isLowScore && !isCorrected ? 'text-red-700' : 'text-gray-600'}`} title="Updated Score">
+                                            Score: {Number(q.updated_score).toFixed(3)}
+                                        </span>
+                                    )}
+                                    <button
+                                        onClick={() => handleSave(index)}
+                                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-xs font-bold uppercase tracking-wide transition-colors shadow-sm ml-4"
+                                    >
+                                        Save Changes
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-gray-200">
+                                {/* English Column */}
+                                <div className="p-6">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <span className="inline-block bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded">ENGLISH</span>
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={() => handleFormatQuestion(index, 'eng')}
+                                                className="text-xs text-blue-600 bg-blue-50 border border-blue-200 px-2 py-1 rounded hover:bg-blue-100 font-medium"
+                                                title="Add line spacing after each sentence (after .)"
+                                            >
+                                                📝 Format
+                                            </button>
+                                            <label className="text-xs text-blue-600 cursor-pointer hover:underline font-medium flex items-center gap-1">
+                                                Add Image
+                                                <input type="file" className="hidden" onChange={(e) => e.target.files[0] && handleImageUpload(e.target.files[0], index, 'eng')} />
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div className="mb-6">
+                                        <h3 className="text-sm font-bold text-gray-700 mb-2">Q.{q.eng_source_no || q.eng_id.substring(0, 6)}</h3>
+                                        <div className="relative">
+                                            <textarea
+                                                id={`eng-text-${index}`}
+                                                className="w-full p-3 border border-gray-300 rounded font-mono text-sm min-h-[150px] mb-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                value={q.eng_text}
+                                                onChange={(e) => handleTextChange(index, 'eng', 'text', e.target.value)}
+                                                onPaste={(e) => handlePaste(e, index, 'eng')}
+                                                placeholder="Paste image here (Ctrl+V)..."
+                                            />
+                                            <div className="absolute top-2 right-2 flex gap-1">
+                                                <button
+                                                    onClick={() => handleFixLatex(index, 'eng')}
+                                                    className="px-2 py-1 text-xs font-bold bg-rose-500 text-white rounded hover:bg-rose-600 shadow-sm"
+                                                    title="Fix LaTeX syntax errors"
+                                                >
+                                                    FL
+                                                </button>
+                                                <button
+                                                    onClick={() => handleUnderline(index, 'eng')}
+                                                    className="px-2 py-1 text-xs font-bold bg-blue-500 text-white rounded hover:bg-blue-600 shadow-sm"
+                                                    title="Underline selected text"
+                                                >
+                                                    U
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="mb-2">
+                                            <button
+                                                onClick={() => handleTranslate(index, 'en')}
+                                                disabled={q.isTranslatingEng}
+                                                className={`text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded hover:bg-blue-100 transition-colors ${q.isTranslatingEng ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                            >
+                                                {q.isTranslatingEng ? 'Generating...' : 'Generate Hindi Translation'}
+                                            </button>
+                                            {q.eng_translation && (
+                                                <div className="mt-2 p-3 bg-blue-50/30 border border-blue-100 rounded text-sm text-gray-800 relative group">
+                                                    <p className="text-[10px] font-bold text-blue-400 uppercase mb-1">Hindi Translation</p>
+                                                    <Latex>{q.eng_translation}</Latex>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="p-3 bg-gray-50 rounded border border-gray-200 text-sm">
+                                            <p className="text-xs font-bold text-gray-400 uppercase mb-1">Preview</p>
+                                            <Latex>{q.eng_text}</Latex>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        {q.eng_options.map((opt, optIdx) => (
+                                            <div key={opt.opt_label} className="p-2 border border-gray-100 rounded bg-gray-50/50">
+                                                <div className="flex gap-2 items-center mb-2">
+                                                    <div className="w-6 h-6 flex items-center justify-center rounded-full bg-white border border-gray-300 text-xs font-bold text-gray-500 shrink-0">
+                                                        {opt.opt_label}
+                                                    </div>
+                                                    <input
+                                                        className="flex-1 text-xs p-1 border border-gray-300 rounded font-mono"
+                                                        value={opt.opt_text}
+                                                        onChange={(e) => handleTextChange(index, 'eng', 'opt', e.target.value, optIdx)}
+                                                        onPaste={(e) => handlePaste(e, index, 'eng', optIdx)}
+                                                    />
+                                                    <label className="cursor-pointer text-gray-400 hover:text-blue-600 p-1" title="Add Image to Option">
+                                                        ➕
+                                                        <input type="file" className="hidden" onChange={(e) => e.target.files[0] && handleImageUpload(e.target.files[0], index, 'eng', optIdx)} />
+                                                    </label>
+                                                </div>
+                                                <div className="pl-8 text-xs text-gray-700">
+                                                    <Latex>{opt.opt_text}</Latex>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Hindi Column */}
+                                <div className="p-6 bg-orange-50/10">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <span className="inline-block bg-orange-100 text-orange-800 text-xs font-bold px-2 py-1 rounded">HINDI</span>
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={() => handleFormatQuestion(index, 'hin')}
+                                                className="text-xs text-orange-600 bg-orange-50 border border-orange-200 px-2 py-1 rounded hover:bg-orange-100 font-medium"
+                                                title="Add line spacing after each sentence (after ।)"
+                                            >
+                                                📝 Format
+                                            </button>
+                                            <label className="text-xs text-orange-600 cursor-pointer hover:underline font-medium flex items-center gap-1">
+                                                Add Image
+                                                <input type="file" className="hidden" onChange={(e) => e.target.files[0] && handleImageUpload(e.target.files[0], index, 'hin')} />
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div className="mb-6">
+                                        <h3 className="text-sm font-bold text-gray-700 mb-2">Q.{q.hin_source_no || q.hin_id.substring(0, 6)}</h3>
+                                        <div className="relative">
+                                            <textarea
+                                                id={`hin-text-${index}`}
+                                                className="w-full p-3 border border-gray-300 rounded font-mono text-sm min-h-[150px] mb-2 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                                                value={q.hin_text}
+                                                onChange={(e) => handleTextChange(index, 'hin', 'text', e.target.value)}
+                                                onPaste={(e) => handlePaste(e, index, 'hin')}
+                                                placeholder="Paste image here..."
+                                            />
+                                            <div className="absolute top-2 right-2 flex gap-1">
+                                                <button
+                                                    onClick={() => handleFixLatex(index, 'hin')}
+                                                    className="px-2 py-1 text-xs font-bold bg-rose-500 text-white rounded hover:bg-rose-600 shadow-sm"
+                                                    title="Fix LaTeX syntax errors"
+                                                >
+                                                    FL
+                                                </button>
+                                                <button
+                                                    onClick={() => handleUnderline(index, 'hin')}
+                                                    className="px-2 py-1 text-xs font-bold bg-orange-500 text-white rounded hover:bg-orange-600 shadow-sm"
+                                                    title="Underline selected text"
+                                                >
+                                                    U
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="mb-2">
+                                            <button
+                                                onClick={() => handleTranslate(index, 'hi')}
+                                                disabled={q.isTranslatingHin}
+                                                className={`text-xs font-medium text-orange-600 bg-orange-50 border border-orange-200 px-3 py-1.5 rounded hover:bg-orange-100 transition-colors ${q.isTranslatingHin ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                            >
+                                                {q.isTranslatingHin ? 'Generating...' : 'Generate English Translation'}
+                                            </button>
+                                            {q.hin_translation && (
+                                                <div className="mt-2 p-3 bg-orange-50/30 border border-orange-100 rounded text-sm text-gray-800 relative group">
+                                                    <p className="text-[10px] font-bold text-orange-400 uppercase mb-1">English Translation</p>
+                                                    <Latex>{q.hin_translation}</Latex>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="p-3 bg-white rounded border border-gray-200 text-sm">
+                                            <p className="text-xs font-bold text-gray-400 uppercase mb-1">Preview</p>
+                                            <Latex>{q.hin_text}</Latex>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        {q.hin_options.map((opt, optIdx) => (
+                                            <div key={opt.opt_label} className="p-2 border border-gray-100 rounded bg-white">
+                                                <div className="flex gap-2 items-center mb-2">
+                                                    <div className="w-6 h-6 flex items-center justify-center rounded-full bg-gray-100 border border-gray-300 text-xs font-bold text-gray-500 shrink-0">
+                                                        {opt.opt_label}
+                                                    </div>
+                                                    <input
+                                                        className="flex-1 text-xs p-1 border border-gray-300 rounded font-mono"
+                                                        value={opt.opt_text}
+                                                        onChange={(e) => handleTextChange(index, 'hin', 'opt', e.target.value, optIdx)}
+                                                        onPaste={(e) => handlePaste(e, index, 'hin', optIdx)}
+                                                    />
+                                                    <label className="cursor-pointer text-gray-400 hover:text-orange-600 p-1" title="Add Image to Option">
+                                                        ➕
+                                                        <input type="file" className="hidden" onChange={(e) => e.target.files[0] && handleImageUpload(e.target.files[0], index, 'hin', optIdx)} />
+                                                    </label>
+                                                </div>
+                                                <div className="pl-8 text-xs text-gray-700">
+                                                    <Latex>{opt.opt_text}</Latex>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Copy Options Arrow Button */}
+                            <div className="flex items-center justify-center py-4 border-t border-gray-200">
+                                <button
+                                    onClick={() => handleCopyOptions(index)}
+                                    className="px-4 py-2 bg-gradient-to-r from-blue-500 to-orange-500 text-white font-bold rounded-lg hover:from-blue-600 hover:to-orange-600 shadow-md transition-all flex items-center gap-2"
+                                    title="Copy all 4 options (A, B, C, D) from English to Hindi"
+                                >
+                                    <span>Copy Options</span>
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    );
+                })}
+
+                {questions.length === 0 && (
+                    <div className="text-center py-20 bg-gray-50 rounded border border-gray-200 text-gray-500">
+                        No linked questions found for this session.
+                    </div>
+                )}
+            </div>
+            {/* Pagination Bottom */}
+            {
+                totalPages > 1 && (
+                    <div className="flex justify-center gap-2 mb-12">
+                        {currentPage > 1 && (
+                            <a href={`/bilingual/${paperSessionId}?page=${currentPage - 1}`} className="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200 text-sm font-medium">
+                                Previous
+                            </a>
+                        )}
+                        <span className="px-4 py-2 text-gray-600 text-sm">
+                            Page {currentPage} of {totalPages}
+                        </span>
+                        {currentPage < totalPages && (
+                            <a href={`/bilingual/${paperSessionId}?page=${currentPage + 1}`} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium">
+                                Next
+                            </a>
+                        )}
+                    </div>
+                )
+            }
+        </div >
+    );
+}

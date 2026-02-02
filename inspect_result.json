@@ -1,0 +1,102 @@
+{
+  "question": {
+    "id": "918b12f8-6969-43ac-9e7d-c0113cf10e15",
+    "version": 1,
+    "body_json": {
+      "text": "उस आकृति का चयन करें, जिसमें दी गई आकृति अंतर्निहित है (घुमाने की अनुमति नहीं है)।\n![](./images/1b176596-eb1e-4a0f-ba2f-ce700cb114f9-01(1).jpg)\n![](./images/1b176596-eb1e-4a0f-ba2f-ce700cb114f9-01_dl_7c789e5f.jpg)",
+      "format": "mmd"
+    },
+    "solution_json": null,
+    "meta_json": {
+      "section_name": "General Intelligence and Reasoning",
+      "import_job_id": "b0051a7b-01bb-4b0c-8547-751453e4d975",
+      "canonical_code": "SSC_CGL:Tier-I:2020-03-03:10:00AM-11:00AM:REASONING:1"
+    }
+  },
+  "options": [
+    {
+      "question_id": "918b12f8-6969-43ac-9e7d-c0113cf10e15",
+      "version_no": 1,
+      "language": "HI",
+      "option_key": "B",
+      "option_json": {
+        "text": "![](./images/1b176596-eb1e-4a0f-ba2f-ce700cb114f9-01.jpg)",
+        "format": "mmd"
+      },
+      "is_correct": false,
+      "created_at": "2025-12-19T21:09:25.754Z"
+    },
+    {
+      "question_id": "918b12f8-6969-43ac-9e7d-c0113cf10e15",
+      "version_no": 1,
+      "language": "HI",
+      "option_key": "C",
+      "option_json": {
+        "text": "![](./images/1b176596-eb1e-4a0f-ba2f-ce700cb114f9-01_dl_0e137e30.jpg)",
+        "format": "mmd"
+      },
+      "is_correct": false,
+      "created_at": "2025-12-19T21:09:25.754Z"
+    },
+    {
+      "question_id": "918b12f8-6969-43ac-9e7d-c0113cf10e15",
+      "version_no": 1,
+      "language": "HI",
+      "option_key": "D",
+      "option_json": {
+        "text": "![](./images/1b176596-eb1e-4a0f-ba2f-ce700cb114f9-01_dl_64123bb0.jpg)\n![](./images/1b176596-eb1e-4a0f-ba2f-ce700cb114f9-02.jpg)",
+        "format": "mmd"
+      },
+      "is_correct": false,
+      "created_at": "2025-12-19T21:09:25.754Z"
+    },
+    {
+      "question_id": "918b12f8-6969-43ac-9e7d-c0113cf10e15",
+      "version_no": 1,
+      "language": "EN",
+      "option_key": "A",
+      "option_json": {
+        "text": "18 and 45",
+        "format": "mmd"
+      },
+      "is_correct": false,
+      "created_at": "2025-12-19T21:09:26.067Z"
+    },
+    {
+      "question_id": "918b12f8-6969-43ac-9e7d-c0113cf10e15",
+      "version_no": 1,
+      "language": "EN",
+      "option_key": "B",
+      "option_json": {
+        "text": "7 and 4",
+        "format": "mmd"
+      },
+      "is_correct": false,
+      "created_at": "2025-12-19T21:09:26.067Z"
+    },
+    {
+      "question_id": "918b12f8-6969-43ac-9e7d-c0113cf10e15",
+      "version_no": 1,
+      "language": "EN",
+      "option_key": "C",
+      "option_json": {
+        "text": "2 and 5",
+        "format": "mmd"
+      },
+      "is_correct": false,
+      "created_at": "2025-12-19T21:09:26.067Z"
+    },
+    {
+      "question_id": "918b12f8-6969-43ac-9e7d-c0113cf10e15",
+      "version_no": 1,
+      "language": "EN",
+      "option_key": "D",
+      "option_json": {
+        "text": "9 and 3",
+        "format": "mmd"
+      },
+      "is_correct": false,
+      "created_at": "2025-12-19T21:09:26.067Z"
+    }
+  ]
+}
