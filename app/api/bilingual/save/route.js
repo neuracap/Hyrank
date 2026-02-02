@@ -22,17 +22,18 @@ export async function POST(request) {
             WHERE question_id = $2 AND version_no = $3
         `, [english.question_text, english.id, english.version]);
 
-        // 2. Upsert English Options
-        for (const opt of english.options) {
-            // Create standard option JSON if not present
-            const optJson = { text: opt.opt_text || "" };
+        // 2. Delete and Re-insert English Options
+        await client.query(`
+            DELETE FROM question_option 
+            WHERE question_id = $1 AND version_no = $2 AND language = 'EN'
+        `, [english.id, english.version]);
 
+        for (const opt of english.options) {
+            const optJson = { text: opt.opt_text || "" };
             await client.query(`
                 INSERT INTO question_option (question_id, version_no, language, option_key, option_json)
                 VALUES ($1, $2, 'EN', $3, $4)
-                ON CONFLICT (question_id, version_no, language, option_key)
-                DO UPDATE SET option_json = jsonb_set(question_option.option_json, '{text}', to_jsonb($5::text))
-            `, [english.id, english.version, opt.opt_label, JSON.stringify(optJson), opt.opt_text]);
+            `, [english.id, english.version, opt.opt_label, JSON.stringify(optJson)]);
         }
 
         // 3. Update Hindi Question
@@ -43,16 +44,18 @@ export async function POST(request) {
             WHERE question_id = $2 AND version_no = $3
         `, [hindi.question_text, hindi.id, hindi.version]);
 
-        // 4. Upsert Hindi Options
+        // 4. Delete and Re-insert Hindi Options
+        await client.query(`
+            DELETE FROM question_option 
+            WHERE question_id = $1 AND version_no = $2 AND language = 'HI'
+        `, [hindi.id, hindi.version]);
+
         for (const opt of hindi.options) {
             const optJson = { text: opt.opt_text || "" };
-
             await client.query(`
                 INSERT INTO question_option (question_id, version_no, language, option_key, option_json)
                 VALUES ($1, $2, 'HI', $3, $4)
-                ON CONFLICT (question_id, version_no, language, option_key)
-                DO UPDATE SET option_json = jsonb_set(question_option.option_json, '{text}', to_jsonb($5::text))
-            `, [hindi.id, hindi.version, opt.opt_label, JSON.stringify(optJson), opt.opt_text]);
+            `, [hindi.id, hindi.version, opt.opt_label, JSON.stringify(optJson)]);
         }
 
         // 5. Update Link Status and Score
