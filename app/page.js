@@ -1,6 +1,8 @@
+export const dynamic = 'force-dynamic';
+
 export default function Home() {
     return (
-        <div style={{
+        <main style={{
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
@@ -18,6 +20,6 @@ export default function Home() {
             <p style={{ color: '#666', fontSize: '0.9rem', marginTop: '2rem' }}>
                 Database connection and authentication are being configured...
             </p>
-        </div>
+        </main>
     );
 }
