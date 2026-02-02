@@ -16,13 +16,7 @@ export async function GET(request) {
     try {
         const client = await db.connect();
         try {
-            // Find asset by original name (lazy matching as path string might contain full path)
-            // The markdown has ./images/filename. We just want to match filename if possible or the full path stored.
-            // Inspection showed `local_path` in asset table. 
-            // We search where original_name matches or some other logic. 
-            // Inspection of raw_asset might be better but let's try asset table first as per plan.
-            // The plan said `original_name LIKE '%' || name`.
-
+            // Find asset by original name or local_path match
             const res = await client.query(`
                 SELECT local_path, mime_type 
                 FROM asset 
@@ -31,13 +25,23 @@ export async function GET(request) {
             `, [name]);
 
             if (res.rows.length === 0) {
-                return NextResponse.json({ error: 'Asset not found' }, { status: 404 });
+                return NextResponse.json({ error: 'Asset not found in database' }, { status: 404 });
             }
 
             const { local_path, mime_type } = res.rows[0];
 
+            // Check if local_path is a Cloudinary URL
+            if (local_path && (local_path.startsWith('http://') || local_path.startsWith('https://'))) {
+                // Redirect to Cloudinary URL
+                return NextResponse.redirect(local_path, 302);
+            }
+
+            // Otherwise, serve from local filesystem
             if (!local_path || !fs.existsSync(local_path)) {
-                return NextResponse.json({ error: 'File not found on disk' }, { status: 404 });
+                return NextResponse.json({
+                    error: 'File not found on disk',
+                    path: local_path
+                }, { status: 404 });
             }
 
             const fileBuffer = fs.readFileSync(local_path);
@@ -54,6 +58,6 @@ export async function GET(request) {
         }
     } catch (error) {
         console.error('Asset error:', error);
-        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+        return NextResponse.json({ error: 'Internal Server Error', details: error.message }, { status: 500 });
     }
 }
