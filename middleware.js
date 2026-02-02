@@ -2,30 +2,35 @@ import { NextResponse } from 'next/server';
 import { verifySessionToken } from './lib/jwt-utils';
 
 export async function middleware(request) {
-    // console.log('Middleware running on path:', request.nextUrl.pathname);
-    const { pathname } = request.nextUrl;
+    try {
+        const { pathname } = request.nextUrl;
 
-    // Public paths that don't require authentication
-    const publicPaths = ['/login', '/api/auth/login'];
+        // Public paths that don't require authentication
+        const publicPaths = ['/login', '/api/auth/login'];
 
-    // Check if the path is public
-    const isPublicPath = publicPaths.some(path => pathname.startsWith(path));
+        // Check if the path is public
+        const isPublicPath = publicPaths.some(path => pathname.startsWith(path));
 
-    if (isPublicPath) {
+        if (isPublicPath) {
+            return NextResponse.next();
+        }
+
+        // Check for session (Use request.cookies in Middleware, NOT next/headers)
+        const token = request.cookies.get('session')?.value;
+        const user = token ? await verifySessionToken(token) : null;
+
+        if (!user) {
+            // Redirect to login if not authenticated
+            return NextResponse.redirect(new URL('/login', request.url));
+        }
+
+        // User is authenticated, continue
         return NextResponse.next();
-    }
-
-    // Check for session (Use request.cookies in Middleware, NOT next/headers)
-    const token = request.cookies.get('session')?.value;
-    const user = token ? await verifySessionToken(token) : null;
-
-    if (!user) {
-        // Redirect to login if not authenticated
+    } catch (error) {
+        console.error('Middleware Error:', error);
+        // Safety: If middleware crashes, redirect to login to be safe
         return NextResponse.redirect(new URL('/login', request.url));
     }
-
-    // User is authenticated, continue
-    return NextResponse.next();
 }
 
 export const config = {
