@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from './lib/auth-edge';
 
 export async function middleware(request) {
+    // console.log('Middleware running on path:', request.nextUrl.pathname);
     const { pathname } = request.nextUrl;
 
     // Public paths that don't require authentication
