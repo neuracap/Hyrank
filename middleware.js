@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getCurrentUser } from './lib/auth';
+import { getCurrentUser } from './lib/auth-edge';
 
 export async function middleware(request) {
     const { pathname } = request.nextUrl;
