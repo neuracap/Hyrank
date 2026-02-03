@@ -52,12 +52,18 @@ export async function GET(request) {
             // Search API is more robust than guessing Public IDs
             // It allows us to find the asset even if Cloudinary sanitized spaces to _ or -
             try {
-                // Search by filename with wildcard to handle unique suffixes (e.g. _abc123)
-                // escape special characters in filename just in case
-                const sanitizedFilename = filename.replace(/([:])/g, '\\$1'); // escape colons in search query if any
+                // Construct the expected public_id prefix
+                // e.g. "pdfs/ssc-cgl/SSC-CGL-Tier-1-Question-Paper-English_25.09.2024_12.30-PM-01.30-PM"
+                const publicIdPrefix = `${folderName}/${filename}`;
+
+                // Escape special characters for the search expression if needed
+                // But usually public_id search handles standard chars well.
+                // We'll use the starts_with operator logic via wildcard
+
+                console.log("Searching for public_id prefix:", publicIdPrefix);
 
                 const searchRes = await cloudinary.search
-                    .expression(`resource_type:image AND folder:"${folderName}" AND filename:"${sanitizedFilename}*"`)
+                    .expression(`resource_type:image AND public_id:"${publicIdPrefix}*"`)
                     .sort_by('created_at', 'desc')
                     .max_results(1)
                     .execute();
