@@ -59,8 +59,25 @@ export async function GET(request) {
                     .execute();
 
                 if (searchRes.resources && searchRes.resources.length > 0) {
-                    console.log("Found PDF via search (exact):", searchRes.resources[0].secure_url);
-                    return NextResponse.redirect(searchRes.resources[0].secure_url, 302);
+                    const pdfUrl = searchRes.resources[0].secure_url;
+                    console.log("Found PDF via search (exact):", pdfUrl);
+
+                    // Proxy the content
+                    const pdfRes = await fetch(pdfUrl);
+                    if (!pdfRes.ok) {
+                        throw new Error(`Failed to fetch PDF from Cloudinary: ${pdfRes.statusText}`);
+                    }
+                    const pdfBuffer = await pdfRes.arrayBuffer();
+
+                    return new NextResponse(pdfBuffer, {
+                        headers: {
+                            'Content-Type': 'application/pdf',
+                            'Content-Disposition': `inline; filename="${filename}.pdf"`,
+                            'Content-Length': pdfBuffer.byteLength.toString(),
+                            // Optional: Cache control
+                            'Cache-Control': 'public, max-age=3600'
+                        }
+                    });
                 }
 
                 // If not found, try searching with loose filename (maybe special chars differ)
@@ -80,7 +97,27 @@ export async function GET(request) {
             const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || 'dem3qcuju';
             const fallbackUrl = `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/${hyphenPath}`;
 
-            console.log("Redirecting to fallback:", fallbackUrl);
+            console.log("Trying fallback URL:", fallbackUrl);
+
+            // Proxy the fallback logic as well
+            try {
+                const fallbackRes = await fetch(fallbackUrl);
+                if (fallbackRes.ok) {
+                    const pdfBuffer = await fallbackRes.arrayBuffer();
+                    return new NextResponse(pdfBuffer, {
+                        headers: {
+                            'Content-Type': 'application/pdf',
+                            'Content-Disposition': `inline; filename="${path.basename(normalizedPath)}"`,
+                            'Content-Length': pdfBuffer.byteLength.toString(),
+                            'Cache-Control': 'public, max-age=3600'
+                        }
+                    });
+                }
+            } catch (fallbackError) {
+                console.error("Fallback proxy failed:", fallbackError);
+            }
+
+            console.log("Fallback failed. Redirecting as last resort.");
             return NextResponse.redirect(fallbackUrl, 302);
 
         } catch (e) {
