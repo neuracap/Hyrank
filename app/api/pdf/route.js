@@ -52,9 +52,13 @@ export async function GET(request) {
             // Search API is more robust than guessing Public IDs
             // It allows us to find the asset even if Cloudinary sanitized spaces to _ or -
             try {
-                // Search by filename (exact match first)
+                // Search by filename with wildcard to handle unique suffixes (e.g. _abc123)
+                // escape special characters in filename just in case
+                const sanitizedFilename = filename.replace(/([:])/g, '\\$1'); // escape colons in search query if any
+
                 const searchRes = await cloudinary.search
-                    .expression(`resource_type:image AND folder:"${folderName}" AND filename:"${filename}"`)
+                    .expression(`resource_type:image AND folder:"${folderName}" AND filename:"${sanitizedFilename}*"`)
+                    .sort_by('created_at', 'desc')
                     .max_results(1)
                     .execute();
 
