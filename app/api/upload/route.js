@@ -1,10 +1,17 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
 import db from '@/lib/db';
 import crypto from 'crypto';
+import { v2 as cloudinary } from 'cloudinary';
 
 export const dynamic = 'force-dynamic';
+
+// Configure Cloudinary
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+    secure: true,
+});
 
 export async function POST(request) {
     const client = await db.connect();
@@ -16,6 +23,7 @@ export async function POST(request) {
 
         const contentType = request.headers.get('content-type') || '';
 
+        // Parsing logic (Multipart / JSON)
         if (contentType.includes('multipart/form-data')) {
             const formData = await request.formData();
             const file = formData.get('file');
@@ -36,7 +44,7 @@ export async function POST(request) {
 
         } else if (contentType.includes('application/json')) {
             const body = await request.json();
-            const dataUrl = body.data; // data:image/png;base64,...
+            const dataUrl = body.data;
 
             questionId = body.question_id;
             language = body.language;
@@ -55,17 +63,16 @@ export async function POST(request) {
 
             mimeType = matches[1];
             fileBuffer = Buffer.from(matches[2], 'base64');
-            originalName = 'image.png'; // Default for base64 paste
+            originalName = 'image.png';
         } else {
             return NextResponse.json({ error: 'Unsupported Content-Type' }, { status: 400 });
         }
 
         if (!questionId || !language) {
-            return NextResponse.json({ error: 'Missing metadata (question_id, language)' }, { status: 400 });
+            return NextResponse.json({ error: 'Missing metadata' }, { status: 400 });
         }
 
-        // 1. Determine Folder Path
-        // We need to look up the exam and session for this question
+        // 1. Determine Cloudinary Folder Path
         const pathRes = await client.query(`
             SELECT ps.session_label, e.name as exam_name
             FROM question_version qv
@@ -75,109 +82,42 @@ export async function POST(request) {
             LIMIT 1
         `, [questionId, language]);
 
-        if (pathRes.rows.length === 0) {
-            return NextResponse.json({ error: 'Question not found' }, { status: 404 });
+        let folderPath = 'assets/uploads'; // Fallback
+
+        if (pathRes.rows.length > 0) {
+            const { session_label, exam_name } = pathRes.rows[0];
+            const sanitize = (str) => str.replace(/[<>:"/\\|?*]/g, '-').trim().replace(/\s+/g, '-').toLowerCase();
+
+            const examSlug = sanitize(exam_name);
+            const sessionSlug = sanitize(session_label);
+
+            folderPath = `assets/${examSlug}/${sessionSlug}`;
         }
 
-        const { session_label, exam_name } = pathRes.rows[0];
+        // 2. Upload to Cloudinary
+        // Convert buffer to data URI for easy upload
+        const base64Data = fileBuffer.toString('base64');
+        const dataURI = `data:${mimeType};base64,${base64Data}`;
 
-        // Base directory from user configuration
-        const baseDir = 'C:\\Users\\Neuraedge\\Documents\\Divya\\MeritEdge\\Code\\adda_ssc\\mathpix_raw_zips';
+        const uploadResult = await cloudinary.uploader.upload(dataURI, {
+            folder: folderPath,
+            resource_type: 'image',
+            use_filename: true,
+            unique_filename: true
+        });
 
-        // Normalize names for folders
-        // Sanitize for Windows paths (remove < > : " / \ | ? *)
-        const sanitize = (str) => str.replace(/[<>:"/\\|?*]/g, '-').trim();
+        // uploadResult.secure_url is the full URL
+        const secureUrl = uploadResult.secure_url;
 
-        const examSlug = sanitize(exam_name.toLowerCase().replace(/\s+/g, '-'));
-        const examDir = path.join(baseDir, examSlug);
-
-        let sessionDirName = sanitize(session_label);
-        let imagesDir = path.join(examDir, sessionDirName, 'images');
-
-        // FUZZY MATCHING: Check if a directory exists that matches the session label ignoring special chars
-        // This handles cases like ":" mapping to "." (04:00 -> 04.00) vs "-" (04:00 -> 04-00)
-        // AND handles cases where DB label has prefixes like "Unlimited Re-Attempt [ACTUAL-ID]"
-        if (fs.existsSync(examDir)) {
-            try {
-                const subdirs = fs.readdirSync(examDir); // List all sessions
-                // Normalize function: keep alphanumeric only, lowercase
-                const normalize = (s) => s.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-                const target = normalize(session_label);
-
-                // Sort directories by length descending to match most specific/longest directory first (avoid vague short matches)
-                const sortedDirs = subdirs.sort((a, b) => b.length - a.length);
-
-                let foundDir = null;
-
-                // Strategy 1: Exact Normalized Match
-                foundDir = sortedDirs.find(d => normalize(d) === target);
-
-                // Strategy 2: Bracket content matching (Extract [ID] from label and look for it in dirs)
-                // Label: "Unlimited Re-Attempt [SSC-CGL-Tier-1...]" -> Match: "SSC-CGL-Tier-1..."
-                if (!foundDir) {
-                    const bracketMatch = session_label.match(/\[(.*?)\]/);
-                    if (bracketMatch && bracketMatch[1]) {
-                        const bracketContent = normalize(bracketMatch[1]);
-                        if (bracketContent.length > 5) { // Avoid short IDs like [1]
-                            foundDir = sortedDirs.find(d => normalize(d).includes(bracketContent));
-                        }
-                    }
-                }
-
-                // Strategy 3: Directory is a substring of the Label (e.g. Label="Prefix [DirName]")
-                if (!foundDir) {
-                    foundDir = sortedDirs.find(d => {
-                        const normD = normalize(d);
-                        return normD.length > 8 && target.includes(normD);
-                    });
-                }
-
-                // Strategy 4: Label is a substring of the Directory (e.g. Dir="Prefix [Label]")
-                if (!foundDir) {
-                    foundDir = sortedDirs.find(d => {
-                        const normD = normalize(d);
-                        return normalize(d).includes(target);
-                    });
-                }
-
-                if (foundDir) {
-                    sessionDirName = foundDir;
-                    imagesDir = path.join(examDir, sessionDirName, 'images');
-                }
-            } catch (e) {
-                console.error("Error scanning directories for fuzzy match:", e);
-            }
-        }
-
-        if (!fs.existsSync(imagesDir)) {
-            // Attempt to create, but warn if parent doesn't exist
-            try {
-                fs.mkdirSync(imagesDir, { recursive: true });
-            } catch (e) {
-                console.error("Failed to create dir:", imagesDir, e);
-                // Try a fallback to a simpler temp dir if main fails?
-                // For now, duplicate error log to verify path 
-                console.error(`Base: ${baseDir}, Exam: ${examSlug}, Session: ${session_label} -> Parsed: ${sessionDirName}`);
-                return NextResponse.json({ error: 'Failed to find or create asset directory: ' + e.message }, { status: 500 });
-            }
-        }
-
-        // 2. Save File
-        // Generate UUID filename
+        // 3. Generate Asset ID and Insert into DB
         const assetId = crypto.randomUUID();
-        const ext = mimeType === 'image/jpeg' ? '.jpg' : '.png';
-        const filename = `${assetId}${ext}`;
-        const localPath = path.join(imagesDir, filename);
 
-        fs.writeFileSync(localPath, fileBuffer);
-
-        // 3. Insert into Asset Table
         await client.query(`
             INSERT INTO asset (asset_id, original_name, local_path, mime_type, bytes, created_at, asset_type)
             VALUES ($1, $2, $3, $4, $5, NOW(), 'image')
-        `, [assetId, originalName, localPath, mimeType, fileBuffer.length]);
+        `, [assetId, originalName || 'upload.png', secureUrl, mimeType, fileBuffer.length]);
 
-        // 4. Insert into Question_Asset_Map (if role provided)
+        // 4. Insert into Map
         if (role && optionKey && versionNo) {
             await client.query(`
                 INSERT INTO question_asset_map (question_id, asset_id, role, option_key, version_no, language)
@@ -185,9 +125,11 @@ export async function POST(request) {
             `, [questionId, assetId, role, optionKey, versionNo, language]);
         }
 
+        // 5. Return Response
+        // Return full Cloudinary URL as latexPath so frontend renders it directly
         return NextResponse.json({
             success: true,
-            latexPath: `./images/${filename}`,
+            latexPath: secureUrl,
             assetId: assetId
         });
 

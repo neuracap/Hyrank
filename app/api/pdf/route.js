@@ -16,6 +16,9 @@ export async function GET(request) {
     // Security check: Ensure we are only serving PDFs and potentially restricted to certain directories if needed.
     // For now, assuming internal tool usage, we focus on serving the file.
 
+    // Normalize path for Windows
+    const normalizedPath = path.normalize(filePath);
+
     // Cloudinary Mapping Logic
     const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || 'dem3qcuju';
 
