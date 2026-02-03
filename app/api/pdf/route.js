@@ -36,71 +36,55 @@ export async function GET(request) {
                 secure: true,
             });
 
-            // Construct Public ID possibilities
-            // 1. With extension (as is)
-            // 2. Without extension (strip last .pdf)
-            // 3. Sanitized filename (spaces to underscores/hyphens?) -> Let's try exact first.
+            // Construct folder and filename for Search API
+            // relativePath is like "ssc-cgl/File Name.pdf"
+            // Cloudinary folder: "pdfs/ssc-cgl"
 
-            // Note: DB relativePath might be "ssc-cgl/File Name.pdf"
-            // Cloudinary might be "pdfs/ssc-cgl/File-Name" or "pdfs/ssc-cgl/File_Name"
+            const parts = relativePath.split('/');
+            const filenameWithExt = parts.pop(); // "File Name.pdf"
+            const subfolder = parts.join('/'); // "ssc-cgl"
 
-            const folderPrefix = 'pdfs/';
-            const originalPath = folderPrefix + relativePath; // "pdfs/ssc-cgl/file.pdf"
+            const folderName = subfolder ? `pdfs/${subfolder}` : 'pdfs';
+            const filename = filenameWithExt.replace(/\.pdf$/i, ''); // "File Name"
 
-            // Attempt 1: Check exact path as public_id (some uploads keep extension in ID)
-            // But usually public_id does NOT have extension.
+            console.log("Cloudinary Search:", { folderName, filename, relativePath });
 
-            const pathWithoutExt = originalPath.replace(/\.pdf$/i, '');
+            // Search API is more robust than guessing Public IDs
+            // It allows us to find the asset even if Cloudinary sanitized spaces to _ or -
+            try {
+                // Search by filename (exact match first)
+                const searchRes = await cloudinary.search
+                    .expression(`resource_type:image AND folder:"${folderName}" AND filename:"${filename}"`)
+                    .max_results(1)
+                    .execute();
 
-            // We want to deliver it. 
-            // If the user's link 404s, it's likely the public ID is wrong.
-            // Let's try to find it.
-
-            // Function to check resource
-            const getUrl = async (publicId) => {
-                try {
-                    const res = await cloudinary.api.resource(publicId, { resource_type: 'image' }); // PDFs are 'image' usually
-                    return res.secure_url;
-                } catch (e) {
-                    // Try raw
-                    try {
-                        const res = await cloudinary.api.resource(publicId, { resource_type: 'raw' });
-                        return res.secure_url;
-                    } catch (e2) {
-                        return null;
-                    }
+                if (searchRes.resources && searchRes.resources.length > 0) {
+                    console.log("Found PDF via search (exact):", searchRes.resources[0].secure_url);
+                    return NextResponse.redirect(searchRes.resources[0].secure_url, 302);
                 }
-            };
 
-            // Try different variants of Public ID
-            // 1. Exact relative path (sans extension)
-            // 2. Sanitized? (spaces to _)
-            // 3. Sanitized? (spaces to -)
+                // If not found, try searching with loose filename (maybe special chars differ)
+                // Note: filenames in search might be strict.
+                console.log("PDF not found via exact name search. Trying manual fallback.");
 
-            const candidates = [
-                pathWithoutExt, // pdfs/ssc-cgl/file
-                originalPath,   // pdfs/ssc-cgl/file.pdf (rare but possible)
-                pathWithoutExt.replace(/ /g, '_'),
-                pathWithoutExt.replace(/ /g, '-')
-            ];
-
-            for (const pid of candidates) {
-                const url = await getUrl(pid);
-                if (url) {
-                    return NextResponse.redirect(url, 302);
-                }
+            } catch (searchError) {
+                console.error("Cloudinary search failed:", searchError);
             }
 
-            // If API fails or file not found in check, fallback to the manual construction 
-            // but maybe try to be smarter or just return 404?
-            // Fallback: The original manual URL logic, but maybe point to "image/upload" with sanitization
-            // Let's keep the manual fallback closely matching what was there but sanitized.
+            // Fallback to the constructed URL if search fails (legacy behavior)
+            const fallbackPath = `pdfs/${relativePath.replace(/\\/g, '/')}`; // pdfs/ssc-cgl/file.pdf
 
-            const fallbackUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME || 'dem3qcuju'}/image/upload/${originalPath}`;
+            // Try formatting spaces to hyphens just in case
+            const hyphenPath = fallbackPath.replace(/ /g, '-');
+
+            const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || 'dem3qcuju';
+            const fallbackUrl = `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/${hyphenPath}`;
+
+            console.log("Redirecting to fallback:", fallbackUrl);
             return NextResponse.redirect(fallbackUrl, 302);
 
         } catch (e) {
-            console.error("Cloudinary lookup error:", e);
+            console.error("Cloudinary error:", e);
             // Fallback if SDK fails
             const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || 'dem3qcuju';
             const cloudinaryUrl = `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/pdfs/${relativePath}`;
