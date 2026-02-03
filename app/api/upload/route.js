@@ -120,8 +120,8 @@ export async function POST(request) {
         // 4. Insert into Map
         if (role && optionKey && versionNo) {
             await client.query(`
-                INSERT INTO question_asset_map (question_id, asset_id, role, option_key, version_no, language)
-                VALUES ($1, $2, $3, $4, $5, $6)
+                INSERT INTO question_asset_map (question_id, asset_id, role, option_key, version_no, language, created_at)
+                VALUES ($1, $2, $3, $4, $5, $6, NOW())
             `, [questionId, assetId, role, optionKey, versionNo, language]);
         }
 
