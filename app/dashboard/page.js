@@ -167,12 +167,20 @@ export default async function DashboardPage() {
                                                 )}
                                             </td>
                                             <td className="px-6 py-4">
-                                                <Link
-                                                    href={`/bilingual/${paper.paper_session_id}`}
-                                                    className="font-medium text-blue-600 dark:text-blue-500 hover:underline"
-                                                >
-                                                    Open Review
-                                                </Link>
+                                                <div className="flex flex-col gap-2">
+                                                    <Link
+                                                        href={`/bilingual/${paper.paper_session_id}`}
+                                                        className="block w-full text-center px-3 py-1 bg-purple-600 text-white text-xs font-bold rounded hover:bg-purple-700 transition-colors shadow-sm"
+                                                    >
+                                                        Bilingual Review
+                                                    </Link>
+                                                    <Link
+                                                        href={`/test?testId=${paper.paper_session_id}&locked=true`}
+                                                        className="block w-full text-center px-3 py-1 bg-teal-600 text-white text-xs font-bold rounded hover:bg-teal-700 transition-colors shadow-sm"
+                                                    >
+                                                        Test Review
+                                                    </Link>
+                                                </div>
                                             </td>
                                         </tr>
                                     );

@@ -7,7 +7,7 @@ import Latex from './Latex';
 import QuestionCard from './QuestionCard';
 import ImageEditor from './ImageEditor';
 
-export default function Dashboard({ questions, total, tests, selectedTestId, sections, docInfo }) {
+export default function Dashboard({ questions, total, tests, selectedTestId, sections, docInfo, locked }) {
     const searchParams = useSearchParams();
     const initialMode = searchParams.get('mode');
 
@@ -369,18 +369,26 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                         {tests && tests.length > 0 && activeTab === 'test-paper' && (
                             <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
                                 <div className="w-full md:w-72">
-                                    <select
-                                        value={selectedTestId || ''}
-                                        onChange={handleTestChange}
-                                        className="w-full bg-white border border-gray-300 text-gray-700 py-2 px-3 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                                    >
-                                        <option value="">Select Test Paper...</option>
-                                        {tests.map(t => (
-                                            <option key={t.paper_session_id} value={t.paper_session_id}>
-                                                {t.session_label || `Test ${t.paper_session_id}`}
-                                            </option>
-                                        ))}
-                                    </select>
+                                    {/* If locked, show text only. Else show selector */}
+                                    {locked ? (
+                                        <div className="w-full bg-gray-100 border border-gray-300 text-gray-700 py-2 px-3 rounded-md shadow-sm text-sm font-semibold truncate cursor-not-allowed" title="Test selection locked for review">
+                                            {tests.find(t => t.paper_session_id === selectedTestId)?.session_label || `Test ${selectedTestId}`}
+                                            <span className="float-right text-xs text-gray-400 font-normal ml-2">(Locked)</span>
+                                        </div>
+                                    ) : (
+                                        <select
+                                            value={selectedTestId || ''}
+                                            onChange={handleTestChange}
+                                            className="w-full bg-white border border-gray-300 text-gray-700 py-2 px-3 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                                        >
+                                            <option value="">Select Test Paper...</option>
+                                            {tests.map(t => (
+                                                <option key={t.paper_session_id} value={t.paper_session_id}>
+                                                    {t.session_label || `Test ${t.paper_session_id}`}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    )}
                                 </div>
                                 {selectedTestId && (
                                     <>

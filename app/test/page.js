@@ -127,7 +127,7 @@ async function fetchData(testId, page = 1, limit = 200) {
 
 export default async function TestPage({ searchParams }) {
     // Note: searchParams is a promise in recent Next.js
-    const { testId } = await searchParams;
+    const { testId, locked } = await searchParams;
     const { questions, total, tests, selectedTestId, sections, docInfo } = await fetchData(testId);
 
     return (
@@ -138,6 +138,7 @@ export default async function TestPage({ searchParams }) {
             selectedTestId={selectedTestId}
             sections={sections}
             docInfo={docInfo}
+            locked={locked === 'true'}
         />
     );
 }
