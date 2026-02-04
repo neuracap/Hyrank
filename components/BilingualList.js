@@ -142,7 +142,7 @@ export default function BilingualList({ initialQuestions, total, currentPage, to
         performUpload(file, index, lang, optIndex !== null, optIndex);
     };
 
-    const handleSave = async (index) => {
+    const handleSave = async (index, status = 'MANUALLY_CORRECTED') => {
         const q = questions[index];
 
         try {
@@ -151,6 +151,7 @@ export default function BilingualList({ initialQuestions, total, currentPage, to
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     link_id: q.link_id,
+                    status: status,
                     english: {
                         id: q.eng_id,
                         version: q.eng_version,
@@ -168,9 +169,10 @@ export default function BilingualList({ initialQuestions, total, currentPage, to
 
             if (res.ok) {
                 const newQs = [...questions];
-                newQs[index] = { ...q, status: 'MANUALLY_CORRECTED', updated_score: 1.0 };
+                newQs[index] = { ...q, status: status, updated_score: 1.0 };
                 setQuestions(newQs);
-                alert('Saved successfully!');
+                const msg = status === 'FLAGGED' ? 'Marked for Review!' : 'Saved successfully!';
+                alert(msg);
             } else {
                 const errorData = await res.json();
                 alert(`Failed to save.\n\nError: ${errorData.details || errorData.error}\n\n${errorData.stack || ''}`);
@@ -576,24 +578,24 @@ Are you sure you want to proceed?`;
                                 </div>
                             )}
                             <div className={`px-6 py-3 border-b flex justify-between items-center text-sm ${isLowScore && !isCorrected ? 'bg-red-100 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
-                                <div className="font-mono text-gray-500">Link ID: {q.link_id}</div>
-                                <div className="flex gap-4 items-center">
-                                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${q.status === 'PENDING' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
+                                <div className="font-mono text-gray-500">
+                                    Q.{q.eng_source_no || q.eng_id.substring(0, 6)} {/* Showing Question Number/ID as title instead of Link ID */}
+                                </div>
+                                <div className="flex gap-2 items-center">
+                                    <span className={`px-2 py-0.5 rounded text-xs font-semibold mr-2 ${q.status === 'PENDING' ? 'bg-yellow-100 text-yellow-700' : q.status === 'FLAGGED' ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
                                         {q.status}
                                     </span>
-                                    {q.similarity_score != null && (
-                                        <span className="text-gray-600" title="Similarity Score">
-                                            Sim: {Number(q.similarity_score).toFixed(3)}
-                                        </span>
-                                    )}
-                                    {q.updated_score != null && (
-                                        <span className={`font-bold ${isLowScore && !isCorrected ? 'text-red-700' : 'text-gray-600'}`} title="Updated Score">
-                                            Score: {Number(q.updated_score).toFixed(3)}
-                                        </span>
-                                    )}
+
                                     <button
-                                        onClick={() => handleSave(index)}
-                                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-xs font-bold uppercase tracking-wide transition-colors shadow-sm ml-4"
+                                        onClick={() => handleSave(index, 'FLAGGED')}
+                                        className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded text-xs font-bold uppercase tracking-wide transition-colors shadow-sm"
+                                        title="Mark question for further review"
+                                    >
+                                        Mark for Review
+                                    </button>
+                                    <button
+                                        onClick={() => handleSave(index, 'MANUALLY_CORRECTED')}
+                                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-xs font-bold uppercase tracking-wide transition-colors shadow-sm"
                                     >
                                         Save Changes
                                     </button>

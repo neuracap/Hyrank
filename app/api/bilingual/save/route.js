@@ -49,12 +49,13 @@ export async function POST(request) {
         }
 
         // 5. Update Link Status and Score
+        const newStatus = body.status || 'MANUALLY_CORRECTED';
         await client.query(`
             UPDATE question_links
             SET updated_score = 1.0,
-                status = 'MANUALLY_CORRECTED'
+                status = $2
             WHERE id = $1
-        `, [link_id]);
+        `, [link_id, newStatus]);
 
         await client.query('COMMIT');
 
