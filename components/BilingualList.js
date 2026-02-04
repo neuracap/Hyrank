@@ -485,21 +485,34 @@ Are you sure you want to proceed?`;
         }
     };
 
-    const handleCopyOptions = (index) => {
+    const handleCopyOptions = (index, direction = 'eng-to-hin') => {
         const newQs = [...questions];
         const targetQ = newQs[index];
 
-        // Copy all 4 options from English to Hindi
-        if (targetQ.eng_options && targetQ.eng_options.length > 0) {
-            targetQ.hin_options = targetQ.eng_options.map(opt => ({
-                ...opt,
-                opt_id: null // Reset ID for Hindi
-            }));
-
-            setQuestions(newQs);
-            alert('✅ Copied all 4 options from English to Hindi!');
+        if (direction === 'eng-to-hin') {
+            // Copy English -> Hindi
+            if (targetQ.eng_options && targetQ.eng_options.length > 0) {
+                targetQ.hin_options = targetQ.eng_options.map(opt => ({
+                    ...opt,
+                    opt_id: null // Reset ID
+                }));
+                setQuestions(newQs);
+                alert('✅ Copied options from English to Hindi!');
+            } else {
+                alert('❌ No English options to copy');
+            }
         } else {
-            alert('❌ No English options to copy');
+            // Copy Hindi -> English
+            if (targetQ.hin_options && targetQ.hin_options.length > 0) {
+                targetQ.eng_options = targetQ.hin_options.map(opt => ({
+                    ...opt,
+                    opt_id: null // Reset ID
+                }));
+                setQuestions(newQs);
+                alert('✅ Copied options from Hindi to English!');
+            } else {
+                alert('❌ No Hindi options to copy');
+            }
         }
     };
 
@@ -872,17 +885,28 @@ Are you sure you want to proceed?`;
                                 </div>
                             </div>
 
-                            {/* Copy Options Arrow Button */}
-                            <div className="flex items-center justify-center py-4 border-t border-gray-200">
+                            {/* Copy Options Buttons */}
+                            <div className="flex items-center justify-between px-12 py-4 border-t border-gray-200 bg-gray-50">
                                 <button
-                                    onClick={() => handleCopyOptions(index)}
-                                    className="px-4 py-2 bg-gradient-to-r from-blue-500 to-orange-500 text-white font-bold rounded-lg hover:from-blue-600 hover:to-orange-600 shadow-md transition-all flex items-center gap-2"
-                                    title="Copy all 4 options (A, B, C, D) from English to Hindi"
+                                    onClick={() => handleCopyOptions(index, 'eng-to-hin')}
+                                    className="px-4 py-2 bg-white border border-blue-200 text-blue-700 font-bold rounded-lg hover:bg-blue-50 hover:border-blue-300 shadow-sm transition-all flex items-center gap-2"
+                                    title="Copy English options to Hindi"
                                 >
-                                    <span>Copy Options</span>
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
+                                    <span>Copy Eng to Hindi</span>
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4">
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
                                     </svg>
+                                </button>
+
+                                <button
+                                    onClick={() => handleCopyOptions(index, 'hin-to-eng')}
+                                    className="px-4 py-2 bg-white border border-orange-200 text-orange-700 font-bold rounded-lg hover:bg-orange-50 hover:border-orange-300 shadow-sm transition-all flex items-center gap-2"
+                                    title="Copy Hindi options to English"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+                                    </svg>
+                                    <span>Copy Hindi to Eng</span>
                                 </button>
                             </div>
                         </div>
