@@ -169,11 +169,25 @@ export default function BilingualList({ initialQuestions, total, currentPage, to
 
             if (res.ok) {
                 const newQs = [...questions];
-                newQs[index] = { ...q, status: status, updated_score: 1.0 };
+                // Set status and transient feedback message
+                newQs[index] = {
+                    ...q,
+                    status: status,
+                    updated_score: 1.0,
+                    feedbackMessage: status === 'FLAGGED' ? 'Marked for Review!' : 'Saved!'
+                };
                 setQuestions(newQs);
-                // const msg = status === 'FLAGGED' ? 'Marked for Review!' : 'Saved successfully!';
-                // alert(msg);
-            } else {
+
+                // Clear feedback after 1.5 seconds
+                setTimeout(() => {
+                    setQuestions(currentQs => {
+                        const qs = [...currentQs];
+                        if (qs[index]) {
+                            qs[index] = { ...qs[index], feedbackMessage: null };
+                        }
+                        return qs;
+                    });
+                }, 1500);
                 const errorData = await res.json();
                 alert(`Failed to save.\n\nError: ${errorData.details || errorData.error}\n\n${errorData.stack || ''}`);
             }
@@ -692,6 +706,12 @@ Are you sure you want to proceed?`;
                                     Q.{q.eng_source_no || q.eng_id.substring(0, 6)} {/* Showing Question Number/ID as title instead of Link ID */}
                                 </div>
                                 <div className="flex gap-2 items-center">
+                                    {/* Feedback Message */}
+                                    {q.feedbackMessage && (
+                                        <span className="animate-fade-in-out font-bold text-green-600 bg-green-50 px-2 py-1 rounded text-xs border border-green-200 mr-2 shadow-sm">
+                                            ✅ {q.feedbackMessage}
+                                        </span>
+                                    )}
                                     <span className={`px-2 py-0.5 rounded text-xs font-semibold mr-2 ${q.status === 'PENDING' ? 'bg-yellow-100 text-yellow-700' : q.status === 'FLAGGED' ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
                                         {q.status}
                                     </span>
