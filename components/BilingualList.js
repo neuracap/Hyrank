@@ -171,8 +171,8 @@ export default function BilingualList({ initialQuestions, total, currentPage, to
                 const newQs = [...questions];
                 newQs[index] = { ...q, status: status, updated_score: 1.0 };
                 setQuestions(newQs);
-                const msg = status === 'FLAGGED' ? 'Marked for Review!' : 'Saved successfully!';
-                alert(msg);
+                // const msg = status === 'FLAGGED' ? 'Marked for Review!' : 'Saved successfully!';
+                // alert(msg);
             } else {
                 const errorData = await res.json();
                 alert(`Failed to save.\n\nError: ${errorData.details || errorData.error}\n\n${errorData.stack || ''}`);
@@ -497,7 +497,7 @@ Are you sure you want to proceed?`;
                     opt_id: null // Reset ID
                 }));
                 setQuestions(newQs);
-                alert('✅ Copied options from English to Hindi!');
+                // alert('✅ Copied options from English to Hindi!');
             } else {
                 alert('❌ No English options to copy');
             }
@@ -509,7 +509,7 @@ Are you sure you want to proceed?`;
                     opt_id: null // Reset ID
                 }));
                 setQuestions(newQs);
-                alert('✅ Copied options from Hindi to English!');
+                // alert('✅ Copied options from Hindi to English!');
             } else {
                 alert('❌ No Hindi options to copy');
             }
