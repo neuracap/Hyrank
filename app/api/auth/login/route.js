@@ -44,20 +44,21 @@ export async function POST(request) {
             [user.id]
         );
 
-        // Create session token
-        const token = await createSession(user);
+        // Create session token with sanitized payload
+        const sessionPayload = {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            isAdmin: user.is_admin || false, // Normalize to isAdmin
+        };
+        const token = await createSession(sessionPayload);
 
         // Set session cookie
         await setSessionCookie(token);
 
         return NextResponse.json({
             success: true,
-            user: {
-                id: user.id,
-                email: user.email,
-                name: user.name,
-                isAdmin: user.is_admin,
-            },
+            user: sessionPayload,
         });
     } catch (error) {
         console.error('Login error:', error);
