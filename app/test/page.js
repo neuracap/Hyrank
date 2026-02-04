@@ -1,7 +1,4 @@
-'use client';
-// This is exactly what was in app/page.js (client or server?)
-// Wait, app/page.js was a server component.
-// Let's copy it exactly.
+
 import db from '@/lib/db';
 import Dashboard from '@/components/Dashboard';
 
