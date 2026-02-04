@@ -589,6 +589,10 @@ Are you sure you want to proceed?`;
                     // Helper to detect images
                     const hasImage = (text) => /\\includegraphics|!\[.*?\]\(.*?\)/.test(text || '');
 
+                    // 0. English Section Detection (Heuristic: First 10 chars are identical)
+                    // If start of English text matches start of Hindi text, we assume it's an English Language Section
+                    const isEnglishSection = q.eng_text && q.hin_text && q.eng_text.substring(0, 10).toLowerCase() === q.hin_text.substring(0, 10).toLowerCase();
+
                     // 1. Image Mismatch
                     const engHasImg = hasImage(q.eng_text) || q.eng_options.some(o => hasImage(o.opt_text));
                     const hinHasImg = hasImage(q.hin_text) || q.hin_options.some(o => hasImage(o.opt_text));
@@ -598,7 +602,6 @@ Are you sure you want to proceed?`;
                     }
 
                     // 2. Option Count & Empty Check
-                    // Check if any option text is empty
                     const emptyEngOpts = q.eng_options.some(o => !o.opt_text || !o.opt_text.trim());
                     const emptyHinOpts = q.hin_options.some(o => !o.opt_text || !o.opt_text.trim());
 
@@ -609,12 +612,37 @@ Are you sure you want to proceed?`;
                         errors.push("Hindi options are incomplete or blank (less than 4).");
                     }
 
-                    // 3. Option Length Check (> 15 chars)
-                    const longEngOpts = q.eng_options.some(o => o.opt_text && o.opt_text.length > 15 && !hasImage(o.opt_text));
-                    const longHinOpts = q.hin_options.some(o => o.opt_text && o.opt_text.length > 15 && !hasImage(o.opt_text));
+                    if (isEnglishSection) {
+                        // --- ENGLISH SECTION RULES ---
 
-                    if (longEngOpts) warnings.push("English options are long (>15 chars). verify if they should be images.");
-                    if (longHinOpts) warnings.push("Hindi options are long (>15 chars). verify if they should be images.");
+                        // Rule A: Duplicate Content Check (English MUST == Hindi)
+                        if (q.eng_text !== q.hin_text) {
+                            errors.push("English Section: English and Hindi text must be identical.");
+                        }
+
+                        q.eng_options.forEach((engOpt, i) => {
+                            if (q.hin_options[i] && engOpt.opt_text !== q.hin_options[i].opt_text) {
+                                errors.push(`English Section: Option ${engOpt.opt_label} must be identical in both languages.`);
+                            }
+                        });
+
+                        // Rule B: Flag "underlined" keyword
+                        if (/underlined/i.test(q.eng_text)) {
+                            errors.push("English Section: Question contains 'underlined' keyword.");
+                        }
+
+                        // Rule C: Disable 15-char limit check (Do nothing here, just don't run the check below)
+
+                    } else {
+                        // --- STANDARD SECTION RULES ---
+
+                        // 3. Option Length Check (> 15 chars)
+                        const longEngOpts = q.eng_options.some(o => o.opt_text && o.opt_text.length > 15 && !hasImage(o.opt_text));
+                        const longHinOpts = q.hin_options.some(o => o.opt_text && o.opt_text.length > 15 && !hasImage(o.opt_text));
+
+                        if (longEngOpts) warnings.push("English options are long (>15 chars). verify if they should be images.");
+                        if (longHinOpts) warnings.push("Hindi options are long (>15 chars). verify if they should be images.");
+                    }
 
                     const hasErrors = errors.length > 0;
                     const hasWarnings = warnings.length > 0;
@@ -700,10 +728,14 @@ Are you sure you want to proceed?`;
                                             >
                                                 📝 Format
                                             </button>
-                                            <label className="text-xs text-blue-600 cursor-pointer hover:underline font-medium flex items-center gap-1">
-                                                Add Image
-                                                <input type="file" className="hidden" onChange={(e) => e.target.files[0] && handleImageUpload(e.target.files[0], index, 'eng')} />
-                                            </label>
+                                            <button
+                                                onClick={() => handleTranslate(index, 'en')}
+                                                disabled={q.isTranslatingEng}
+                                                className={`text-xs font-medium text-purple-600 bg-purple-50 border border-purple-200 px-2 py-1 rounded hover:bg-purple-100 transition-colors ${q.isTranslatingEng ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                title="Generate Hindi Translation"
+                                            >
+                                                {q.isTranslatingEng ? '...' : '🌐 Translate'}
+                                            </button>
                                         </div>
                                     </div>
 
@@ -726,21 +758,14 @@ Are you sure you want to proceed?`;
                                             />
                                         </div>
 
-                                        <div className="mb-2">
-                                            <button
-                                                onClick={() => handleTranslate(index, 'en')}
-                                                disabled={q.isTranslatingEng}
-                                                className={`text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded hover:bg-blue-100 transition-colors ${q.isTranslatingEng ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                            >
-                                                {q.isTranslatingEng ? 'Generating...' : 'Generate Hindi Translation'}
-                                            </button>
-                                            {q.eng_translation && (
-                                                <div className="mt-2 p-3 bg-blue-50/30 border border-blue-100 rounded text-sm text-gray-800 relative group">
-                                                    <p className="text-[10px] font-bold text-blue-400 uppercase mb-1">Hindi Translation</p>
-                                                    <Latex>{q.eng_translation}</Latex>
-                                                </div>
-                                            )}
-                                        </div>
+
+                                        {q.eng_translation && (
+                                            <div className="mb-2 p-3 bg-blue-50/30 border border-blue-100 rounded text-sm text-gray-800 relative group">
+                                                <p className="text-[10px] font-bold text-blue-400 uppercase mb-1">Hindi Translation</p>
+                                                <Latex>{q.eng_translation}</Latex>
+                                            </div>
+                                        )}
+
                                         <div className="p-3 bg-gray-50 rounded border border-gray-200 text-sm">
                                             <p className="text-xs font-bold text-gray-400 uppercase mb-1">Preview</p>
                                             <Latex>{q.eng_text}</Latex>
@@ -805,10 +830,14 @@ Are you sure you want to proceed?`;
                                             >
                                                 📝 Format
                                             </button>
-                                            <label className="text-xs text-orange-600 cursor-pointer hover:underline font-medium flex items-center gap-1">
-                                                Add Image
-                                                <input type="file" className="hidden" onChange={(e) => e.target.files[0] && handleImageUpload(e.target.files[0], index, 'hin')} />
-                                            </label>
+                                            <button
+                                                onClick={() => handleTranslate(index, 'hi')}
+                                                disabled={q.isTranslatingHin}
+                                                className={`text-xs font-medium text-purple-600 bg-purple-50 border border-purple-200 px-2 py-1 rounded hover:bg-purple-100 transition-colors ${q.isTranslatingHin ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                title="Generate English Translation"
+                                            >
+                                                {q.isTranslatingHin ? '...' : '🌐 Translate'}
+                                            </button>
                                         </div>
                                     </div>
 
@@ -831,21 +860,14 @@ Are you sure you want to proceed?`;
                                             />
                                         </div>
 
-                                        <div className="mb-2">
-                                            <button
-                                                onClick={() => handleTranslate(index, 'hi')}
-                                                disabled={q.isTranslatingHin}
-                                                className={`text-xs font-medium text-orange-600 bg-orange-50 border border-orange-200 px-3 py-1.5 rounded hover:bg-orange-100 transition-colors ${q.isTranslatingHin ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                            >
-                                                {q.isTranslatingHin ? 'Generating...' : 'Generate English Translation'}
-                                            </button>
-                                            {q.hin_translation && (
-                                                <div className="mt-2 p-3 bg-orange-50/30 border border-orange-100 rounded text-sm text-gray-800 relative group">
-                                                    <p className="text-[10px] font-bold text-orange-400 uppercase mb-1">English Translation</p>
-                                                    <Latex>{q.hin_translation}</Latex>
-                                                </div>
-                                            )}
-                                        </div>
+
+                                        {q.hin_translation && (
+                                            <div className="mb-2 p-3 bg-orange-50/30 border border-orange-100 rounded text-sm text-gray-800 relative group">
+                                                <p className="text-[10px] font-bold text-orange-400 uppercase mb-1">English Translation</p>
+                                                <Latex>{q.hin_translation}</Latex>
+                                            </div>
+                                        )}
+
                                         <div className="p-3 bg-white rounded border border-gray-200 text-sm">
                                             <p className="text-xs font-bold text-gray-400 uppercase mb-1">Preview</p>
                                             <Latex>{q.hin_text}</Latex>
