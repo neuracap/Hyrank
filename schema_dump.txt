@@ -1,0 +1,29 @@
+--- paper_session columns ---
+paper_session_id (uuid)
+exam_id (uuid)
+tier (text)
+paper_date (date)
+shift_label (text)
+session_label (text)
+official_source (text)
+created_at (timestamp without time zone)
+language (text)
+caption (text)
+subject (text)
+shift_number (integer)
+normalized_time (text)
+ai_processed (boolean)
+raw_mmd_doc_id (uuid)
+ai_meta_json (jsonb)
+meta_json (jsonb)
+
+--- Users ---
+2: user1@hyrank.com
+3: user2@hyrank.com
+4: user3@hyrank.com
+5: user4@hyrank.com
+6: user5@hyrank.com
+7: user6@hyrank.com
+8: user7@hyrank.com
+9: user8@hyrank.com
+10: user9@hyrank.com

@@ -96,6 +96,14 @@ export async function POST(request) {
             }
         }
 
+        // 5. Update review_assignments status to COMPLETED
+        // Only if the table exists (it should now)
+        await client.query(`
+            UPDATE review_assignments
+            SET status = 'COMPLETED'
+            WHERE paper_session_id = ANY($1)
+        `, [sessionIds]);
+
         await client.query('COMMIT');
 
         return NextResponse.json({

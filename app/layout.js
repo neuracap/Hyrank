@@ -1,5 +1,7 @@
 import { Inter } from "next/font/google";
 import "./globals.css";
+import Navigation from '@/components/Navigation';
+import { getCurrentUser } from "@/lib/auth-edge";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -8,10 +10,15 @@ export const metadata = {
     description: "Review and edit MCQ questions and solutions.",
 };
 
-export default function RootLayout({ children }) {
+export default async function RootLayout({ children }) {
+    const user = await getCurrentUser();
+
     return (
         <html lang="en">
-            <body className={inter.className}>{children}</body>
+            <body className={inter.className}>
+                {user && <Navigation user={user} />}
+                {children}
+            </body>
         </html>
     );
 }
