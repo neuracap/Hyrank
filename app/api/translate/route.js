@@ -1,50 +1,53 @@
 import { NextResponse } from 'next/server';
-import { spawn } from 'child_process';
-import path from 'path';
+import { translate } from 'google-translate-api-x';
 
 export async function POST(request) {
     try {
         const { text, source, target } = await request.json();
 
-        if (!text) {
+        if (!text || !text.trim()) {
             return NextResponse.json({ translatedText: '' });
         }
 
-        const scriptPath = path.join(process.cwd(), 'scripts', 'translate_text.py');
+        // Protect LaTeX and other patterns
+        const placeholders = [];
+        const replacer = (match) => {
+            placeholders.push(match);
+            return `__LATEX_${placeholders.length - 1}__`;
+        };
 
-        // Spawn python process
-        // We assume 'python' is in path. If not, might need specific path.
-        const pythonProcess = spawn('python', [scriptPath]);
+        // Regex patterns to protect
+        const patterns = [
+            /\\includegraphics\{[^}]+\}/g,     // images
+            /\$[^$]+\$/g,                      // $ math $
+            /\\\([^\)]+\\\)/g,                 // \( math \)
+            /\\\[[^\]]+\\\]/g,                 // \[ math \]
+            /\\[a-zA-Z]+(\{[^}]*\})?/g         // \command or \command{arg}
+        ];
 
-        const inputData = JSON.stringify({ text, source, target });
-
-        let result = '';
-        let error = '';
-
-        return new Promise((resolve) => {
-            pythonProcess.stdout.on('data', (data) => {
-                result += data.toString();
-            });
-
-            pythonProcess.stderr.on('data', (data) => {
-                error += data.toString();
-            });
-
-            pythonProcess.on('close', (code) => {
-                if (code !== 0) {
-                    resolve(NextResponse.json({ error: `Process exited with code ${code}: ${error}` }, { status: 500 }));
-                } else {
-                    // Result likely contains newline at end, trim it
-                    resolve(NextResponse.json({ translatedText: result.trim() }));
-                }
-            });
-
-            // Write data to stdin
-            pythonProcess.stdin.write(inputData);
-            pythonProcess.stdin.end();
+        let protectedText = text;
+        patterns.forEach(pattern => {
+            protectedText = protectedText.replace(pattern, replacer);
         });
 
+        // Translate
+        const res = await translate(protectedText, { from: source === 'auto' ? undefined : source, to: target });
+        let translatedText = res.text;
+
+        // Restore placeholders
+        // We use a regex to find __LATEX_N__ even if spaces inserted
+        translatedText = translatedText.replace(/__LATEX_(\d+)__/gi, (match, p1) => {
+            const idx = parseInt(p1);
+            if (idx >= 0 && idx < placeholders.length) {
+                return placeholders[idx];
+            }
+            return match;
+        });
+
+        return NextResponse.json({ translatedText: translatedText });
+
     } catch (e) {
+        console.error("Translation error:", e);
         return NextResponse.json({ error: e.message }, { status: 500 });
     }
 }
