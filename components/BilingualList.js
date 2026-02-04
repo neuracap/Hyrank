@@ -569,15 +569,73 @@ Are you sure you want to proceed?`;
                     const isLowScore = q.updated_score != null && q.updated_score < 0.8;
                     const isCorrected = q.status === 'MANUALLY_CORRECTED';
 
+                    // VALIDATION LOGIC
+                    const warnings = [];
+                    const errors = [];
+
+                    // Helper to detect images
+                    const hasImage = (text) => /\\includegraphics|!\[.*?\]\(.*?\)/.test(text || '');
+
+                    // 1. Image Mismatch
+                    const engHasImg = hasImage(q.eng_text) || q.eng_options.some(o => hasImage(o.opt_text));
+                    const hinHasImg = hasImage(q.hin_text) || q.hin_options.some(o => hasImage(o.opt_text));
+
+                    if (engHasImg !== hinHasImg) {
+                        errors.push(`Image Mismatch: ${engHasImg ? 'English' : 'Hindi'} has images, but ${engHasImg ? 'Hindi' : 'English'} does not.`);
+                    }
+
+                    // 2. Option Count & Empty Check
+                    // Check if any option text is empty
+                    const emptyEngOpts = q.eng_options.some(o => !o.opt_text || !o.opt_text.trim());
+                    const emptyHinOpts = q.hin_options.some(o => !o.opt_text || !o.opt_text.trim());
+
+                    if (q.eng_options.length < 4 || emptyEngOpts) {
+                        errors.push("English options are incomplete or blank (less than 4).");
+                    }
+                    if (q.hin_options.length < 4 || emptyHinOpts) {
+                        errors.push("Hindi options are incomplete or blank (less than 4).");
+                    }
+
+                    // 3. Option Length Check (> 15 chars)
+                    const longEngOpts = q.eng_options.some(o => o.opt_text && o.opt_text.length > 15 && !hasImage(o.opt_text));
+                    const longHinOpts = q.hin_options.some(o => o.opt_text && o.opt_text.length > 15 && !hasImage(o.opt_text));
+
+                    if (longEngOpts) warnings.push("English options are long (>15 chars). verify if they should be images.");
+                    if (longHinOpts) warnings.push("Hindi options are long (>15 chars). verify if they should be images.");
+
+                    const hasErrors = errors.length > 0;
+                    const hasWarnings = warnings.length > 0;
+
+                    let borderClass = 'border-gray-200';
+                    let bgClass = 'bg-white';
+
+                    if (hasErrors) {
+                        borderClass = 'border-red-500 ring-2 ring-red-100';
+                        bgClass = 'bg-red-50';
+                    } else if (hasWarnings) {
+                        borderClass = 'border-pink-400 ring-2 ring-pink-50';
+                        bgClass = 'bg-pink-50';
+                    } else if (isLowScore && !isCorrected) {
+                        borderClass = 'border-red-500 bg-red-50 ring-2 ring-red-200';
+                    }
+
                     return (
-                        <div key={q.link_id} className={`rounded-lg shadow-sm border overflow-hidden ${isLowScore && !isCorrected ? 'border-red-500 bg-red-50 ring-2 ring-red-200' : 'bg-white border-gray-200'}`}>
-                            {isLowScore && !isCorrected && (
+                        <div key={q.link_id} className={`rounded-lg shadow-sm border overflow-hidden ${borderClass} ${bgClass} transition-all duration-200`}>
+                            {/* Validation Messages */}
+                            {(hasErrors || hasWarnings) && (
+                                <div className={`px-6 py-2 text-xs font-bold ${hasErrors ? 'bg-red-100 text-red-800' : 'bg-pink-100 text-pink-800'} border-b ${hasErrors ? 'border-red-200' : 'border-pink-200'}`}>
+                                    {errors.map((e, i) => <div key={`err-${i}`} className="flex items-center gap-2">❌ {e}</div>)}
+                                    {warnings.map((w, i) => <div key={`warn-${i}`} className="flex items-center gap-2">⚠️ {w}</div>)}
+                                </div>
+                            )}
+
+                            {isLowScore && !isCorrected && !hasErrors && (
                                 <div className="bg-red-600 text-white text-xs font-bold px-4 py-1 flex justify-between items-center">
                                     <span>⚠️ Low Confidence Match</span>
                                     <span>Score: {Number(q.updated_score).toFixed(3)}</span>
                                 </div>
                             )}
-                            <div className={`px-6 py-3 border-b flex justify-between items-center text-sm ${isLowScore && !isCorrected ? 'bg-red-100 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
+                            <div className={`px-6 py-3 border-b flex justify-between items-center text-sm ${isLowScore && !isCorrected ? 'bg-red-100 border-red-200' : 'bg-gray-50/50 border-gray-200'}`}>
                                 <div className="font-mono text-gray-500">
                                     Q.{q.eng_source_no || q.eng_id.substring(0, 6)} {/* Showing Question Number/ID as title instead of Link ID */}
                                 </div>
@@ -645,6 +703,12 @@ Are you sure you want to proceed?`;
                                                 value={q.eng_text}
                                                 onChange={(e) => handleTextChange(index, 'eng', 'text', e.target.value)}
                                                 onPaste={(e) => handlePaste(e, index, 'eng')}
+                                                onKeyDown={(e) => {
+                                                    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                                                        e.preventDefault();
+                                                        handleSave(index, 'MANUALLY_CORRECTED');
+                                                    }
+                                                }}
                                                 placeholder="Paste image here (Ctrl+V)..."
                                             />
                                         </div>
@@ -682,6 +746,12 @@ Are you sure you want to proceed?`;
                                                         value={opt.opt_text}
                                                         onChange={(e) => handleTextChange(index, 'eng', 'opt', e.target.value, optIdx)}
                                                         onPaste={(e) => handlePaste(e, index, 'eng', optIdx)}
+                                                        onKeyDown={(e) => {
+                                                            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                                                                e.preventDefault();
+                                                                handleSave(index, 'MANUALLY_CORRECTED');
+                                                            }
+                                                        }}
                                                     />
                                                     <label className="cursor-pointer text-gray-400 hover:text-blue-600 p-1" title="Add Image to Option">
                                                         ➕
@@ -738,6 +808,12 @@ Are you sure you want to proceed?`;
                                                 value={q.hin_text}
                                                 onChange={(e) => handleTextChange(index, 'hin', 'text', e.target.value)}
                                                 onPaste={(e) => handlePaste(e, index, 'hin')}
+                                                onKeyDown={(e) => {
+                                                    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                                                        e.preventDefault();
+                                                        handleSave(index, 'MANUALLY_CORRECTED');
+                                                    }
+                                                }}
                                                 placeholder="Paste image here..."
                                             />
                                         </div>
@@ -775,6 +851,12 @@ Are you sure you want to proceed?`;
                                                         value={opt.opt_text}
                                                         onChange={(e) => handleTextChange(index, 'hin', 'opt', e.target.value, optIdx)}
                                                         onPaste={(e) => handlePaste(e, index, 'hin', optIdx)}
+                                                        onKeyDown={(e) => {
+                                                            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                                                                e.preventDefault();
+                                                                handleSave(index, 'MANUALLY_CORRECTED');
+                                                            }
+                                                        }}
                                                     />
                                                     <label className="cursor-pointer text-gray-400 hover:text-orange-600 p-1" title="Add Image to Option">
                                                         ➕
