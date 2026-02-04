@@ -26,13 +26,30 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortB
             : 'ql.paper_session_id_hindi = $1';
 
         const query = `
+            WITH RankedQuestions AS (
+                SELECT 
+                    qe.question_id,
+                    qe.version_no,
+                    qe.language,
+                    qe.body_json,
+                    qe.has_image,
+                    qe.source_question_no,
+                    qe.exam_section_id,
+                    qe.difficulty,
+                    s.section_id,
+                    s.sort_order,
+                    ROW_NUMBER() OVER (PARTITION BY qe.question_id ORDER BY qe.version_no DESC) as rn
+                FROM exam_section s
+                JOIN question_version qe ON s.section_id = qe.exam_section_id
+                WHERE s.paper_session_id = $1 AND qe.language = '${isEnglishSession ? 'EN' : 'HI'}'
+            )
             SELECT 
                 ql.id as link_id,
                 ql.similarity_score,
                 ql.updated_score,
                 ql.status,
                 
-                -- Maximum details for English Question
+                -- English Question (From Source or Link)
                 qe.question_id as eng_id,
                 qe.version_no as eng_version,
                 qe.body_json->>'text' as eng_text,
@@ -41,7 +58,7 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortB
                 qe.exam_section_id as eng_section_id,
                 qe.difficulty as eng_difficulty,
                 
-                -- Maximum details for Hindi Question
+                -- Hindi Question (Only if Linked)
                 qh.question_id as hin_id,
                 qh.version_no as hin_version,
                 qh.body_json->>'text' as hin_text,
@@ -50,15 +67,22 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortB
                 qh.exam_section_id as hin_section_id,
                 
                 ql.translated_debug
-            FROM question_links ql
-            JOIN question_version qe ON (ql.english_question_id = qe.question_id AND ql.english_version_no = qe.version_no AND ql.english_language = qe.language)
-            JOIN question_version qh ON (ql.hindi_question_id = qh.question_id AND ql.hindi_version_no = qh.version_no AND ql.hindi_language = qh.language)
+            FROM RankedQuestions qe
+            LEFT JOIN question_links ql ON (
+                ql.english_question_id = qe.question_id AND 
+                ql.english_version_no = qe.version_no
+            )
+            LEFT JOIN question_version qh ON (
+                ql.hindi_question_id = qh.question_id AND 
+                ql.hindi_version_no = qh.version_no AND 
+                ql.hindi_language = qh.language
+            )
             LEFT JOIN exam_section s ON qe.exam_section_id = s.section_id
             LEFT JOIN exam_section sh ON qh.exam_section_id = sh.section_id
-            WHERE ${whereClause}
+            WHERE qe.rn = 1 -- Get latest version of each question
             ORDER BY 
-                 ${sortBy === 'hin' ? 'sh.sort_order' : 's.sort_order'} ASC NULLS LAST,
-                 CAST(SUBSTRING(${sortBy === 'hin' ? 'qh' : 'qe'}.source_question_no FROM '[0-9]+') AS INTEGER) ASC NULLS LAST,
+                 s.sort_order ASC NULLS LAST,
+                 CAST(SUBSTRING(qe.source_question_no FROM '[0-9]+') AS INTEGER) ASC NULLS LAST,
                  ql.created_at ASC
             LIMIT $2 OFFSET $3;
         `;
@@ -68,11 +92,10 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortB
 
         // Fetch Count
         const countRes = await client.query(`
-            SELECT COUNT(*) as c 
-            FROM question_links ql
-            JOIN question_version qe ON (ql.english_question_id = qe.question_id AND ql.english_version_no = qe.version_no AND ql.english_language = qe.language)
-            JOIN question_version qh ON (ql.hindi_question_id = qh.question_id AND ql.hindi_version_no = qh.version_no AND ql.hindi_language = qh.language)
-            WHERE ${whereClause}
+            SELECT COUNT(DISTINCT qe.question_id) as c
+            FROM exam_section s
+            JOIN question_version qe ON s.section_id = qe.exam_section_id
+            WHERE s.paper_session_id = $1 AND qe.language = '${isEnglishSession ? 'EN' : 'HI'}'
         `, [paperSessionId]);
         const total = parseInt(countRes.rows[0].c, 10);
 
