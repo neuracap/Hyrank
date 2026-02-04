@@ -11,7 +11,12 @@ export const metadata = {
 };
 
 export default async function RootLayout({ children }) {
-    const user = await getCurrentUser();
+    let user = null;
+    try {
+        user = await getCurrentUser();
+    } catch (error) {
+        console.error("Failed to fetch user in RootLayout:", error);
+    }
 
     return (
         <html lang="en">
