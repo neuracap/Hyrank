@@ -591,477 +591,443 @@ Are you sure you want to proceed?`;
                 <p className="text-sm text-gray-400 mt-2">Found {total} linked pairs (Page {currentPage} of {totalPages})</p>
             </header>
 
-            <div className="flex gap-6 relative">
-                {/* Navigation Sidebar */}
-                <aside className="hidden lg:block w-64 shrink-0 h-[calc(100vh-8rem)] sticky top-4 overflow-y-auto pr-2 custom-scrollbar">
-                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-                        <h3 className="text-xs font-bold text-gray-500 uppercase mb-4 sticky top-0 bg-white z-10 py-1">Questions</h3>
-                        <div className="grid grid-cols-4 gap-2">
-                            {questions.map((q, idx) => {
-                                const isUnlinked = !q.link_id;
-                                const isCorrected = q.status === 'MANUALLY_CORRECTED';
-                                const isFlagged = q.status === 'FLAGGED';
-                                const qNum = q.eng_source_no || (idx + 1);
+            <div className="space-y-12 mb-12">
+                {questions.map((q, index) => {
+                    const isLowScore = q.updated_score != null && q.updated_score < 0.8;
+                    const isCorrected = q.status === 'MANUALLY_CORRECTED';
+                    const isUnlinked = !q.link_id;
 
-                                let bgClass = "bg-gray-100 text-gray-600 hover:bg-gray-200";
-                                if (isUnlinked) bgClass = "bg-red-900 text-white font-bold border border-red-950";
-                                else if (isFlagged) bgClass = "bg-orange-100 text-orange-700 border border-orange-200";
-                                else if (isCorrected) bgClass = "bg-green-100 text-green-700 border border-green-200";
+                    // VALIDATION LOGIC
+                    const warnings = [];
+                    const errors = [];
 
-                                return (
-                                    <a
-                                        key={idx}
-                                        href={`#question-${q.eng_id}`}
-                                        className={`text-[10px] font-bold py-1.5 rounded transition-colors text-center ${bgClass}`}
-                                        title={isUnlinked ? "Unlinked / Missing Translation" : `Status: ${q.status}`}
-                                    >
-                                        {qNum}
-                                    </a>
-                                );
-                            })}
-                        </div>
-                    </div>
-                </aside>
+                    // Helper to detect images
+                    const hasImage = (text) => /\\includegraphics|!\[.*?\]\(.*?\)/.test(text || '');
 
-                <div className="flex-1 space-y-12 mb-12 min-w-0">
-                    {questions.map((q, index) => {
-                        const isLowScore = q.updated_score != null && q.updated_score < 0.8;
-                        const isCorrected = q.status === 'MANUALLY_CORRECTED';
-                        const isUnlinked = !q.link_id;
+                    // 0. English Section Detection (Heuristic: First 10 chars are identical)
+                    // If start of English text matches start of Hindi text, we assume it's an English Language Section
+                    const isEnglishSection = q.eng_text && q.hin_text && q.eng_text.substring(0, 10).toLowerCase() === q.hin_text.substring(0, 10).toLowerCase();
 
-                        // VALIDATION LOGIC
-                        const warnings = [];
-                        const errors = [];
+                    // 1. Image Mismatch
+                    const engHasImg = hasImage(q.eng_text) || q.eng_options.some(o => hasImage(o.opt_text));
+                    const hinHasImg = hasImage(q.hin_text) || q.hin_options.some(o => hasImage(o.opt_text));
 
-                        // Helper to detect images
-                        const hasImage = (text) => /\\includegraphics|!\[.*?\]\(.*?\)/.test(text || '');
+                    if (engHasImg !== hinHasImg) {
+                        errors.push(`Image Mismatch: ${engHasImg ? 'English' : 'Hindi'} has images, but ${engHasImg ? 'Hindi' : 'English'} does not.`);
+                    }
 
-                        // 0. English Section Detection (Heuristic: First 10 chars are identical)
-                        // If start of English text matches start of Hindi text, we assume it's an English Language Section
-                        const isEnglishSection = q.eng_text && q.hin_text && q.eng_text.substring(0, 10).toLowerCase() === q.hin_text.substring(0, 10).toLowerCase();
+                    // 2. Option Count & Empty Check
+                    const emptyEngOpts = q.eng_options.some(o => !o.opt_text || !o.opt_text.trim());
+                    const emptyHinOpts = q.hin_options.some(o => !o.opt_text || !o.opt_text.trim());
 
-                        // 1. Image Mismatch
-                        const engHasImg = hasImage(q.eng_text) || q.eng_options.some(o => hasImage(o.opt_text));
-                        const hinHasImg = hasImage(q.hin_text) || q.hin_options.some(o => hasImage(o.opt_text));
+                    if (q.eng_options.length < 4 || emptyEngOpts) {
+                        errors.push("English options are incomplete or blank (less than 4).");
+                    }
+                    if (q.hin_options.length < 4 || emptyHinOpts) {
+                        errors.push("Hindi options are incomplete or blank (less than 4).");
+                    }
 
-                        if (engHasImg !== hinHasImg) {
-                            errors.push(`Image Mismatch: ${engHasImg ? 'English' : 'Hindi'} has images, but ${engHasImg ? 'Hindi' : 'English'} does not.`);
+                    if (isEnglishSection) {
+                        // --- ENGLISH SECTION RULES ---
+
+                        // Rule A: Duplicate Content Check (English MUST == Hindi)
+                        if (q.eng_text !== q.hin_text) {
+                            errors.push("English Section: English and Hindi text must be identical.");
                         }
 
-                        // 2. Option Count & Empty Check
-                        const emptyEngOpts = q.eng_options.some(o => !o.opt_text || !o.opt_text.trim());
-                        const emptyHinOpts = q.hin_options.some(o => !o.opt_text || !o.opt_text.trim());
+                        q.eng_options.forEach((engOpt, i) => {
+                            // SKIP strict positional check
+                        });
 
-                        if (q.eng_options.length < 4 || emptyEngOpts) {
-                            errors.push("English options are incomplete or blank (less than 4).");
-                        }
-                        if (q.hin_options.length < 4 || emptyHinOpts) {
-                            errors.push("Hindi options are incomplete or blank (less than 4).");
-                        }
+                        // Rule A.2: Set-based Equality Check for Options
+                        // Get all option texts, trim, and sort
+                        const engOptTexts = q.eng_options.map(o => (o.opt_text || '').trim()).sort();
+                        const hinOptTexts = q.hin_options.map(o => (o.opt_text || '').trim()).sort();
 
-                        if (isEnglishSection) {
-                            // --- ENGLISH SECTION RULES ---
+                        // Compare arrays
+                        const optionsMatch = engOptTexts.length === hinOptTexts.length &&
+                            engOptTexts.every((val, index) => val === hinOptTexts[index]);
 
-                            // Rule A: Duplicate Content Check (English MUST == Hindi)
-                            if (q.eng_text !== q.hin_text) {
-                                errors.push("English Section: English and Hindi text must be identical.");
-                            }
-
-                            q.eng_options.forEach((engOpt, i) => {
-                                // SKIP strict positional check
-                            });
-
-                            // Rule A.2: Set-based Equality Check for Options
-                            // Get all option texts, trim, and sort
-                            const engOptTexts = q.eng_options.map(o => (o.opt_text || '').trim()).sort();
-                            const hinOptTexts = q.hin_options.map(o => (o.opt_text || '').trim()).sort();
-
-                            // Compare arrays
-                            const optionsMatch = engOptTexts.length === hinOptTexts.length &&
-                                engOptTexts.every((val, index) => val === hinOptTexts[index]);
-
-                            if (!optionsMatch) {
-                                errors.push("English Section: Option sets do not match between English and Hindi.");
-                            }
-
-                            // Rule B: Flag "underlined" keyword
-                            if (/underlined/i.test(q.eng_text)) {
-                                errors.push("English Section: Question contains 'underlined' keyword.");
-                            }
-
-                            // Rule C: Disable 15-char limit check (Do nothing here, just don't run the check below)
-
-                        } else {
-                            // --- STANDARD SECTION RULES ---
-
-                            // 3. Option Length Check (> 15 chars)
-                            const longEngOpts = q.eng_options.some(o => o.opt_text && o.opt_text.length > 15 && !hasImage(o.opt_text));
-                            const longHinOpts = q.hin_options.some(o => o.opt_text && o.opt_text.length > 15 && !hasImage(o.opt_text));
-
-                            if (longEngOpts) warnings.push("English options are long (>15 chars). verify if they should be images.");
-                            if (longHinOpts) warnings.push("Hindi options are long (>15 chars). verify if they should be images.");
+                        if (!optionsMatch) {
+                            errors.push("English Section: Option sets do not match between English and Hindi.");
                         }
 
-                        const hasErrors = errors.length > 0;
-                        const hasWarnings = warnings.length > 0;
-
-                        let borderClass = 'border-gray-200';
-                        let bgClass = 'bg-white';
-
-                        if (hasErrors) {
-                            borderClass = 'border-red-500 ring-2 ring-red-100';
-                            bgClass = 'bg-red-50';
-                        } else if (isUnlinked) {
-                            borderClass = 'border-red-900 border-2 bg-red-50';
-                            bgClass = 'bg-red-50';
-                        } else if (hasWarnings) {
-                            borderClass = 'border-pink-400 ring-2 ring-pink-50';
-                            bgClass = 'bg-pink-50';
-                        } else if (isLowScore && !isCorrected) {
-                            borderClass = 'border-red-500 bg-red-50 ring-2 ring-red-200';
+                        // Rule B: Flag "underlined" keyword
+                        if (/underlined/i.test(q.eng_text)) {
+                            errors.push("English Section: Question contains 'underlined' keyword.");
                         }
 
-                        return (
-                            <div id={`question-${q.eng_id}`} key={q.link_id} className={`rounded-lg shadow-sm border overflow-hidden ${borderClass} ${bgClass} transition-all duration-200`}>
-                                {/* Validation Messages */}
-                                {(hasErrors || hasWarnings) && (
-                                    <div className={`px-6 py-2 text-xs font-bold ${hasErrors ? 'bg-red-100 text-red-800' : 'bg-pink-100 text-pink-800'} border-b ${hasErrors ? 'border-red-200' : 'border-pink-200'}`}>
-                                        {errors.map((e, i) => <div key={`err-${i}`} className="flex items-center gap-2">❌ {e}</div>)}
-                                        {warnings.map((w, i) => <div key={`warn-${i}`} className="flex items-center gap-2">⚠️ {w}</div>)}
-                                    </div>
-                                )}
+                        // Rule C: Disable 15-char limit check (Do nothing here, just don't run the check below)
 
-                                {isUnlinked && (
-                                    <div className="bg-red-900 text-white text-xs font-bold px-4 py-2 flex justify-between items-center">
-                                        <span>🚫 Unlinked Question (Missing Translation Partner)</span>
-                                    </div>
-                                )}
+                    } else {
+                        // --- STANDARD SECTION RULES ---
 
-                                {isLowScore && !isCorrected && !hasErrors && !isUnlinked && (
-                                    <div className="bg-red-600 text-white text-xs font-bold px-4 py-1 flex justify-between items-center">
-                                        <span>⚠️ Low Confidence Match</span>
-                                        <span>Score: {Number(q.updated_score).toFixed(3)}</span>
-                                    </div>
-                                )}
-                                <div className={`px-6 py-3 border-b flex justify-between items-center text-sm ${isLowScore && !isCorrected ? 'bg-red-100 border-red-200' : 'bg-gray-50/50 border-gray-200'}`}>
-                                    <div className="font-mono text-gray-500">
-                                        Q.{q.eng_source_no || q.eng_id.substring(0, 6)} {/* Showing Question Number/ID as title instead of Link ID */}
-                                    </div>
-                                    <div className="flex gap-2 items-center">
-                                        {/* Feedback Message */}
-                                        {q.feedbackMessage && (
-                                            <span className="animate-fade-in-out font-bold text-green-600 bg-green-50 px-2 py-1 rounded text-xs border border-green-200 mr-2 shadow-sm">
-                                                ✅ {q.feedbackMessage}
-                                            </span>
-                                        )}
-                                        <span className={`px-2 py-0.5 rounded text-xs font-semibold mr-2 ${q.status === 'PENDING' ? 'bg-yellow-100 text-yellow-700' : q.status === 'FLAGGED' ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
-                                            {q.status}
+                        // 3. Option Length Check (> 15 chars)
+                        const longEngOpts = q.eng_options.some(o => o.opt_text && o.opt_text.length > 15 && !hasImage(o.opt_text));
+                        const longHinOpts = q.hin_options.some(o => o.opt_text && o.opt_text.length > 15 && !hasImage(o.opt_text));
+
+                        if (longEngOpts) warnings.push("English options are long (>15 chars). verify if they should be images.");
+                        if (longHinOpts) warnings.push("Hindi options are long (>15 chars). verify if they should be images.");
+                    }
+
+                    const hasErrors = errors.length > 0;
+                    const hasWarnings = warnings.length > 0;
+
+                    let borderClass = 'border-gray-200';
+                    let bgClass = 'bg-white';
+
+                    if (hasErrors) {
+                        borderClass = 'border-red-500 ring-2 ring-red-100';
+                        bgClass = 'bg-red-50';
+                    } else if (isUnlinked) {
+                        borderClass = 'border-red-900 border-2 bg-red-50';
+                        bgClass = 'bg-red-50';
+                    } else if (hasWarnings) {
+                        borderClass = 'border-pink-400 ring-2 ring-pink-50';
+                        bgClass = 'bg-pink-50';
+                    } else if (isLowScore && !isCorrected) {
+                        borderClass = 'border-red-500 bg-red-50 ring-2 ring-red-200';
+                    }
+
+                    return (
+                        <div id={`question-${q.eng_id}`} key={q.link_id} className={`rounded-lg shadow-sm border overflow-hidden ${borderClass} ${bgClass} transition-all duration-200`}>
+                            {/* Validation Messages */}
+                            {(hasErrors || hasWarnings) && (
+                                <div className={`px-6 py-2 text-xs font-bold ${hasErrors ? 'bg-red-100 text-red-800' : 'bg-pink-100 text-pink-800'} border-b ${hasErrors ? 'border-red-200' : 'border-pink-200'}`}>
+                                    {errors.map((e, i) => <div key={`err-${i}`} className="flex items-center gap-2">❌ {e}</div>)}
+                                    {warnings.map((w, i) => <div key={`warn-${i}`} className="flex items-center gap-2">⚠️ {w}</div>)}
+                                </div>
+                            )}
+
+                            {isUnlinked && (
+                                <div className="bg-red-900 text-white text-xs font-bold px-4 py-2 flex justify-between items-center">
+                                    <span>🚫 Unlinked Question (Missing Translation Partner)</span>
+                                </div>
+                            )}
+
+                            {isLowScore && !isCorrected && !hasErrors && !isUnlinked && (
+                                <div className="bg-red-600 text-white text-xs font-bold px-4 py-1 flex justify-between items-center">
+                                    <span>⚠️ Low Confidence Match</span>
+                                    <span>Score: {Number(q.updated_score).toFixed(3)}</span>
+                                </div>
+                            )}
+                            <div className={`px-6 py-3 border-b flex justify-between items-center text-sm ${isLowScore && !isCorrected ? 'bg-red-100 border-red-200' : 'bg-gray-50/50 border-gray-200'}`}>
+                                <div className="font-mono text-gray-500">
+                                    Q.{q.eng_source_no || q.eng_id.substring(0, 6)} {/* Showing Question Number/ID as title instead of Link ID */}
+                                </div>
+                                <div className="flex gap-2 items-center">
+                                    {/* Feedback Message */}
+                                    {q.feedbackMessage && (
+                                        <span className="animate-fade-in-out font-bold text-green-600 bg-green-50 px-2 py-1 rounded text-xs border border-green-200 mr-2 shadow-sm">
+                                            ✅ {q.feedbackMessage}
                                         </span>
+                                    )}
+                                    <span className={`px-2 py-0.5 rounded text-xs font-semibold mr-2 ${q.status === 'PENDING' ? 'bg-yellow-100 text-yellow-700' : q.status === 'FLAGGED' ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
+                                        {q.status}
+                                    </span>
 
-                                        <button
-                                            onClick={() => handleSave(index, 'FLAGGED')}
-                                            className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded text-xs font-bold uppercase tracking-wide transition-colors shadow-sm"
-                                            title="Mark question for further review"
-                                        >
-                                            Mark for Review
-                                        </button>
-                                        <button
-                                            onClick={() => handleSave(index, 'MANUALLY_CORRECTED')}
-                                            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-xs font-bold uppercase tracking-wide transition-colors shadow-sm"
-                                        >
-                                            Save Changes
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-gray-200">
-                                    {/* English Column */}
-                                    <div className="p-6">
-                                        <div className="flex justify-between items-center mb-4">
-                                            <span className="inline-block bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded">ENGLISH</span>
-                                            <div className="flex gap-2">
-                                                <button
-                                                    onClick={() => handleFixLatex(index, 'eng')}
-                                                    className="px-2 py-1 text-xs font-bold bg-rose-500 text-white rounded hover:bg-rose-600 shadow-sm"
-                                                    title="Fix LaTeX syntax errors"
-                                                >
-                                                    FL
-                                                </button>
-                                                <button
-                                                    onClick={() => handleUnderline(index, 'eng')}
-                                                    className="px-2 py-1 text-xs font-bold bg-blue-500 text-white rounded hover:bg-blue-600 shadow-sm"
-                                                    title="Underline selected text"
-                                                >
-                                                    U
-                                                </button>
-                                                <button
-                                                    onClick={() => handleFormatQuestion(index, 'eng')}
-                                                    className="text-xs text-blue-600 bg-blue-50 border border-blue-200 px-2 py-1 rounded hover:bg-blue-100 font-medium"
-                                                    title="Add line spacing after each sentence (after .)"
-                                                >
-                                                    📝 Format
-                                                </button>
-                                                <button
-                                                    onClick={() => handleTranslate(index, 'en')}
-                                                    disabled={q.isTranslatingEng}
-                                                    className={`text-xs font-medium text-purple-600 bg-purple-50 border border-purple-200 px-2 py-1 rounded hover:bg-purple-100 transition-colors ${q.isTranslatingEng ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                                    title="Generate Hindi Translation"
-                                                >
-                                                    {q.isTranslatingEng ? '...' : '🌐 Translate'}
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        <div className="mb-6">
-                                            <h3 className="text-sm font-bold text-gray-700 mb-2">Q.{q.eng_source_no || q.eng_id.substring(0, 6)}</h3>
-                                            <div className="relative">
-                                                <textarea
-                                                    id={`eng-text-${index}`}
-                                                    className="w-full p-3 border border-gray-300 rounded font-mono text-sm min-h-[150px] mb-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                                    value={q.eng_text}
-                                                    onChange={(e) => handleTextChange(index, 'eng', 'text', e.target.value)}
-                                                    onPaste={(e) => handlePaste(e, index, 'eng')}
-                                                    onKeyDown={(e) => {
-                                                        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-                                                            e.preventDefault();
-                                                            handleSave(index, 'MANUALLY_CORRECTED');
-                                                        }
-                                                    }}
-                                                    placeholder="Paste image here (Ctrl+V)..."
-                                                />
-                                            </div>
-
-
-                                            {q.eng_translation && (
-                                                <div className="mb-2 p-3 bg-blue-50/30 border border-blue-100 rounded text-sm text-gray-800 relative group">
-                                                    <p className="text-[10px] font-bold text-blue-400 uppercase mb-1">Hindi Translation</p>
-                                                    <Latex>{q.eng_translation}</Latex>
-                                                </div>
-                                            )}
-
-                                            <div className="p-3 bg-gray-50 rounded border border-gray-200 text-sm">
-                                                <p className="text-xs font-bold text-gray-400 uppercase mb-1">Preview</p>
-                                                <Latex>{q.eng_text}</Latex>
-                                            </div>
-                                        </div>
-
-                                        <div className="space-y-4">
-                                            {q.eng_options.map((opt, optIdx) => (
-                                                <div key={opt.opt_label} className="p-2 border border-gray-100 rounded bg-gray-50/50">
-                                                    <div className="flex gap-2 items-center mb-2">
-                                                        <div className="w-6 h-6 flex items-center justify-center rounded-full bg-white border border-gray-300 text-xs font-bold text-gray-500 shrink-0">
-                                                            {opt.opt_label}
-                                                        </div>
-                                                        <input
-                                                            className="flex-1 text-xs p-1 border border-gray-300 rounded font-mono"
-                                                            value={opt.opt_text}
-                                                            onChange={(e) => handleTextChange(index, 'eng', 'opt', e.target.value, optIdx)}
-                                                            onPaste={(e) => handlePaste(e, index, 'eng', optIdx)}
-                                                            onKeyDown={(e) => {
-                                                                if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-                                                                    e.preventDefault();
-                                                                    handleSave(index, 'MANUALLY_CORRECTED');
-                                                                }
-                                                            }}
-                                                        />
-                                                        <label className="cursor-pointer text-gray-400 hover:text-blue-600 p-1" title="Add Image to Option">
-                                                            ➕
-                                                            <input type="file" className="hidden" onChange={(e) => e.target.files[0] && handleImageUpload(e.target.files[0], index, 'eng', optIdx)} />
-                                                        </label>
-                                                    </div>
-                                                    <div className="pl-8 text-xs text-gray-700">
-                                                        <Latex>{opt.opt_text}</Latex>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    {/* Hindi Column */}
-                                    <div className="p-6 bg-orange-50/10">
-                                        <div className="flex justify-between items-center mb-4">
-                                            <span className="inline-block bg-orange-100 text-orange-800 text-xs font-bold px-2 py-1 rounded">HINDI</span>
-                                            <div className="flex gap-2">
-                                                <button
-                                                    onClick={() => handleFixLatex(index, 'hin')}
-                                                    className="px-2 py-1 text-xs font-bold bg-rose-500 text-white rounded hover:bg-rose-600 shadow-sm"
-                                                    title="Fix LaTeX syntax errors"
-                                                >
-                                                    FL
-                                                </button>
-                                                <button
-                                                    onClick={() => handleUnderline(index, 'hin')}
-                                                    className="px-2 py-1 text-xs font-bold bg-orange-500 text-white rounded hover:bg-orange-600 shadow-sm"
-                                                    title="Underline selected text"
-                                                >
-                                                    U
-                                                </button>
-                                                <button
-                                                    onClick={() => handleFormatQuestion(index, 'hin')}
-                                                    className="text-xs text-orange-600 bg-orange-50 border border-orange-200 px-2 py-1 rounded hover:bg-orange-100 font-medium"
-                                                    title="Add line spacing after each sentence (after ।)"
-                                                >
-                                                    📝 Format
-                                                </button>
-                                                <button
-                                                    onClick={() => handleTranslate(index, 'hi')}
-                                                    disabled={q.isTranslatingHin}
-                                                    className={`text-xs font-medium text-purple-600 bg-purple-50 border border-purple-200 px-2 py-1 rounded hover:bg-purple-100 transition-colors ${q.isTranslatingHin ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                                    title="Generate English Translation"
-                                                >
-                                                    {q.isTranslatingHin ? '...' : '🌐 Translate'}
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        <div className="mb-6">
-                                            <h3 className="text-sm font-bold text-gray-700 mb-2">Q.{q.hin_source_no || q.hin_id.substring(0, 6)}</h3>
-                                            <div className="relative">
-                                                <textarea
-                                                    id={`hin-text-${index}`}
-                                                    className="w-full p-3 border border-gray-300 rounded font-mono text-sm min-h-[150px] mb-2 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                                                    value={q.hin_text}
-                                                    onChange={(e) => handleTextChange(index, 'hin', 'text', e.target.value)}
-                                                    onPaste={(e) => handlePaste(e, index, 'hin')}
-                                                    onKeyDown={(e) => {
-                                                        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-                                                            e.preventDefault();
-                                                            handleSave(index, 'MANUALLY_CORRECTED');
-                                                        }
-                                                    }}
-                                                    placeholder="Paste image here..."
-                                                />
-                                            </div>
-
-
-                                            {q.hin_translation && (
-                                                <div className="mb-2 p-3 bg-orange-50/30 border border-orange-100 rounded text-sm text-gray-800 relative group">
-                                                    <p className="text-[10px] font-bold text-orange-400 uppercase mb-1">English Translation</p>
-                                                    <Latex>{q.hin_translation}</Latex>
-                                                </div>
-                                            )}
-
-                                            <div className="p-3 bg-white rounded border border-gray-200 text-sm">
-                                                <p className="text-xs font-bold text-gray-400 uppercase mb-1">Preview</p>
-                                                <Latex>{q.hin_text}</Latex>
-                                            </div>
-                                        </div>
-
-                                        <div className="space-y-4">
-                                            {q.hin_options.map((opt, optIdx) => (
-                                                <div key={opt.opt_label} className="p-2 border border-gray-100 rounded bg-white">
-                                                    <div className="flex gap-2 items-center mb-2">
-                                                        <div className="w-6 h-6 flex items-center justify-center rounded-full bg-gray-100 border border-gray-300 text-xs font-bold text-gray-500 shrink-0">
-                                                            {opt.opt_label}
-                                                        </div>
-                                                        <input
-                                                            className="flex-1 text-xs p-1 border border-gray-300 rounded font-mono"
-                                                            value={opt.opt_text}
-                                                            onChange={(e) => handleTextChange(index, 'hin', 'opt', e.target.value, optIdx)}
-                                                            onPaste={(e) => handlePaste(e, index, 'hin', optIdx)}
-                                                            onKeyDown={(e) => {
-                                                                if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-                                                                    e.preventDefault();
-                                                                    handleSave(index, 'MANUALLY_CORRECTED');
-                                                                }
-                                                            }}
-                                                        />
-                                                        <label className="cursor-pointer text-gray-400 hover:text-orange-600 p-1" title="Add Image to Option">
-                                                            ➕
-                                                            <input type="file" className="hidden" onChange={(e) => e.target.files[0] && handleImageUpload(e.target.files[0], index, 'hin', optIdx)} />
-                                                        </label>
-                                                    </div>
-                                                    <div className="pl-8 text-xs text-gray-700">
-                                                        <Latex>{opt.opt_text}</Latex>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Copy Options Buttons */}
-                                <div className="flex items-center justify-between px-12 py-4 border-t border-gray-200 bg-gray-50">
                                     <button
-                                        onClick={() => handleCopyOptions(index, 'eng-to-hin')}
-                                        className="px-4 py-2 bg-white border border-blue-200 text-blue-700 font-bold rounded-lg hover:bg-blue-50 hover:border-blue-300 shadow-sm transition-all flex items-center gap-2"
-                                        title="Copy English options to Hindi"
+                                        onClick={() => handleSave(index, 'FLAGGED')}
+                                        className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded text-xs font-bold uppercase tracking-wide transition-colors shadow-sm"
+                                        title="Mark question for further review"
                                     >
-                                        <span>Copy Eng to Hindi</span>
-                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4">
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
-                                        </svg>
+                                        Mark for Review
                                     </button>
-
                                     <button
-                                        onClick={() => handleCopyOptions(index, 'hin-to-eng')}
-                                        className="px-4 py-2 bg-white border border-orange-200 text-orange-700 font-bold rounded-lg hover:bg-orange-50 hover:border-orange-300 shadow-sm transition-all flex items-center gap-2"
-                                        title="Copy Hindi options to English"
+                                        onClick={() => handleSave(index, 'MANUALLY_CORRECTED')}
+                                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-xs font-bold uppercase tracking-wide transition-colors shadow-sm"
                                     >
-                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4">
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
-                                        </svg>
-                                        <span>Copy Hindi to Eng</span>
+                                        Save Changes
                                     </button>
                                 </div>
                             </div>
-                        );
-                    })}
 
-                    {questions.length === 0 && (
-                        <div className="text-center py-20 bg-gray-50 rounded border border-gray-200 text-gray-500">
-                            No linked questions found for this session.
-                        </div>
-                    )}
-                </div>
+                            <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-gray-200">
+                                {/* English Column */}
+                                <div className="p-6">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <span className="inline-block bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded">ENGLISH</span>
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={() => handleFixLatex(index, 'eng')}
+                                                className="px-2 py-1 text-xs font-bold bg-rose-500 text-white rounded hover:bg-rose-600 shadow-sm"
+                                                title="Fix LaTeX syntax errors"
+                                            >
+                                                FL
+                                            </button>
+                                            <button
+                                                onClick={() => handleUnderline(index, 'eng')}
+                                                className="px-2 py-1 text-xs font-bold bg-blue-500 text-white rounded hover:bg-blue-600 shadow-sm"
+                                                title="Underline selected text"
+                                            >
+                                                U
+                                            </button>
+                                            <button
+                                                onClick={() => handleFormatQuestion(index, 'eng')}
+                                                className="text-xs text-blue-600 bg-blue-50 border border-blue-200 px-2 py-1 rounded hover:bg-blue-100 font-medium"
+                                                title="Add line spacing after each sentence (after .)"
+                                            >
+                                                📝 Format
+                                            </button>
+                                            <button
+                                                onClick={() => handleTranslate(index, 'en')}
+                                                disabled={q.isTranslatingEng}
+                                                className={`text-xs font-medium text-purple-600 bg-purple-50 border border-purple-200 px-2 py-1 rounded hover:bg-purple-100 transition-colors ${q.isTranslatingEng ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                title="Generate Hindi Translation"
+                                            >
+                                                {q.isTranslatingEng ? '...' : '🌐 Translate'}
+                                            </button>
+                                        </div>
+                                    </div>
 
-                <div className="flex justify-end mb-8 px-4">
-                    <button
-                        onClick={handleBulkComplete}
-                        disabled={bulkCompleting}
-                        className={`px-6 py-3 rounded-lg font-bold text-sm uppercase tracking-wide transition-all shadow-lg ${bulkCompleting
-                            ? 'bg-gray-400 cursor-not-allowed'
-                            : 'bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white'
-                            }`}
-                        title="Mark all questions in both papers as manually corrected"
-                    >
-                        {bulkCompleting ? (
-                            <span className="flex items-center gap-2">
-                                <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                Processing...
-                            </span>
-                        ) : (
-                            <span className="flex items-center gap-2">
-                                ✅ Complete Review
-                            </span>
-                        )}
-                    </button>
-                </div>
-                {/* Pagination Bottom */}
-                {
-                    totalPages > 1 && (
-                        <div className="flex justify-center gap-2 mb-12">
-                            {currentPage > 1 && (
-                                <a href={`/bilingual/${paperSessionId}?page=${currentPage - 1}`} className="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200 text-sm font-medium">
-                                    Previous
-                                </a>
-                            )}
-                            <span className="px-4 py-2 text-gray-600 text-sm">
-                                Page {currentPage} of {totalPages}
-                            </span>
-                            {currentPage < totalPages && (
-                                <a href={`/bilingual/${paperSessionId}?page=${currentPage + 1}`} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium">
-                                    Next
-                                </a>
-                            )}
+                                    <div className="mb-6">
+                                        <h3 className="text-sm font-bold text-gray-700 mb-2">Q.{q.eng_source_no || q.eng_id.substring(0, 6)}</h3>
+                                        <div className="relative">
+                                            <textarea
+                                                id={`eng-text-${index}`}
+                                                className="w-full p-3 border border-gray-300 rounded font-mono text-sm min-h-[150px] mb-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                value={q.eng_text}
+                                                onChange={(e) => handleTextChange(index, 'eng', 'text', e.target.value)}
+                                                onPaste={(e) => handlePaste(e, index, 'eng')}
+                                                onKeyDown={(e) => {
+                                                    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                                                        e.preventDefault();
+                                                        handleSave(index, 'MANUALLY_CORRECTED');
+                                                    }
+                                                }}
+                                                placeholder="Paste image here (Ctrl+V)..."
+                                            />
+                                        </div>
+
+
+                                        {q.eng_translation && (
+                                            <div className="mb-2 p-3 bg-blue-50/30 border border-blue-100 rounded text-sm text-gray-800 relative group">
+                                                <p className="text-[10px] font-bold text-blue-400 uppercase mb-1">Hindi Translation</p>
+                                                <Latex>{q.eng_translation}</Latex>
+                                            </div>
+                                        )}
+
+                                        <div className="p-3 bg-gray-50 rounded border border-gray-200 text-sm">
+                                            <p className="text-xs font-bold text-gray-400 uppercase mb-1">Preview</p>
+                                            <Latex>{q.eng_text}</Latex>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        {q.eng_options.map((opt, optIdx) => (
+                                            <div key={opt.opt_label} className="p-2 border border-gray-100 rounded bg-gray-50/50">
+                                                <div className="flex gap-2 items-center mb-2">
+                                                    <div className="w-6 h-6 flex items-center justify-center rounded-full bg-white border border-gray-300 text-xs font-bold text-gray-500 shrink-0">
+                                                        {opt.opt_label}
+                                                    </div>
+                                                    <input
+                                                        className="flex-1 text-xs p-1 border border-gray-300 rounded font-mono"
+                                                        value={opt.opt_text}
+                                                        onChange={(e) => handleTextChange(index, 'eng', 'opt', e.target.value, optIdx)}
+                                                        onPaste={(e) => handlePaste(e, index, 'eng', optIdx)}
+                                                        onKeyDown={(e) => {
+                                                            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                                                                e.preventDefault();
+                                                                handleSave(index, 'MANUALLY_CORRECTED');
+                                                            }
+                                                        }}
+                                                    />
+                                                    <label className="cursor-pointer text-gray-400 hover:text-blue-600 p-1" title="Add Image to Option">
+                                                        ➕
+                                                        <input type="file" className="hidden" onChange={(e) => e.target.files[0] && handleImageUpload(e.target.files[0], index, 'eng', optIdx)} />
+                                                    </label>
+                                                </div>
+                                                <div className="pl-8 text-xs text-gray-700">
+                                                    <Latex>{opt.opt_text}</Latex>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Hindi Column */}
+                                <div className="p-6 bg-orange-50/10">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <span className="inline-block bg-orange-100 text-orange-800 text-xs font-bold px-2 py-1 rounded">HINDI</span>
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={() => handleFixLatex(index, 'hin')}
+                                                className="px-2 py-1 text-xs font-bold bg-rose-500 text-white rounded hover:bg-rose-600 shadow-sm"
+                                                title="Fix LaTeX syntax errors"
+                                            >
+                                                FL
+                                            </button>
+                                            <button
+                                                onClick={() => handleUnderline(index, 'hin')}
+                                                className="px-2 py-1 text-xs font-bold bg-orange-500 text-white rounded hover:bg-orange-600 shadow-sm"
+                                                title="Underline selected text"
+                                            >
+                                                U
+                                            </button>
+                                            <button
+                                                onClick={() => handleFormatQuestion(index, 'hin')}
+                                                className="text-xs text-orange-600 bg-orange-50 border border-orange-200 px-2 py-1 rounded hover:bg-orange-100 font-medium"
+                                                title="Add line spacing after each sentence (after ।)"
+                                            >
+                                                📝 Format
+                                            </button>
+                                            <button
+                                                onClick={() => handleTranslate(index, 'hi')}
+                                                disabled={q.isTranslatingHin}
+                                                className={`text-xs font-medium text-purple-600 bg-purple-50 border border-purple-200 px-2 py-1 rounded hover:bg-purple-100 transition-colors ${q.isTranslatingHin ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                title="Generate English Translation"
+                                            >
+                                                {q.isTranslatingHin ? '...' : '🌐 Translate'}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="mb-6">
+                                        <h3 className="text-sm font-bold text-gray-700 mb-2">Q.{q.hin_source_no || q.hin_id.substring(0, 6)}</h3>
+                                        <div className="relative">
+                                            <textarea
+                                                id={`hin-text-${index}`}
+                                                className="w-full p-3 border border-gray-300 rounded font-mono text-sm min-h-[150px] mb-2 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                                                value={q.hin_text}
+                                                onChange={(e) => handleTextChange(index, 'hin', 'text', e.target.value)}
+                                                onPaste={(e) => handlePaste(e, index, 'hin')}
+                                                onKeyDown={(e) => {
+                                                    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                                                        e.preventDefault();
+                                                        handleSave(index, 'MANUALLY_CORRECTED');
+                                                    }
+                                                }}
+                                                placeholder="Paste image here..."
+                                            />
+                                        </div>
+
+
+                                        {q.hin_translation && (
+                                            <div className="mb-2 p-3 bg-orange-50/30 border border-orange-100 rounded text-sm text-gray-800 relative group">
+                                                <p className="text-[10px] font-bold text-orange-400 uppercase mb-1">English Translation</p>
+                                                <Latex>{q.hin_translation}</Latex>
+                                            </div>
+                                        )}
+
+                                        <div className="p-3 bg-white rounded border border-gray-200 text-sm">
+                                            <p className="text-xs font-bold text-gray-400 uppercase mb-1">Preview</p>
+                                            <Latex>{q.hin_text}</Latex>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        {q.hin_options.map((opt, optIdx) => (
+                                            <div key={opt.opt_label} className="p-2 border border-gray-100 rounded bg-white">
+                                                <div className="flex gap-2 items-center mb-2">
+                                                    <div className="w-6 h-6 flex items-center justify-center rounded-full bg-gray-100 border border-gray-300 text-xs font-bold text-gray-500 shrink-0">
+                                                        {opt.opt_label}
+                                                    </div>
+                                                    <input
+                                                        className="flex-1 text-xs p-1 border border-gray-300 rounded font-mono"
+                                                        value={opt.opt_text}
+                                                        onChange={(e) => handleTextChange(index, 'hin', 'opt', e.target.value, optIdx)}
+                                                        onPaste={(e) => handlePaste(e, index, 'hin', optIdx)}
+                                                        onKeyDown={(e) => {
+                                                            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                                                                e.preventDefault();
+                                                                handleSave(index, 'MANUALLY_CORRECTED');
+                                                            }
+                                                        }}
+                                                    />
+                                                    <label className="cursor-pointer text-gray-400 hover:text-orange-600 p-1" title="Add Image to Option">
+                                                        ➕
+                                                        <input type="file" className="hidden" onChange={(e) => e.target.files[0] && handleImageUpload(e.target.files[0], index, 'hin', optIdx)} />
+                                                    </label>
+                                                </div>
+                                                <div className="pl-8 text-xs text-gray-700">
+                                                    <Latex>{opt.opt_text}</Latex>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Copy Options Buttons */}
+                            <div className="flex items-center justify-between px-12 py-4 border-t border-gray-200 bg-gray-50">
+                                <button
+                                    onClick={() => handleCopyOptions(index, 'eng-to-hin')}
+                                    className="px-4 py-2 bg-white border border-blue-200 text-blue-700 font-bold rounded-lg hover:bg-blue-50 hover:border-blue-300 shadow-sm transition-all flex items-center gap-2"
+                                    title="Copy English options to Hindi"
+                                >
+                                    <span>Copy Eng to Hindi</span>
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+                                    </svg>
+                                </button>
+
+                                <button
+                                    onClick={() => handleCopyOptions(index, 'hin-to-eng')}
+                                    className="px-4 py-2 bg-white border border-orange-200 text-orange-700 font-bold rounded-lg hover:bg-orange-50 hover:border-orange-300 shadow-sm transition-all flex items-center gap-2"
+                                    title="Copy Hindi options to English"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+                                    </svg>
+                                    <span>Copy Hindi to Eng</span>
+                                </button>
+                            </div>
                         </div>
-                    )
-                }
+                    );
+                })}
+
+                {questions.length === 0 && (
+                    <div className="text-center py-20 bg-gray-50 rounded border border-gray-200 text-gray-500">
+                        No linked questions found for this session.
+                    </div>
+                )}
             </div>
+
+            <div className="flex justify-end mb-8 px-4">
+                <button
+                    onClick={handleBulkComplete}
+                    disabled={bulkCompleting}
+                    className={`px-6 py-3 rounded-lg font-bold text-sm uppercase tracking-wide transition-all shadow-lg ${bulkCompleting
+                        ? 'bg-gray-400 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white'
+                        }`}
+                    title="Mark all questions in both papers as manually corrected"
+                >
+                    {bulkCompleting ? (
+                        <span className="flex items-center gap-2">
+                            <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Processing...
+                        </span>
+                    ) : (
+                        <span className="flex items-center gap-2">
+                            ✅ Complete Review
+                        </span>
+                    )}
+                </button>
+            </div>
+            {/* Pagination Bottom */}
+            {
+                totalPages > 1 && (
+                    <div className="flex justify-center gap-2 mb-12">
+                        {currentPage > 1 && (
+                            <a href={`/bilingual/${paperSessionId}?page=${currentPage - 1}`} className="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200 text-sm font-medium">
+                                Previous
+                            </a>
+                        )}
+                        <span className="px-4 py-2 text-gray-600 text-sm">
+                            Page {currentPage} of {totalPages}
+                        </span>
+                        {currentPage < totalPages && (
+                            <a href={`/bilingual/${paperSessionId}?page=${currentPage + 1}`} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium">
+                                Next
+                            </a>
+                        )}
+                    </div>
+                )
+            }
         </div>
-        </div >
     );
 }
