@@ -517,7 +517,22 @@ Are you sure you want to proceed?`;
                         <p className="text-gray-500">Session ID: {paperSessionId}</p>
                     </div>
 
-                    <div className="flex gap-3">
+                    <div className="flex gap-3 items-center">
+                        <div className="flex items-center gap-2 bg-white border border-gray-300 rounded-md px-2 py-1 shadow-sm">
+                            <span className="text-xs font-semibold text-gray-500 uppercase">Sort By:</span>
+                            <select
+                                value={new URLSearchParams(window.location.search).get('sort') || 'eng'}
+                                onChange={(e) => {
+                                    const params = new URLSearchParams(window.location.search);
+                                    params.set('sort', e.target.value);
+                                    window.location.search = params.toString();
+                                }}
+                                className="text-sm border-none focus:ring-0 text-gray-700 font-medium bg-transparent cursor-pointer"
+                            >
+                                <option value="eng">English Order</option>
+                                <option value="hin">Hindi Order</option>
+                            </select>
+                        </div>
                         <button
                             onClick={handleFormatAll}
                             className="px-4 py-2 rounded-lg font-bold text-sm uppercase tracking-wide transition-all shadow-md bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white"

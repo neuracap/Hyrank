@@ -3,7 +3,7 @@ import db from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
-async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100) {
+async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortBy = 'eng') {
     const offset = (page - 1) * limit;
     const client = await db.connect();
     try {
@@ -54,10 +54,11 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100) {
             JOIN question_version qe ON (ql.english_question_id = qe.question_id AND ql.english_version_no = qe.version_no AND ql.english_language = qe.language)
             JOIN question_version qh ON (ql.hindi_question_id = qh.question_id AND ql.hindi_version_no = qh.version_no AND ql.hindi_language = qh.language)
             LEFT JOIN exam_section s ON qe.exam_section_id = s.section_id
+            LEFT JOIN exam_section sh ON qh.exam_section_id = sh.section_id
             WHERE ${whereClause}
             ORDER BY 
-                 s.sort_order ASC NULLS LAST,
-                 CAST(SUBSTRING(qe.source_question_no FROM '[0-9]+') AS INTEGER) ASC NULLS LAST,
+                 ${sortBy === 'hin' ? 'sh.sort_order' : 's.sort_order'} ASC NULLS LAST,
+                 CAST(SUBSTRING(${sortBy === 'hin' ? 'qh' : 'qe'}.source_question_no FROM '[0-9]+') AS INTEGER) ASC NULLS LAST,
                  ql.created_at ASC
             LIMIT $2 OFFSET $3;
         `;
@@ -166,12 +167,13 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100) {
 
 export default async function BilingualPage({ params, searchParams }) {
     const { id: paperSessionId } = await params;
-    const { page } = await searchParams;
+    const { page, sort } = await searchParams;
 
     const currentPage = parseInt(page || '1', 10);
     const limit = 100;
+    const sortBy = sort === 'hin' ? 'hin' : 'eng';
 
-    const { questions, total, engDocInfo, hinDocInfo } = await fetchLinkedQuestions(paperSessionId, currentPage, limit);
+    const { questions, total, engDocInfo, hinDocInfo } = await fetchLinkedQuestions(paperSessionId, currentPage, limit, sortBy);
     const totalPages = Math.ceil(total / limit);
 
     return (
