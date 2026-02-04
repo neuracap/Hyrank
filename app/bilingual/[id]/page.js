@@ -88,6 +88,7 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortB
             const optionsRes = await client.query(`
                 SELECT 
                     question_id,
+                    version_no,
                     language,
                     option_key as opt_label,
                     option_json->>'text' as opt_text
@@ -101,8 +102,8 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortB
         // Attach options
         const questions = links.map(link => ({
             ...link,
-            eng_options: allOptions.filter(o => o.question_id === link.eng_id && o.language === 'EN'),
-            hin_options: allOptions.filter(o => o.question_id === link.hin_id && o.language === 'HI')
+            eng_options: allOptions.filter(o => o.question_id === link.eng_id && o.version_no === link.eng_version && o.language === 'EN'),
+            hin_options: allOptions.filter(o => o.question_id === link.hin_id && o.version_no === link.hin_version && o.language === 'HI')
         }));
 
         // Fetch Document Info based on session type
