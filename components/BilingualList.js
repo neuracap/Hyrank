@@ -621,10 +621,21 @@ Are you sure you want to proceed?`;
                         }
 
                         q.eng_options.forEach((engOpt, i) => {
-                            if (q.hin_options[i] && engOpt.opt_text !== q.hin_options[i].opt_text) {
-                                errors.push(`English Section: Option ${engOpt.opt_label} must be identical in both languages.`);
-                            }
+                            // SKIP strict positional check
                         });
+
+                        // Rule A.2: Set-based Equality Check for Options
+                        // Get all option texts, trim, and sort
+                        const engOptTexts = q.eng_options.map(o => (o.opt_text || '').trim()).sort();
+                        const hinOptTexts = q.hin_options.map(o => (o.opt_text || '').trim()).sort();
+
+                        // Compare arrays
+                        const optionsMatch = engOptTexts.length === hinOptTexts.length &&
+                            engOptTexts.every((val, index) => val === hinOptTexts[index]);
+
+                        if (!optionsMatch) {
+                            errors.push("English Section: Option sets do not match between English and Hindi.");
+                        }
 
                         // Rule B: Flag "underlined" keyword
                         if (/underlined/i.test(q.eng_text)) {
