@@ -34,7 +34,8 @@ export default async function DashboardPage() {
         const res = await client.query(query);
         papers = res.rows;
     } else {
-        // Reviewer: See assigned papers
+        // Reviewer: See assigned papers WITH PROGRESS
+        // Correlated subqueries for progress tracking per-paper-pair
         const query = `
             SELECT 
                 ps.paper_session_id,
@@ -44,7 +45,20 @@ export default async function DashboardPage() {
                 ps.subject,
                 ps.language,
                 ps.questions_reviewed,
-                ra.status as assignment_status
+                ra.status as assignment_status,
+                (
+                    SELECT COUNT(*) 
+                    FROM question_links ql 
+                    WHERE ql.paper_session_id_english = ps.paper_session_id 
+                       OR ql.paper_session_id_hindi = ps.paper_session_id
+                ) as total_q,
+                (
+                    SELECT COUNT(*) 
+                    FROM question_links ql 
+                    WHERE (ql.paper_session_id_english = ps.paper_session_id 
+                       OR ql.paper_session_id_hindi = ps.paper_session_id)
+                       AND ql.status = 'MANUALLY_CORRECTED'
+                ) as corrected_q
             FROM review_assignments ra
             JOIN paper_session ps ON ra.paper_session_id = ps.paper_session_id
             WHERE ra.reviewer_id = $1
@@ -91,57 +105,78 @@ export default async function DashboardPage() {
                                     <th className="px-6 py-3">Date</th>
                                     <th className="px-6 py-3">Paper Name</th>
                                     <th className="px-6 py-3">Lang</th>
-                                    <th className="px-6 py-3">Status</th>
+                                    <th className="px-6 py-3">Status / Progress</th>
                                     <th className="px-6 py-3">Action</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {papers.map((paper) => (
-                                    <tr key={paper.paper_session_id} className="bg-white border-b hover:bg-gray-50">
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            {paper.paper_date ? new Date(paper.paper_date).toLocaleDateString() : 'N/A'}
-                                        </td>
-                                        <td className="px-6 py-4 font-medium text-gray-900">
-                                            {paper.caption || paper.session_label}
-                                            {paper.subject && <div className="text-xs text-gray-400 font-normal">{paper.subject}</div>}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <span className={`px-2 py-1 rounded text-xs font-bold ${paper.language === 'EN' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'
-                                                }`}>
-                                                {paper.language}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            {user.isAdmin ? (
-                                                paper.questions_reviewed ? (
-                                                    <span className="text-green-600 font-bold flex items-center">
-                                                        <span className="w-2 h-2 rounded-full bg-green-500 mr-2"></span> Reviewed
-                                                    </span>
-                                                ) : (
-                                                    <span className="text-gray-400 flex items-center">
-                                                        <span className="w-2 h-2 rounded-full bg-gray-300 mr-2"></span> Pending
-                                                    </span>
-                                                )
-                                            ) : (
-                                                // Reviewer View
-                                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${paper.assignment_status === 'COMPLETED'
-                                                        ? 'bg-green-100 text-green-800'
-                                                        : 'bg-yellow-100 text-yellow-800'
+                                {papers.map((paper) => {
+                                    // Calculate progress if available
+                                    const total = parseInt(paper.total_q || 0);
+                                    const corrected = parseInt(paper.corrected_q || 0);
+                                    const percent = total > 0 ? Math.round((corrected / total) * 100) : 0;
+                                    const showProgress = !user.isAdmin && total > 0;
+
+                                    return (
+                                        <tr key={paper.paper_session_id} className="bg-white border-b hover:bg-gray-50">
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                {paper.paper_date ? new Date(paper.paper_date).toLocaleDateString() : 'N/A'}
+                                            </td>
+                                            <td className="px-6 py-4 font-medium text-gray-900">
+                                                {paper.caption || paper.session_label}
+                                                {paper.subject && <div className="text-xs text-gray-400 font-normal">{paper.subject}</div>}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <span className={`px-2 py-1 rounded text-xs font-bold ${paper.language === 'EN' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'
                                                     }`}>
-                                                    {paper.assignment_status || 'PENDING'}
+                                                    {paper.language}
                                                 </span>
-                                            )}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <Link
-                                                href={`/bilingual/${paper.paper_session_id}`}
-                                                className="font-medium text-blue-600 dark:text-blue-500 hover:underline"
-                                            >
-                                                Open Review
-                                            </Link>
-                                        </td>
-                                    </tr>
-                                ))}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                {showProgress ? (
+                                                    // Progress Bar for Reviewers
+                                                    <div className="w-full max-w-[140px]">
+                                                        <div className="flex justify-between text-xs mb-1">
+                                                            <span className={`font-semibold ${paper.assignment_status === 'COMPLETED' ? 'text-green-600' : 'text-yellow-600'}`}>
+                                                                {paper.assignment_status === 'COMPLETED' ? 'Done' : 'In Progress'}
+                                                            </span>
+                                                            <span className="text-gray-500">{corrected}/{total}</span>
+                                                        </div>
+                                                        <div className="w-full bg-gray-200 rounded-full h-1.5">
+                                                            <div
+                                                                className={`h-1.5 rounded-full ${paper.assignment_status === 'COMPLETED' ? 'bg-green-500' : 'bg-blue-500'}`}
+                                                                style={{ width: `${percent}%` }}
+                                                            ></div>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    // Simple Status for Admins (or if no progress data)
+                                                    user.isAdmin ? (
+                                                        paper.questions_reviewed ? (
+                                                            <span className="text-green-600 font-bold flex items-center">
+                                                                <span className="w-2 h-2 rounded-full bg-green-500 mr-2"></span> Reviewed
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-gray-400 flex items-center">
+                                                                <span className="w-2 h-2 rounded-full bg-gray-300 mr-2"></span> Pending
+                                                            </span>
+                                                        )
+                                                    ) : (
+                                                        <span className="text-gray-400">Loading...</span>
+                                                    )
+                                                )}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <Link
+                                                    href={`/bilingual/${paper.paper_session_id}`}
+                                                    className="font-medium text-blue-600 dark:text-blue-500 hover:underline"
+                                                >
+                                                    Open Review
+                                                </Link>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>

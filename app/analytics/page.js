@@ -9,28 +9,65 @@ export default async function AnalyticsPage() {
 
     const client = await db.connect();
 
-    // 2. Fetch Aggregated Stats
+    // 2. Fetch Aggregated Stats (Granular: based on Question Links)
+    // We use a CTE to find distinct matching links per reviewer to avoid double counting 
+    // the same link if both EN and HI papers are assigned to the same person.
     const statsRes = await client.query(`
+        WITH reviewer_links AS (
+            SELECT DISTINCT
+                ra.reviewer_id,
+                ql.id as link_id,
+                ql.status
+            FROM review_assignments ra
+            JOIN question_links ql ON (
+                ql.paper_session_id_english = ra.paper_session_id
+                OR ql.paper_session_id_hindi = ra.paper_session_id
+            )
+        )
         SELECT 
             u.id as user_id,
             u.name,
             u.email,
-            COUNT(ra.id) as total_assigned,
-            COUNT(CASE WHEN ra.status = 'COMPLETED' THEN 1 END) as completed_count,
-            COUNT(CASE WHEN ra.status = 'PENDING' THEN 1 END) as pending_count
-        FROM review_assignments ra
-        JOIN users u ON ra.reviewer_id = u.id
-        GROUP BY u.id, u.name, u.email
-        ORDER BY completed_count DESC, u.name
+            COUNT(DISTINCT ra.id) as papers_assigned,
+            COALESCE(rl_stats.total_q, 0) as total_questions,
+            COALESCE(rl_stats.corrected_q, 0) as corrected_questions
+        FROM users u
+        JOIN review_assignments ra ON ra.reviewer_id = u.id
+        LEFT JOIN (
+            SELECT 
+                reviewer_id,
+                COUNT(link_id) as total_q,
+                COUNT(CASE WHEN status = 'MANUALLY_CORRECTED' THEN 1 END) as corrected_q
+            FROM reviewer_links
+            GROUP BY reviewer_id
+        ) rl_stats ON u.id = rl_stats.reviewer_id
+        GROUP BY u.id, u.name, u.email, rl_stats.total_q, rl_stats.corrected_q
+        ORDER BY corrected_questions DESC, u.name
     `);
 
+    // 3. Detailed List with Per-Paper Progress
+    // Note: We compute progress for the *pair* this paper belongs to.
     const detailedRes = await client.query(`
         SELECT 
             u.email,
+            ps.paper_session_id,
             ps.caption as paper_name,
             ps.language,
-            ra.status,
-            ra.assigned_at
+            ra.status as assignment_status,
+            ra.assigned_at,
+            (
+                SELECT COUNT(*) 
+                FROM question_links ql 
+                WHERE ql.paper_session_id_english = ps.paper_session_id 
+                   OR ql.paper_session_id_hindi = ps.paper_session_id
+            ) as paper_total_q,
+            (
+                SELECT COUNT(*) 
+                FROM question_links ql 
+                WHERE (ql.paper_session_id_english = ps.paper_session_id 
+                   OR ql.paper_session_id_hindi = ps.paper_session_id)
+                   AND ql.status = 'MANUALLY_CORRECTED'
+            ) as paper_corrected_q
         FROM review_assignments ra
         JOIN users u ON ra.reviewer_id = u.id
         JOIN paper_session ps ON ra.paper_session_id = ps.paper_session_id
@@ -49,21 +86,25 @@ export default async function AnalyticsPage() {
             {/* Overview Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
                 <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
-                    <h3 className="text-sm font-bold text-gray-500 uppercase">Total Assignments</h3>
+                    <h3 className="text-sm font-bold text-gray-500 uppercase">Total Questions to Review</h3>
                     <p className="text-4xl font-bold text-blue-600 mt-2">
-                        {stats.reduce((acc, curr) => acc + parseInt(curr.total_assigned), 0)}
+                        {stats.reduce((acc, curr) => acc + parseInt(curr.total_questions), 0)}
                     </p>
                 </div>
                 <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
-                    <h3 className="text-sm font-bold text-gray-500 uppercase">Completed</h3>
+                    <h3 className="text-sm font-bold text-gray-500 uppercase">Total Corrected</h3>
                     <p className="text-4xl font-bold text-green-600 mt-2">
-                        {stats.reduce((acc, curr) => acc + parseInt(curr.completed_count), 0)}
+                        {stats.reduce((acc, curr) => acc + parseInt(curr.corrected_questions), 0)}
                     </p>
                 </div>
                 <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
-                    <h3 className="text-sm font-bold text-gray-500 uppercase">Pending</h3>
-                    <p className="text-4xl font-bold text-yellow-600 mt-2">
-                        {stats.reduce((acc, curr) => acc + parseInt(curr.pending_count), 0)}
+                    <h3 className="text-sm font-bold text-gray-500 uppercase">Overall Progress</h3>
+                    <p className="text-4xl font-bold text-purple-600 mt-2">
+                        {(() => {
+                            const total = stats.reduce((acc, curr) => acc + parseInt(curr.total_questions), 0);
+                            const corrected = stats.reduce((acc, curr) => acc + parseInt(curr.corrected_questions), 0);
+                            return total > 0 ? Math.round((corrected / total) * 100) + '%' : '0%';
+                        })()}
                     </p>
                 </div>
             </div>
@@ -78,17 +119,18 @@ export default async function AnalyticsPage() {
                         <thead className="text-xs text-gray-700 uppercase bg-gray-50">
                             <tr>
                                 <th className="px-6 py-3">Reviewer</th>
-                                <th className="px-6 py-3">Assigned</th>
-                                <th className="px-6 py-3">Completed</th>
-                                <th className="px-6 py-3">Pending</th>
+                                <th className="px-6 py-3">Paper Sets</th>
+                                <th className="px-6 py-3">Questions (Total)</th>
+                                <th className="px-6 py-3">Corrected</th>
                                 <th className="px-6 py-3">Progress</th>
                             </tr>
                         </thead>
                         <tbody>
                             {stats.map((user) => {
-                                const total = parseInt(user.total_assigned);
-                                const completed = parseInt(user.completed_count);
-                                const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+                                const total = parseInt(user.total_questions);
+                                const corrected = parseInt(user.corrected_questions);
+                                const percentage = total > 0 ? Math.round((corrected / total) * 100) : 0;
+                                const papersCount = parseInt(user.papers_assigned);
 
                                 return (
                                     <tr key={user.user_id} className="bg-white border-b hover:bg-gray-50">
@@ -96,17 +138,17 @@ export default async function AnalyticsPage() {
                                             {user.name} <br />
                                             <span className="text-gray-400 font-normal text-xs">{user.email}</span>
                                         </td>
+                                        <td className="px-6 py-4">{papersCount / 2} pairs ({papersCount})</td>
                                         <td className="px-6 py-4">{total}</td>
-                                        <td className="px-6 py-4 text-green-600 font-bold">{completed}</td>
-                                        <td className="px-6 py-4 text-yellow-600 font-bold">{user.pending_count}</td>
+                                        <td className="px-6 py-4 text-green-600 font-bold">{corrected}</td>
                                         <td className="px-6 py-4">
                                             <div className="w-full bg-gray-200 rounded-full h-2.5">
                                                 <div
-                                                    className="bg-blue-600 h-2.5 rounded-full"
+                                                    className="bg-blue-600 h-2.5 rounded-full transition-all duration-500"
                                                     style={{ width: `${percentage}%` }}
                                                 ></div>
                                             </div>
-                                            <span className="text-xs text-gray-500 mt-1 block">{percentage}%</span>
+                                            <span className="text-xs text-gray-500 mt-1 block">{corrected}/{total} ({percentage}%)</span>
                                         </td>
                                     </tr>
                                 );
@@ -122,19 +164,46 @@ export default async function AnalyticsPage() {
                     <h2 className="text-lg font-bold text-gray-800">Detailed Assignments</h2>
                 </div>
                 <div className="p-6 max-h-[600px] overflow-y-auto">
-                    {details.map((row, idx) => (
-                        <div key={idx} className="flex justify-between items-center py-2 border-b last:border-0 border-gray-100">
-                            <div>
-                                <span className={`inline-block w-20 text-xs font-bold px-2 py-1 rounded mr-3 ${row.status === 'COMPLETED' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                                    {row.status}
-                                </span>
-                                <span className="text-gray-800 text-sm font-medium mr-2">
-                                    [{row.language}] {row.paper_name}
-                                </span>
+                    {details.map((row, idx) => {
+                        const pTotal = parseInt(row.paper_total_q);
+                        const pCorrected = parseInt(row.paper_corrected_q);
+                        const pPercent = pTotal > 0 ? Math.round((pCorrected / pTotal) * 100) : 0;
+
+                        return (
+                            <div key={idx} className="flex flex-col sm:flex-row justify-between items-start sm:items-center py-3 border-b last:border-0 border-gray-100">
+                                <div className="mb-2 sm:mb-0">
+                                    <div className="flex items-center mb-1">
+                                        <span className={`inline-block w-20 text-xs font-bold px-2 py-1 rounded mr-3 text-center ${row.assignment_status === 'COMPLETED' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                                            {row.assignment_status === 'COMPLETED' ? 'DONE' : 'ACTIVE'}
+                                        </span>
+                                        <span className={`text-xs font-bold px-2 py-[2px] rounded mr-2 border ${row.language === 'EN' ? 'border-blue-200 text-blue-600 bg-blue-50' : 'border-orange-200 text-orange-600 bg-orange-50'}`}>
+                                            {row.language}
+                                        </span>
+                                        <span className="text-gray-800 text-sm font-medium truncat max-w-[300px] sm:max-w-md" title={row.paper_name}>
+                                            {row.paper_name}
+                                        </span>
+                                    </div>
+                                    <div className="ml-[100px] text-xs text-gray-400">
+                                        Assigned to: {row.email}
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center w-full sm:w-auto ml-[100px] sm:ml-0">
+                                    <div className="w-32 mr-3">
+                                        <div className="w-full bg-gray-200 rounded-full h-2">
+                                            <div
+                                                className="bg-green-500 h-2 rounded-full transition-all duration-500"
+                                                style={{ width: `${pPercent}%` }}
+                                            ></div>
+                                        </div>
+                                    </div>
+                                    <span className="text-sm font-medium text-gray-600 min-w-[80px] text-right">
+                                        {pCorrected} / {pTotal}
+                                    </span>
+                                </div>
                             </div>
-                            <span className="text-gray-400 text-xs">{row.email}</span>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             </div>
         </div>
