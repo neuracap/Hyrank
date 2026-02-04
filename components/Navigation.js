@@ -22,8 +22,8 @@ export default function Navigation({ user }) {
                             <Link
                                 href="/dashboard"
                                 className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${isActive('/dashboard')
-                                        ? 'border-blue-500 text-gray-900'
-                                        : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                                    ? 'border-blue-500 text-gray-900'
+                                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
                                     }`}
                             >
                                 Dashboard
@@ -33,8 +33,8 @@ export default function Navigation({ user }) {
                                 <Link
                                     href="/analytics"
                                     className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${isActive('/analytics')
-                                            ? 'border-purple-500 text-gray-900'
-                                            : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                                        ? 'border-purple-500 text-gray-900'
+                                        : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
                                         }`}
                                 >
                                     Analytics
@@ -44,8 +44,8 @@ export default function Navigation({ user }) {
                             <Link
                                 href="/test"
                                 className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${isActive('/test')
-                                        ? 'border-green-500 text-gray-900'
-                                        : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                                    ? 'border-green-500 text-gray-900'
+                                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
                                     }`}
                             >
                                 Test Page
@@ -57,11 +57,15 @@ export default function Navigation({ user }) {
                             {user?.email || 'Guest'}
                             {user?.isAdmin && <span className="ml-2 text-xs bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full">ADMIN</span>}
                         </div>
-                        <form action="/api/auth/logout" method="POST">
-                            <button type="submit" className="text-sm text-red-600 hover:text-red-800 font-medium">
-                                Logout
-                            </button>
-                        </form>
+                        <button
+                            onClick={async () => {
+                                await fetch('/api/auth/logout', { method: 'POST' });
+                                window.location.href = '/login';
+                            }}
+                            className="text-sm text-red-600 hover:text-red-800 font-medium"
+                        >
+                            Logout
+                        </button>
                     </div>
                 </div>
             </div>
