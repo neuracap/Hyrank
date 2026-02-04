@@ -5,6 +5,23 @@ import mime from 'mime';
 
 export const dynamic = 'force-dynamic';
 
+async function serveCloudinaryPdf(url, filename) {
+    const pdfRes = await fetch(url);
+    if (!pdfRes.ok) {
+        throw new Error(`Failed to fetch PDF from Cloudinary: ${pdfRes.statusText}`);
+    }
+    const pdfBuffer = await pdfRes.arrayBuffer();
+
+    return new NextResponse(pdfBuffer, {
+        headers: {
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `inline; filename="${filename}.pdf"`,
+            'Content-Length': pdfBuffer.byteLength.toString(),
+            'Cache-Control': 'public, max-age=3600'
+        }
+    });
+}
+
 export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const filePath = searchParams.get('path');
@@ -70,29 +87,37 @@ export async function GET(request) {
 
                 if (searchRes.resources && searchRes.resources.length > 0) {
                     const pdfUrl = searchRes.resources[0].secure_url;
-                    console.log("Found PDF via search (exact):", pdfUrl);
-
-                    // Proxy the content
-                    const pdfRes = await fetch(pdfUrl);
-                    if (!pdfRes.ok) {
-                        throw new Error(`Failed to fetch PDF from Cloudinary: ${pdfRes.statusText}`);
-                    }
-                    const pdfBuffer = await pdfRes.arrayBuffer();
-
-                    return new NextResponse(pdfBuffer, {
-                        headers: {
-                            'Content-Type': 'application/pdf',
-                            'Content-Disposition': `inline; filename="${filename}.pdf"`,
-                            'Content-Length': pdfBuffer.byteLength.toString(),
-                            // Optional: Cache control
-                            'Cache-Control': 'public, max-age=3600'
-                        }
-                    });
+                    console.log("Found PDF via prefix search:", pdfUrl);
+                    return await serveCloudinaryPdf(pdfUrl, filename);
                 }
 
-                // If not found, try searching with loose filename (maybe special chars differ)
-                // Note: filenames in search might be strict.
-                console.log("PDF not found via exact name search. Trying manual fallback.");
+                // Strategy 2: Search by filename in the specific folder
+                console.log("Prefix search failed. Trying filename search in folder...");
+                const filenameSearchRes = await cloudinary.search
+                    .expression(`resource_type:image AND folder="${folderName}" AND filename:"${filename}"`)
+                    .max_results(1)
+                    .execute();
+
+                if (filenameSearchRes.resources && filenameSearchRes.resources.length > 0) {
+                    const pdfUrl = filenameSearchRes.resources[0].secure_url;
+                    console.log("Found PDF via filename search:", pdfUrl);
+                    return await serveCloudinaryPdf(pdfUrl, filename);
+                }
+
+                // Strategy 3: Global search by filename (last resort)
+                console.log("Folder search failed. Trying global filename search...");
+                const globalSearchRes = await cloudinary.search
+                    .expression(`resource_type:image AND filename:"${filename}"`)
+                    .max_results(1)
+                    .execute();
+
+                if (globalSearchRes.resources && globalSearchRes.resources.length > 0) {
+                    const pdfUrl = globalSearchRes.resources[0].secure_url;
+                    console.log("Found PDF via global filename search:", pdfUrl);
+                    return await serveCloudinaryPdf(pdfUrl, filename);
+                }
+
+                console.log("PDF not found via any search strategy.");
 
             } catch (searchError) {
                 console.error("Cloudinary search failed:", searchError);
