@@ -46,8 +46,8 @@ export async function POST(req) {
                 } else {
                     // INSERT new option (for missing C, D, etc.)
                     await client.query(`
-                        INSERT INTO question_option (question_id, version_no, language, option_key, option_json)
-                        VALUES ($1, $2, $3, $4, jsonb_build_object('text', $5::text))
+                        INSERT INTO question_option (question_id, version_no, language, option_key, option_json, is_correct)
+                        VALUES ($1, $2, $3, $4, jsonb_build_object('text', $5::text), false)
                     `, [id, version_no, language, opt.opt_label, opt.opt_text || ""]);
                 }
             }
