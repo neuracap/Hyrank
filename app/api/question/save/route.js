@@ -27,17 +27,26 @@ export async function POST(req) {
         // 2. Update Options
         if (options && options.length > 0) {
             for (const opt of options) {
-                // We use INSERT ON CONFLICT (upsert) to handle both new and existing options
-                // Need to ensure opt_text is wrapped in the correct JSON structure: { "text": "..." }
-                // Schema: question_id, version_no, language, option_key, option_json, is_correct, created_at
+                // Check if option exists
+                const existingOpt = await client.query(`
+                    SELECT id FROM question_option 
+                    WHERE question_id = $1 AND version_no = $2 AND language = $3 AND option_key = $4
+                `, [id, version_no, language, opt.opt_label]);
 
-                await client.query(`
-                    INSERT INTO question_option (question_id, version_no, language, option_key, option_json)
-                    VALUES ($1, $2, $3, $4, jsonb_build_object('text', $5::text))
-                    ON CONFLICT (question_id, version_no, language, option_key)
-                    DO UPDATE SET 
-                        option_json = jsonb_set(question_option.option_json, '{text}', to_jsonb($5::text))
-                `, [id, version_no, language, opt.opt_label, opt.opt_text]);
+                if (existingOpt.rows.length > 0) {
+                    // Update existing option
+                    await client.query(`
+                        UPDATE question_option
+                        SET option_json = jsonb_set(option_json, '{text}', to_jsonb($1::text))
+                        WHERE question_id = $2 AND version_no = $3 AND language = $4 AND option_key = $5
+                    `, [opt.opt_text, id, version_no, language, opt.opt_label]);
+                } else {
+                    // Insert new option
+                    await client.query(`
+                        INSERT INTO question_option (question_id, version_no, language, option_key, option_json)
+                        VALUES ($1, $2, $3, $4, jsonb_build_object('text', $5::text))
+                    `, [id, version_no, language, opt.opt_label, opt.opt_text]);
+                }
             }
         }
 
