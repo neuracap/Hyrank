@@ -714,7 +714,7 @@ Are you sure you want to proceed?`;
                             )}
                             <div className={`px-6 py-3 border-b flex justify-between items-center text-sm ${isLowScore && !isCorrected ? 'bg-red-100 border-red-200' : 'bg-gray-50/50 border-gray-200'}`}>
                                 <div className="font-mono text-gray-500">
-                                    Q.{q.eng_source_no || q.eng_id.substring(0, 6)} {/* Showing Question Number/ID as title instead of Link ID */}
+                                    Q.{q.eng_source_no || q.eng_id?.substring(0, 6) || 'N/A'} {/* Showing Question Number/ID as title instead of Link ID */}
                                 </div>
                                 <div className="flex gap-2 items-center">
                                     {/* Feedback Message */}
@@ -782,7 +782,7 @@ Are you sure you want to proceed?`;
                                     </div>
 
                                     <div className="mb-6">
-                                        <h3 className="text-sm font-bold text-gray-700 mb-2">Q.{q.eng_source_no || q.eng_id.substring(0, 6)}</h3>
+                                        <h3 className="text-sm font-bold text-gray-700 mb-2">Q.{q.eng_source_no || q.eng_id?.substring(0, 6) || 'N/A'}</h3>
                                         <div className="relative">
                                             <textarea
                                                 id={`eng-text-${index}`}
