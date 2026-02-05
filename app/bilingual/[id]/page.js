@@ -68,7 +68,7 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortB
                 
                 ql.translated_debug
             FROM RankedQuestions qe
-            LEFT JOIN question_links ql ON (
+            INNER JOIN question_links ql ON (
                 ql.english_question_id = qe.question_id AND 
                 ql.english_version_no = qe.version_no
             )
@@ -92,9 +92,12 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortB
 
         // Fetch Count
         const countRes = await client.query(`
-            SELECT COUNT(DISTINCT qe.question_id) as c
-            FROM exam_section s
-            JOIN question_version qe ON s.section_id = qe.exam_section_id
+            SELECT COUNT(DISTINCT ql.id) as c
+            FROM question_version qe
+            INNER JOIN question_links ql ON (
+                ql.english_question_id = qe.question_id AND 
+                ql.english_version_no = qe.version_no
+            )
             WHERE qe.paper_session_id = $1
         `, [paperSessionId]);
         const total = parseInt(countRes.rows[0].c, 10);
