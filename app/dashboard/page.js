@@ -80,9 +80,14 @@ export default async function DashboardPage() {
                     </p>
                 </div>
                 {user.isAdmin && (
-                    <Link href="/analytics" className="text-blue-600 hover:text-blue-800 font-medium">
-                        View Analytics &rarr;
-                    </Link>
+                    <div className="flex gap-4">
+                        <Link href="/bilingdash" className="text-purple-600 hover:text-purple-800 font-medium">
+                            BiLingDash →
+                        </Link>
+                        <Link href="/analytics" className="text-blue-600 hover:text-blue-800 font-medium">
+                            View Analytics →
+                        </Link>
+                    </div>
                 )}
             </header>
 
