@@ -884,12 +884,12 @@ Are you sure you want to proceed?`;
                                     </div>
 
                                     <div className="mb-6">
-                                        <h3 className="text-sm font-bold text-gray-700 mb-2">Q.{q.hin_source_no || q.hin_id.substring(0, 6)}</h3>
+                                        <h3 className="text-sm font-bold text-gray-700 mb-2">Q.{q.hin_source_no || q.hin_id?.substring(0, 6) || 'N/A'}</h3>
                                         <div className="relative">
                                             <textarea
                                                 id={`hin-text-${index}`}
                                                 className="w-full p-3 border border-gray-300 rounded font-mono text-sm min-h-[150px] mb-2 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                                                value={q.hin_text}
+                                                value={q.hin_text || ''}
                                                 onChange={(e) => handleTextChange(index, 'hin', 'text', e.target.value)}
                                                 onPaste={(e) => handlePaste(e, index, 'hin')}
                                                 onKeyDown={(e) => {
@@ -917,7 +917,7 @@ Are you sure you want to proceed?`;
                                     </div>
 
                                     <div className="space-y-4">
-                                        {q.hin_options.map((opt, optIdx) => (
+                                        {(q.hin_options || []).map((opt, optIdx) => (
                                             <div key={opt.opt_label} className="p-2 border border-gray-100 rounded bg-white">
                                                 <div className="flex gap-2 items-center mb-2">
                                                     <div className="w-6 h-6 flex items-center justify-center rounded-full bg-gray-100 border border-gray-300 text-xs font-bold text-gray-500 shrink-0">
