@@ -5,6 +5,11 @@ import { redirect } from 'next/navigation';
 
 export const dynamic = 'force-dynamic';
 
+export const metadata = {
+    title: 'BiLingDash - Hyrank',
+    description: 'Bilingual Paper Linking Dashboard'
+};
+
 export default async function BiLingDashPage() {
     // 1. Authenticate - Admin Only
     const user = await getCurrentUser();
