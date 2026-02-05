@@ -186,8 +186,9 @@ export default function BilingualList({ initialQuestions, total, currentPage, to
                             qs[index] = { ...qs[index], feedbackMessage: null };
                         }
                         return qs;
-                    });
+                    })
                 }, 1500);
+            } else {
                 const errorData = await res.json();
                 alert(`Failed to save.\n\nError: ${errorData.details || errorData.error}\n\n${errorData.stack || ''}`);
             }
