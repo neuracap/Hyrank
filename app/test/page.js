@@ -39,6 +39,13 @@ async function fetchData(testId, page = 1, limit = 200) {
                     es.code as section_code
                 FROM question_version qv
                 LEFT JOIN exam_section es ON qv.exam_section_id = es.section_id
+                -- CHECK FOR LINK STATUS (Unlinked = No entry in question_links for this session)
+                -- We join on English ID first, then Hindi ID if needed, but simplest is to check if it exists as either.
+                LEFT JOIN question_links ql ON (
+                    (ql.english_question_id = qv.question_id AND ql.english_version_no = qv.version_no) OR
+                    (ql.hindi_question_id = qv.question_id AND ql.hindi_version_no = qv.version_no)
+                ) AND (ql.paper_session_id_english = $1 OR ql.paper_session_id_hindi = $1)
+                
                 WHERE qv.paper_session_id = $1
                 ORDER BY 
                     qv.exam_section_id ASC NULLS LAST,

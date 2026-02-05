@@ -41,7 +41,7 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortB
                     ROW_NUMBER() OVER (PARTITION BY qe.question_id ORDER BY qe.version_no DESC) as rn
                 FROM exam_section s
                 JOIN question_version qe ON s.section_id = qe.exam_section_id
-                WHERE s.paper_session_id = $1 -- Removed language constraint to ensure we get all questions
+                WHERE qe.paper_session_id = $1
             )
             SELECT 
                 ql.id as link_id,
@@ -95,7 +95,7 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortB
             SELECT COUNT(DISTINCT qe.question_id) as c
             FROM exam_section s
             JOIN question_version qe ON s.section_id = qe.exam_section_id
-            WHERE s.paper_session_id = $1
+            WHERE qe.paper_session_id = $1
         `, [paperSessionId]);
         const total = parseInt(countRes.rows[0].c, 10);
 
