@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db';
 
-// Last updated: 2026-02-05 13:25 - Using UPDATE-only logic (no ON CONFLICT)
+// DEPLOYMENT v2 - 2026-02-05 13:47 IST - UPDATE-only logic (NO ON CONFLICT)
 export async function POST(req) {
-    console.log('[SAVE] Starting question save - UPDATE-only mode');
+    console.log('[SAVE v2] Question save using UPDATE-only approach');
     const client = await db.connect();
 
     try {
