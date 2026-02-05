@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db';
 
+// Last updated: 2026-02-05 12:48 - Fixed ON CONFLICT error
 export async function POST(req) {
     const client = await db.connect();
 
