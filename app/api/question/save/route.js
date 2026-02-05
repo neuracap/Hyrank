@@ -25,29 +25,15 @@ export async function POST(req) {
             WHERE question_id = $2 AND version_no = $3 AND language = $4
         `, [question_text, id, version_no, language, source_question_no]);
 
-        // 2. Update Options
+
+        // 2. Update Options (using Bilingual page's approach)
         if (options && options.length > 0) {
             for (const opt of options) {
-                // Check if option exists
-                const existingOpt = await client.query(`
-                    SELECT id FROM question_option 
-                    WHERE question_id = $1 AND version_no = $2 AND language = $3 AND option_key = $4
-                `, [id, version_no, language, opt.opt_label]);
-
-                if (existingOpt.rows.length > 0) {
-                    // Update existing option
-                    await client.query(`
-                        UPDATE question_option
-                        SET option_json = jsonb_set(option_json, '{text}', to_jsonb($1::text))
-                        WHERE question_id = $2 AND version_no = $3 AND language = $4 AND option_key = $5
-                    `, [opt.opt_text, id, version_no, language, opt.opt_label]);
-                } else {
-                    // Insert new option
-                    await client.query(`
-                        INSERT INTO question_option (question_id, version_no, language, option_key, option_json)
-                        VALUES ($1, $2, $3, $4, jsonb_build_object('text', $5::text))
-                    `, [id, version_no, language, opt.opt_label, opt.opt_text]);
-                }
+                await client.query(`
+                    UPDATE question_option 
+                    SET option_json = jsonb_set(option_json, '{text}', to_jsonb($1::text))
+                    WHERE question_id = $2 AND version_no = $3 AND language = $4 AND option_key = $5
+                `, [opt.opt_text || "", id, version_no, language, opt.opt_label]);
             }
         }
 
