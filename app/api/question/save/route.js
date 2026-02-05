@@ -32,11 +32,11 @@ export async function POST(req) {
             for (const opt of options) {
                 // Check if option exists
                 const existingOpt = await client.query(`
-                    SELECT id FROM question_option 
+                    SELECT COUNT(*) as count FROM question_option 
                     WHERE question_id = $1 AND version_no = $2 AND language = $3 AND option_key = $4
                 `, [id, version_no, language, opt.opt_label]);
 
-                if (existingOpt.rows.length > 0) {
+                if (existingOpt.rows[0].count > 0) {
                     // UPDATE existing option
                     await client.query(`
                         UPDATE question_option 
