@@ -655,11 +655,13 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                                                                     const el = document.getElementById(`q-${q.id}`);
                                                                     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                                                                 }}
-                                                                className={`flex items-center justify-center w-full aspect-square text-xs font-medium rounded border transition-colors ${hasError
-                                                                    ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
-                                                                    : 'text-gray-600 bg-gray-50 hover:bg-blue-100 hover:text-blue-600 border-gray-200'
+                                                                className={`flex items-center justify-center w-full aspect-square text-xs font-medium rounded border transition-colors ${q.is_unlinked
+                                                                        ? 'bg-red-900 text-white border-red-950 hover:bg-red-800'
+                                                                        : hasError
+                                                                            ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
+                                                                            : 'text-gray-600 bg-gray-50 hover:bg-blue-100 hover:text-blue-600 border-gray-200'
                                                                     }`}
-                                                                title={hasError ? 'Less than 4 options' : ''}
+                                                                title={q.is_unlinked ? 'Unlinked (No Bilingual Match)' : (hasError ? 'Less than 4 options' : '')}
                                                             >
                                                                 {q.source_q_no ? q.source_q_no.replace(/Q\.\s*/, '').trim() : q.q_no}
                                                             </a>

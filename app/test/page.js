@@ -36,7 +36,8 @@ async function fetchData(testId, page = 1, limit = 200) {
                     qv.has_image as has_figure,
                     qv.source_question_no,
                     qv.meta_json,
-                    es.code as section_code
+                    es.code as section_code,
+                    (ql.id IS NULL) as is_unlinked
                 FROM question_version qv
                 LEFT JOIN exam_section es ON qv.exam_section_id = es.section_id
                 -- CHECK FOR LINK STATUS (Unlinked = No entry in question_links for this session)
@@ -66,6 +67,7 @@ async function fetchData(testId, page = 1, limit = 200) {
                 // Prefer linked section code (e.g. REASONING), fallback to legacy name
                 subject: q.section_code || (q.meta_json ? q.meta_json.section_name : '') || 'General',
                 has_figure: q.has_figure,
+                is_unlinked: q.is_unlinked,
                 figure_path: null,
                 options: []
             }));

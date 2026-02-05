@@ -690,7 +690,7 @@ Are you sure you want to proceed?`;
                     }
 
                     return (
-                        <div id={`question-${q.eng_id}`} key={q.link_id} className={`rounded-lg shadow-sm border overflow-hidden ${borderClass} ${bgClass} transition-all duration-200`}>
+                        <div id={`question-${q.eng_id}`} key={q.eng_id} className={`rounded-lg shadow-sm border overflow-hidden ${borderClass} ${bgClass} transition-all duration-200`}>
                             {/* Validation Messages */}
                             {(hasErrors || hasWarnings) && (
                                 <div className={`px-6 py-2 text-xs font-bold ${hasErrors ? 'bg-red-100 text-red-800' : 'bg-pink-100 text-pink-800'} border-b ${hasErrors ? 'border-red-200' : 'border-pink-200'}`}>
