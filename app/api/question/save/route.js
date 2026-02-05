@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db';
 
-// Last updated: 2026-02-05 12:48 - Fixed ON CONFLICT error
+// Last updated: 2026-02-05 13:25 - Using UPDATE-only logic (no ON CONFLICT)
 export async function POST(req) {
+    console.log('[SAVE] Starting question save - UPDATE-only mode');
     const client = await db.connect();
 
     try {
