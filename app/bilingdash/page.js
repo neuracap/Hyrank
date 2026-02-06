@@ -11,6 +11,7 @@ export const metadata = {
 };
 
 export default async function BiLingDashPage() {
+    console.log('Rendering BiLingDash Page');
     // 1. Authenticate - Admin Only
     const user = await getCurrentUser();
     if (!user) {
