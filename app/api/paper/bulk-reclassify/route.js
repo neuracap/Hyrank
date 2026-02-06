@@ -114,13 +114,14 @@ export async function POST(req) {
                 ps.paper_session_id,
                 ps.session_label,
                 ps.exam_id,
+                ps.paper_date,
                 es.code as section_code,
                 es.name as section_name,
                 COUNT(qv.question_id) as question_count
             FROM paper_session ps
             JOIN question_version qv ON qv.paper_session_id = ps.paper_session_id
             JOIN exam_section es ON es.section_id = qv.exam_section_id
-            GROUP BY ps.paper_session_id, ps.session_label, ps.exam_id, es.code, es.name
+            GROUP BY ps.paper_session_id, ps.session_label, ps.exam_id, ps.paper_date, es.code, es.name
             HAVING COUNT(qv.question_id) > 30
             ORDER BY ps.paper_date DESC, question_count DESC
         `;
