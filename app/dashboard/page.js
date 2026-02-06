@@ -2,6 +2,7 @@ import db from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-edge';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import BulkReclassifyButton from '@/components/BulkReclassifyButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -86,6 +87,7 @@ export default async function DashboardPage() {
                 </div>
                 {user.isAdmin && (
                     <div className="flex gap-4">
+                        <BulkReclassifyButton />
                         <Link href="/bilingdash" className="text-purple-600 hover:text-purple-800 font-medium">
                             BiLingDash [Beta] →
                         </Link>
