@@ -64,7 +64,7 @@ export async function POST(req) {
         }
 
         // 3. Prepare Prompt for Gemini
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
 
         // Batching? If we have 50 questions, one prompt is likely fine for Flash 2.0 context window.
         // Construct a list using simpler indices to avoid UUID hallucination
