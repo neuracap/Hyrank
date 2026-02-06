@@ -26,7 +26,12 @@ export default async function DashboardPage() {
                 ps.caption,
                 ps.subject,
                 ps.language,
-                ps.questions_reviewed
+                ps.questions_reviewed,
+                (
+                    SELECT COUNT(*) 
+                    FROM question_version qv
+                    WHERE qv.paper_session_id = ps.paper_session_id
+                ) as total_q
             FROM paper_session ps
             ORDER BY ps.paper_date DESC 
             LIMIT 100
@@ -110,6 +115,7 @@ export default async function DashboardPage() {
                                     <th className="px-6 py-3">Date</th>
                                     <th className="px-6 py-3">Paper Name</th>
                                     <th className="px-6 py-3">Lang</th>
+                                    <th className="px-6 py-3">Questions</th>
                                     <th className="px-6 py-3">Status / Progress</th>
                                     <th className="px-6 py-3">Action</th>
                                 </tr>
@@ -135,6 +141,11 @@ export default async function DashboardPage() {
                                                 <span className={`px-2 py-1 rounded text-xs font-bold ${paper.language === 'EN' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'
                                                     }`}>
                                                     {paper.language}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <span className="font-bold text-gray-900">
+                                                    {parseInt(paper.total_q || 0)}
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4">
