@@ -49,7 +49,7 @@ export async function POST(req) {
 
         // 3. Create Question (Parent)
         const questionId = crypto.randomUUID();
-        await client.query(`INSERT INTO question (question_id) VALUES ($1)`, [questionId]);
+        await client.query(`INSERT INTO question (question_id, created_at, updated_at) VALUES ($1, NOW(), NOW())`, [questionId]);
 
         // 4. Create Question Version (Single Language)
         const initialText = language === 'HI' ? "नया प्रश्न - इसे संपादित करें" : "New Question - Edit this text";

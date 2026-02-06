@@ -12,6 +12,7 @@ const Latex = ({ children }) => {
     const [isMounted, setIsMounted] = useState(false);
 
     useEffect(() => {
+        // eslint-disable-next-line
         setIsMounted(true);
     }, []);
 
