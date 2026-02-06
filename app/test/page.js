@@ -26,7 +26,7 @@ async function fetchData(testId, page = 1, limit = 200) {
         if (computedTestId) {
             // 2. Fetch Questions for the Test
             const questionsRes = await client.query(`
-                SELECT 
+                SELECT DISTINCT ON (qv.question_id, qv.version_no)
                     qv.question_id as id, 
                     qv.version_no,
                     qv.difficulty,
@@ -49,6 +49,8 @@ async function fetchData(testId, page = 1, limit = 200) {
                 
                 WHERE qv.paper_session_id = $1
                 ORDER BY 
+                    qv.question_id,
+                    qv.version_no,
                     qv.exam_section_id ASC NULLS LAST,
                     CAST(SUBSTRING(qv.source_question_no FROM '[0-9]+') AS INTEGER) ASC NULLS LAST,
                     qv.created_at ASC 
