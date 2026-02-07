@@ -3,7 +3,8 @@ import db from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(req) {
+// Shared assignment logic
+async function assignPapers() {
     const client = await db.connect();
     try {
         // Get all reviewers (user1 through user5)
@@ -89,4 +90,14 @@ export async function POST(req) {
     } finally {
         client.release();
     }
+}
+
+// GET handler for browser access
+export async function GET(req) {
+    return assignPapers();
+}
+
+// POST handler for API access
+export async function POST(req) {
+    return assignPapers();
 }
