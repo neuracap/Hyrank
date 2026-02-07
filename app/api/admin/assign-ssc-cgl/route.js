@@ -3,7 +3,7 @@ import db from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
-// Shared assignment logic
+// Shared assignment logic - assigns bilingual PAIRS to the same reviewer
 async function assignPapers() {
     const client = await db.connect();
     try {
@@ -21,41 +21,77 @@ async function assignPapers() {
             return NextResponse.json({ error: 'No reviewers found' }, { status: 404 });
         }
 
-        // Get all unassigned SSC CGL papers
-        const unassignedQuery = await client.query(`
-            SELECT ps.paper_session_id, ps.session_label, ps.language, ps.paper_date
-            FROM paper_session ps
-            JOIN exam e ON ps.exam_id = e.exam_id
-            LEFT JOIN review_assignments ra ON ps.paper_session_id = ra.paper_session_id
-            WHERE e.name ILIKE '%SSC CGL%'  
-            AND ra.paper_session_id IS NULL
-            ORDER BY ps.paper_date DESC, ps.language
+        // STEP 1: Clear all existing SSC CGL assignments
+        await client.query('BEGIN');
+
+        const deleteResult = await client.query(`
+            DELETE FROM review_assignments 
+            WHERE paper_session_id IN (
+                SELECT ps.paper_session_id 
+                FROM paper_session ps
+                JOIN exam e ON ps.exam_id = e.exam_id
+                WHERE e.name ILIKE '%SSC CGL%'
+            )
         `);
 
-        const unassignedPapers = unassignedQuery.rows;
+        console.log(`Cleared ${deleteResult.rowCount} existing SSC CGL assignments`);
 
-        if (unassignedPapers.length === 0) {
+        // STEP 2: Get bilingual paper PAIRS (EN + HI from same exam/date/shift)
+        const pairsQuery = await client.query(`
+            SELECT 
+                e.name AS exam_name,
+                s1.paper_date,
+                s1.shift_number,
+                s1.paper_session_id AS english_session_id,
+                s1.session_label AS english_label,
+                s2.paper_session_id AS hindi_session_id,
+                s2.session_label AS hindi_label
+            FROM paper_session s1
+            JOIN paper_session s2 
+                ON s1.exam_id = s2.exam_id 
+                AND s1.paper_date = s2.paper_date 
+                AND s1.shift_number = s2.shift_number
+            JOIN exam e ON s1.exam_id = e.exam_id
+            WHERE s1.language = 'EN' 
+            AND s2.language = 'HI'
+            AND e.name ILIKE '%SSC CGL%'
+            ORDER BY s1.paper_date DESC, s1.shift_number ASC
+        `);
+
+        const pairs = pairsQuery.rows;
+
+        if (pairs.length === 0) {
+            await client.query('ROLLBACK');
             return NextResponse.json({
-                message: 'All SSC CGL papers are already assigned',
+                message: 'No bilingual SSC CGL paper pairs found',
                 assigned_count: 0
             });
         }
 
-        // Distribute papers evenly among reviewers
+        // STEP 3: Assign each PAIR to the same reviewer (round-robin)
         const assignments = [];
-        unassignedPapers.forEach((paper, index) => {
+        pairs.forEach((pair, index) => {
             const reviewer = reviewers[index % reviewers.length];
+
+            // Assign BOTH English and Hindi papers to the SAME reviewer
             assignments.push({
-                paper_session_id: paper.paper_session_id,
+                paper_session_id: pair.english_session_id,
                 reviewer_id: reviewer.id,
                 reviewer_name: reviewer.name,
-                paper_label: paper.session_label
+                language: 'EN',
+                pair_index: index + 1
+            });
+
+            assignments.push({
+                paper_session_id: pair.hindi_session_id,
+                reviewer_id: reviewer.id,
+                reviewer_name: reviewer.name,
+                language: 'HI',
+                pair_index: index + 1
             });
         });
 
-        // Insert assignments
-        await client.query('BEGIN');
-
+        // STEP 4: Insert all assignments
         for (const assignment of assignments) {
             await client.query(`
                 INSERT INTO review_assignments (paper_session_id, reviewer_id, status, assigned_at)
@@ -65,21 +101,24 @@ async function assignPapers() {
 
         await client.query('COMMIT');
 
-        // Group assignments by reviewer
-        const assignmentsByReviewer = {};
-        assignments.forEach(a => {
-            if (!assignmentsByReviewer[a.reviewer_name]) {
-                assignmentsByReviewer[a.reviewer_name] = 0;
+        // STEP 5: Group by reviewer for summary
+        const pairsByReviewer = {};
+        pairs.forEach((pair, index) => {
+            const reviewer = reviewers[index % reviewers.length];
+            if (!pairsByReviewer[reviewer.name]) {
+                pairsByReviewer[reviewer.name] = 0;
             }
-            assignmentsByReviewer[a.reviewer_name]++;
+            pairsByReviewer[reviewer.name]++;
         });
 
         return NextResponse.json({
             success: true,
-            message: `Successfully assigned ${assignments.length} SSC CGL papers`,
-            total_assigned: assignments.length,
-            assignments_by_reviewer: assignmentsByReviewer,
-            reviewers_used: reviewers.length
+            message: `Successfully assigned ${pairs.length} bilingual paper pairs (${assignments.length} total papers)`,
+            total_pairs: pairs.length,
+            total_papers_assigned: assignments.length,
+            pairs_by_reviewer: pairsByReviewer,
+            reviewers_used: reviewers.length,
+            cleared_old_assignments: deleteResult.rowCount
         });
 
     } catch (error) {
