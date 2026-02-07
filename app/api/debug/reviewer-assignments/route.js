@@ -21,7 +21,7 @@ export async function GET(req) {
             FROM paper_session ps
             JOIN exam e ON ps.exam_id = e.exam_id
             LEFT JOIN review_assignments ra ON ps.paper_session_id = ra.paper_session_id
-            LEFT JOIN users u ON ra.reviewer_id = u.user_id
+            LEFT JOIN users u ON ra.reviewer_id = u.id
             WHERE e.name ILIKE '%SSC CGL%'
             ORDER BY ps.paper_date DESC, ps.language, u.name
         `;
