@@ -108,7 +108,8 @@ async function reclassifySection(client, paper_session_id, section_code, exam_id
 export async function POST(req) {
     const client = await db.connect();
     try {
-        // 1. Find all papers with section counts
+        // Find papers with sections that have more than 30 questions
+        // LIMIT to 10 papers per run to avoid timeouts
         const query = `
             SELECT 
                 ps.paper_session_id,
@@ -124,16 +125,32 @@ export async function POST(req) {
             GROUP BY ps.paper_session_id, ps.session_label, ps.exam_id, ps.paper_date, es.code, es.name
             HAVING COUNT(qv.question_id) > 30
             ORDER BY ps.paper_date DESC, question_count DESC
+            LIMIT 10
         `;
 
         const oversizedRes = await client.query(query);
         const oversizedSections = oversizedRes.rows;
 
         if (oversizedSections.length === 0) {
+            // Check if there are MORE papers beyond the limit
+            const countQuery = `
+                SELECT COUNT(DISTINCT ps.paper_session_id) as total
+                FROM paper_session ps
+                JOIN question_version qv ON qv.paper_session_id = ps.paper_session_id
+                JOIN exam_section es ON es.section_id = qv.exam_section_id
+                GROUP BY ps.paper_session_id, es.section_id
+                HAVING COUNT(qv.question_id) > 30
+            `;
+            const countRes = await client.query(countQuery);
+            const totalRemaining = parseInt(countRes.rows[0]?.total || 0);
+
             return NextResponse.json({
                 success: true,
-                message: 'No sections with more than 30 questions found',
-                processed: 0
+                message: 'No papers need reclassification',
+                totalSections: 0,
+                totalQuestionsUpdated: 0,
+                details: [],
+                remainingPapers: totalRemaining
             });
         }
 
@@ -158,15 +175,31 @@ export async function POST(req) {
         }
 
         const totalProcessed = results.reduce((sum, r) => sum + (r.processed || 0), 0);
-        const totalUpdated = results.reduce((sum, r) => sum + (r.updated || 0), 0);
+        const totalQuestionsUpdated = results.reduce((sum, r) => sum + (r.updated || 0), 0);
+
+        // Count remaining papers that still need reclassification
+        const remainingQuery = `
+            SELECT COUNT(*) as total
+            FROM (
+                SELECT ps.paper_session_id
+                FROM paper_session ps
+                JOIN question_version qv ON qv.paper_session_id = ps.paper_session_id
+                JOIN exam_section es ON es.section_id = qv.exam_section_id
+                GROUP BY ps.paper_session_id, es.section_id
+                HAVING COUNT(qv.question_id) > 30
+            ) as oversized
+        `;
+        const remainingRes = await client.query(remainingQuery);
+        const remainingPapers = parseInt(remainingRes.rows[0]?.total || 0);
 
         return NextResponse.json({
             success: true,
-            message: `Bulk reclassification complete. Processed ${results.length} oversized sections.`,
+            message: `Processed ${results.length} section(s)`,
             totalSections: results.length,
-            totalQuestionsProcessed: totalProcessed,
-            totalQuestionsUpdated: totalUpdated,
-            details: results
+            totalQuestionsUpdated,
+            details: results,
+            remainingPapers,
+            moreToProcess: remainingPapers > 0
         });
 
     } catch (error) {

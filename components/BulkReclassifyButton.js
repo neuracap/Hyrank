@@ -23,10 +23,18 @@ export default function BulkReclassifyButton() {
                     .map(d => `${d.paper} - ${d.section}: ${d.updated}/${d.originalCount} reclassified`)
                     .join('\n');
 
-                alert(`✅ Bulk Reclassification Complete!\n\n` +
+                let message = `✅ Bulk Reclassification Complete!\n\n` +
                     `Sections processed: ${data.totalSections}\n` +
-                    `Questions updated: ${data.totalQuestionsUpdated}\n\n` +
-                    `Details:\n${summary}`);
+                    `Questions updated: ${data.totalQuestionsUpdated}\n\n`;
+
+                if (data.remainingPapers > 0) {
+                    message += `⚠️ ${data.remainingPapers} more papers still need reclassification.\n\n` +
+                        `Click "Bulk Reclassify" again to process the next batch.\n\n`;
+                }
+
+                message += `Details:\n${summary}`;
+
+                alert(message);
 
                 window.location.reload();
             } else {
