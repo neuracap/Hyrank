@@ -60,7 +60,6 @@ async function assignPapers() {
             await client.query(`
                 INSERT INTO review_assignments (paper_session_id, reviewer_id, status, assigned_at)
                 VALUES ($1, $2, 'PENDING', NOW())
-                ON CONFLICT (paper_session_id, reviewer_id) DO NOTHING
             `, [assignment.paper_session_id, assignment.reviewer_id]);
         }
 
