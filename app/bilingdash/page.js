@@ -89,6 +89,7 @@ export default async function BiLingDashPage() {
                         <table className="w-full text-sm text-left text-gray-500">
                             <thead className="text-xs text-gray-700 uppercase bg-gray-50">
                                 <tr>
+                                    <th className="px-6 py-3">S.No.</th>
                                     <th className="px-6 py-3">Exam Name</th>
                                     <th className="px-6 py-3">Paper Date</th>
                                     <th className="px-6 py-3">Shift</th>
@@ -105,6 +106,9 @@ export default async function BiLingDashPage() {
 
                                     return (
                                         <tr key={idx} className="bg-white border-b hover:bg-gray-50">
+                                            <td className="px-6 py-4 font-medium text-gray-900">
+                                                {idx + 1}
+                                            </td>
                                             <td className="px-6 py-4 font-medium text-gray-900">
                                                 {paper.exam_name}
                                             </td>
