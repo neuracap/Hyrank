@@ -109,7 +109,7 @@ export async function POST(req) {
     const client = await db.connect();
     try {
         // Find papers with sections that have more than 30 questions
-        // LIMIT to 10 papers per run to avoid timeouts
+        // LIMIT to 5 sections per run to avoid timeouts
         const query = `
             SELECT 
                 ps.paper_session_id,
@@ -125,7 +125,7 @@ export async function POST(req) {
             GROUP BY ps.paper_session_id, ps.session_label, ps.exam_id, ps.paper_date, es.code, es.name
             HAVING COUNT(qv.question_id) > 30
             ORDER BY ps.paper_date DESC, question_count DESC
-            LIMIT 10
+            LIMIT 5
         `;
 
         const oversizedRes = await client.query(query);
