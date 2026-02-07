@@ -30,11 +30,11 @@ export default function BulkReclassifyButton() {
 
                 window.location.reload();
             } else {
-                alert('Error: ' + data.error);
+                alert('❌ Error: ' + (data.error || 'Unknown error occurred'));
             }
         } catch (error) {
-            console.error(error);
-            alert('Failed to start bulk reclassification');
+            console.error('Bulk reclassify error:', error);
+            alert(`❌ Failed to complete bulk reclassification\n\nError: ${error.message}\n\nThis might be due to:\n- Network timeout (too many papers to process)\n- Server error\n\nTry processing fewer papers or contact support.`);
         } finally {
             setIsProcessing(false);
         }
