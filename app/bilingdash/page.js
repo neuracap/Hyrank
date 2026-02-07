@@ -33,8 +33,10 @@ export default async function BiLingDashPage() {
                 s1.shift_number,
                 s1.paper_session_id AS english_session_id,
                 s2.paper_session_id AS hindi_session_id,
-                COUNT(ql.id) AS questions_linked,
-                ROUND(AVG(ql.similarity_score)::numeric, 2) AS avg_score
+                COUNT(DISTINCT ql.id) AS questions_linked,
+                ROUND(AVG(ql.similarity_score)::numeric, 2) AS avg_score,
+                STRING_AGG(DISTINCT u1.name, ', ') AS english_reviewers,
+                STRING_AGG(DISTINCT u2.name, ', ') AS hindi_reviewers
             FROM paper_session s1
             JOIN paper_session s2 
                 ON s1.exam_id = s2.exam_id 
@@ -44,6 +46,10 @@ export default async function BiLingDashPage() {
             LEFT JOIN question_links ql 
                 ON s1.paper_session_id = ql.paper_session_id_english 
                 AND s2.paper_session_id = ql.paper_session_id_hindi
+            LEFT JOIN review_assignments ra1 ON s1.paper_session_id = ra1.paper_session_id
+            LEFT JOIN users u1 ON ra1.reviewer_id = u1.id
+            LEFT JOIN review_assignments ra2 ON s2.paper_session_id = ra2.paper_session_id
+            LEFT JOIN users u2 ON ra2.reviewer_id = u2.id
             WHERE s1.language = 'EN' AND s2.language = 'HI'
             GROUP BY e.name, s1.paper_date, s1.shift_number, s1.paper_session_id, s2.paper_session_id
             ORDER BY s1.paper_date DESC, s1.shift_number ASC
@@ -96,6 +102,7 @@ export default async function BiLingDashPage() {
                                     <th className="px-6 py-3">Hindi Paper</th>
                                     <th className="px-6 py-3">English Paper</th>
                                     <th className="px-6 py-3">Questions Linked</th>
+                                    <th className="px-6 py-3">Assigned to</th>
                                     <th className="px-6 py-3">Bilingual Review</th>
                                 </tr>
                             </thead>
@@ -151,6 +158,27 @@ export default async function BiLingDashPage() {
                                                         </span>
                                                     )}
                                                 </div>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                {(() => {
+                                                    const enReviewers = paper.english_reviewers?.split(', ').filter(Boolean) || [];
+                                                    const hiReviewers = paper.hindi_reviewers?.split(', ').filter(Boolean) || [];
+                                                    const allReviewers = [...new Set([...enReviewers, ...hiReviewers])];
+
+                                                    if (allReviewers.length === 0) {
+                                                        return <span className="text-red-600 font-semibold">Unassigned</span>;
+                                                    }
+
+                                                    return (
+                                                        <div className="flex flex-col gap-1">
+                                                            {allReviewers.map((reviewer, i) => (
+                                                                <span key={i} className="text-sm text-gray-900">
+                                                                    {reviewer}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    );
+                                                })()}
                                             </td>
                                             <td className="px-6 py-4">
                                                 <Link
