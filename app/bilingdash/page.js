@@ -10,7 +10,7 @@ export const metadata = {
     description: 'Bilingual Paper Linking Dashboard'
 };
 
-export default async function BiLingDashPage() {
+export default async function BiLingDashPage({ searchParams }) {
     console.log('Rendering BiLingDash Page');
     // 1. Authenticate - Admin Only
     const user = await getCurrentUser();
@@ -21,11 +21,35 @@ export default async function BiLingDashPage() {
         redirect('/dashboard');
     }
 
+    const { page = '1', limit = '50' } = searchParams;
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    const offset = (pageNum - 1) * limitNum;
+
     const client = await db.connect();
 
     // 2. Fetch Bilingual Linking Data
     let bilingualPapers = [];
+    let totalCount = 0;
     try {
+        // Get total count first for pagination
+        const countQuery = `
+            SELECT COUNT(*) 
+            FROM (
+                SELECT 1
+                FROM paper_session s1
+                JOIN paper_session s2 
+                    ON s1.exam_id = s2.exam_id 
+                    AND s1.paper_date = s2.paper_date 
+                    AND s1.shift_number = s2.shift_number
+                JOIN exam e ON s1.exam_id = e.exam_id
+                WHERE s1.language = 'EN' AND s2.language = 'HI'
+                GROUP BY e.name, s1.paper_date, s1.shift_number, s1.paper_session_id, s2.paper_session_id
+            ) as count_table
+        `;
+        const countRes = await client.query(countQuery);
+        totalCount = parseInt(countRes.rows[0]?.count || 0);
+
         const query = `
             SELECT 
                 e.name AS exam_name,
@@ -53,14 +77,17 @@ export default async function BiLingDashPage() {
             WHERE s1.language = 'EN' AND s2.language = 'HI'
             GROUP BY e.name, s1.paper_date, s1.shift_number, s1.paper_session_id, s2.paper_session_id
             ORDER BY s1.paper_date DESC, s1.shift_number ASC
+            LIMIT $1 OFFSET $2
         `;
-        const res = await client.query(query);
+        const res = await client.query(query, [limitNum, offset]);
         bilingualPapers = res.rows;
     } catch (e) {
         console.error('Error fetching bilingual data:', e);
     } finally {
         client.release();
     }
+
+    const totalPages = Math.ceil(totalCount / limitNum);
 
     return (
         <div className="container mx-auto px-4 py-8">
@@ -77,13 +104,15 @@ export default async function BiLingDashPage() {
             </header>
 
             <div className="bg-white shadow rounded-lg border border-gray-200 overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-                    <h2 className="text-lg font-bold text-gray-800">
-                        Bilingual Paper Linking Status
-                    </h2>
-                    <p className="text-sm text-gray-500 mt-1">
-                        Total Papers: {bilingualPapers.length}
-                    </p>
+                <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                    <div>
+                        <h2 className="text-lg font-bold text-gray-800">
+                            Bilingual Paper Linking Status
+                        </h2>
+                        <p className="text-sm text-gray-500 mt-1">
+                            Total Papers: {totalCount} | Page {pageNum} of {totalPages}
+                        </p>
+                    </div>
                 </div>
 
                 {bilingualPapers.length === 0 ? (
@@ -110,11 +139,12 @@ export default async function BiLingDashPage() {
                                 {bilingualPapers.map((paper, idx) => {
                                     const linkedCount = parseInt(paper.questions_linked || 0);
                                     const avgScore = paper.avg_score || 0;
+                                    const serialNumber = offset + idx + 1;
 
                                     return (
                                         <tr key={idx} className="bg-white border-b hover:bg-gray-50">
                                             <td className="px-6 py-4 font-medium text-gray-900">
-                                                {idx + 1}
+                                                {serialNumber}
                                             </td>
                                             <td className="px-6 py-4 font-medium text-gray-900">
                                                 {paper.exam_name}
@@ -193,6 +223,35 @@ export default async function BiLingDashPage() {
                                 })}
                             </tbody>
                         </table>
+                    </div>
+                )}
+
+                {/* Pagination Controls */}
+                {totalPages > 1 && (
+                    <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
+                        <div>
+                            <span className="text-sm text-gray-700">
+                                Showing <span className="font-medium">{offset + 1}</span> to <span className="font-medium">{Math.min(offset + limitNum, totalCount)}</span> of <span className="font-medium">{totalCount}</span> results
+                            </span>
+                        </div>
+                        <div className="flex gap-2">
+                            {pageNum > 1 && (
+                                <Link
+                                    href={`/bilingdash?page=${pageNum - 1}&limit=${limitNum}`}
+                                    className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                                >
+                                    Previous
+                                </Link>
+                            )}
+                            {pageNum < totalPages && (
+                                <Link
+                                    href={`/bilingdash?page=${pageNum + 1}&limit=${limitNum}`}
+                                    className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                                >
+                                    Next
+                                </Link>
+                            )}
+                        </div>
                     </div>
                 )}
             </div>

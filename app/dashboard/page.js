@@ -69,6 +69,7 @@ export default async function DashboardPage() {
             JOIN paper_session ps ON ra.paper_session_id = ps.paper_session_id
             WHERE ra.reviewer_id = $1
             ORDER BY ra.assigned_at DESC, ps.paper_date DESC
+            LIMIT 50
         `;
         const res = await client.query(query, [user.id]);
         papers = res.rows;
