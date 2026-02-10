@@ -26,30 +26,15 @@ export default async function BiLingDashPage({ searchParams }) {
     const limitNum = parseInt(limit, 10);
     const offset = (pageNum - 1) * limitNum;
 
+
     const client = await db.connect();
 
     // 2. Fetch Bilingual Linking Data
     let bilingualPapers = [];
-    let totalCount = 0;
+    let hasMore = false;
     try {
-        // Get total count first for pagination
-        const countQuery = `
-            SELECT COUNT(*) 
-            FROM (
-                SELECT 1
-                FROM paper_session s1
-                JOIN paper_session s2 
-                    ON s1.exam_id = s2.exam_id 
-                    AND s1.paper_date = s2.paper_date 
-                    AND s1.shift_number = s2.shift_number
-                JOIN exam e ON s1.exam_id = e.exam_id
-                WHERE s1.language = 'EN' AND s2.language = 'HI'
-                GROUP BY e.name, s1.paper_date, s1.shift_number, s1.paper_session_id, s2.paper_session_id
-            ) as count_table
-        `;
-        const countRes = await client.query(countQuery);
-        totalCount = parseInt(countRes.rows[0]?.count || 0);
-
+        // Fetch one extra row to check if there are more pages
+        // This avoids the expensive COUNT(*) query
         const query = `
             SELECT 
                 e.name AS exam_name,
@@ -58,9 +43,7 @@ export default async function BiLingDashPage({ searchParams }) {
                 s1.paper_session_id AS english_session_id,
                 s2.paper_session_id AS hindi_session_id,
                 COUNT(DISTINCT ql.id) AS questions_linked,
-                ROUND(AVG(ql.similarity_score)::numeric, 2) AS avg_score,
-                STRING_AGG(DISTINCT u1.name, ', ') AS english_reviewers,
-                STRING_AGG(DISTINCT u2.name, ', ') AS hindi_reviewers
+                ROUND(AVG(ql.similarity_score)::numeric, 2) AS avg_score
             FROM paper_session s1
             JOIN paper_session s2 
                 ON s1.exam_id = s2.exam_id 
@@ -70,24 +53,26 @@ export default async function BiLingDashPage({ searchParams }) {
             LEFT JOIN question_links ql 
                 ON s1.paper_session_id = ql.paper_session_id_english 
                 AND s2.paper_session_id = ql.paper_session_id_hindi
-            LEFT JOIN review_assignments ra1 ON s1.paper_session_id = ra1.paper_session_id
-            LEFT JOIN users u1 ON ra1.reviewer_id = u1.id
-            LEFT JOIN review_assignments ra2 ON s2.paper_session_id = ra2.paper_session_id
-            LEFT JOIN users u2 ON ra2.reviewer_id = u2.id
             WHERE s1.language = 'EN' AND s2.language = 'HI'
             GROUP BY e.name, s1.paper_date, s1.shift_number, s1.paper_session_id, s2.paper_session_id
             ORDER BY s1.paper_date DESC, s1.shift_number ASC
             LIMIT $1 OFFSET $2
         `;
-        const res = await client.query(query, [limitNum, offset]);
-        bilingualPapers = res.rows;
+        const res = await client.query(query, [limitNum + 1, offset]);
+
+        // Check if there are more results
+        if (res.rows.length > limitNum) {
+            hasMore = true;
+            bilingualPapers = res.rows.slice(0, limitNum);
+        } else {
+            bilingualPapers = res.rows;
+        }
     } catch (e) {
         console.error('Error fetching bilingual data:', e);
     } finally {
         client.release();
     }
 
-    const totalPages = Math.ceil(totalCount / limitNum);
 
     return (
         <div className="container mx-auto px-4 py-8">
@@ -110,7 +95,7 @@ export default async function BiLingDashPage({ searchParams }) {
                             Bilingual Paper Linking Status
                         </h2>
                         <p className="text-sm text-gray-500 mt-1">
-                            Total Papers: {totalCount} | Page {pageNum} of {totalPages}
+                            Showing {bilingualPapers.length} papers (Page {pageNum})
                         </p>
                     </div>
                 </div>
@@ -131,7 +116,7 @@ export default async function BiLingDashPage({ searchParams }) {
                                     <th className="px-6 py-3">Hindi Paper</th>
                                     <th className="px-6 py-3">English Paper</th>
                                     <th className="px-6 py-3">Questions Linked</th>
-                                    <th className="px-6 py-3">Assigned to</th>
+
                                     <th className="px-6 py-3">Bilingual Review</th>
                                 </tr>
                             </thead>
@@ -189,27 +174,7 @@ export default async function BiLingDashPage({ searchParams }) {
                                                     )}
                                                 </div>
                                             </td>
-                                            <td className="px-6 py-4">
-                                                {(() => {
-                                                    const enReviewers = paper.english_reviewers?.split(', ').filter(Boolean) || [];
-                                                    const hiReviewers = paper.hindi_reviewers?.split(', ').filter(Boolean) || [];
-                                                    const allReviewers = [...new Set([...enReviewers, ...hiReviewers])];
 
-                                                    if (allReviewers.length === 0) {
-                                                        return <span className="text-red-600 font-semibold">Unassigned</span>;
-                                                    }
-
-                                                    return (
-                                                        <div className="flex flex-col gap-1">
-                                                            {allReviewers.map((reviewer, i) => (
-                                                                <span key={i} className="text-sm text-gray-900">
-                                                                    {reviewer}
-                                                                </span>
-                                                            ))}
-                                                        </div>
-                                                    );
-                                                })()}
-                                            </td>
                                             <td className="px-6 py-4">
                                                 <Link
                                                     href={`/bilingual/${paper.english_session_id}`}
@@ -227,11 +192,11 @@ export default async function BiLingDashPage({ searchParams }) {
                 )}
 
                 {/* Pagination Controls */}
-                {totalPages > 1 && (
+                {(pageNum > 1 || hasMore) && (
                     <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
                         <div>
                             <span className="text-sm text-gray-700">
-                                Showing <span className="font-medium">{offset + 1}</span> to <span className="font-medium">{Math.min(offset + limitNum, totalCount)}</span> of <span className="font-medium">{totalCount}</span> results
+                                Showing {bilingualPapers.length} results (Page {pageNum})
                             </span>
                         </div>
                         <div className="flex gap-2">
@@ -243,7 +208,7 @@ export default async function BiLingDashPage({ searchParams }) {
                                     Previous
                                 </Link>
                             )}
-                            {pageNum < totalPages && (
+                            {hasMore && (
                                 <Link
                                     href={`/bilingdash?page=${pageNum + 1}&limit=${limitNum}`}
                                     className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"

@@ -40,8 +40,7 @@ export default async function DashboardPage() {
         const res = await client.query(query);
         papers = res.rows;
     } else {
-        // Reviewer: See assigned papers WITH PROGRESS
-        // Correlated subqueries for progress tracking per-paper-pair
+        // Reviewer: See assigned papers (simplified - no progress tracking to avoid timeouts)
         const query = `
             SELECT 
                 ps.paper_session_id,
@@ -51,20 +50,7 @@ export default async function DashboardPage() {
                 ps.subject,
                 ps.language,
                 ps.questions_reviewed,
-                ra.status as assignment_status,
-                (
-                    SELECT COUNT(*) 
-                    FROM question_links ql 
-                    WHERE ql.paper_session_id_english = ps.paper_session_id 
-                       OR ql.paper_session_id_hindi = ps.paper_session_id
-                ) as total_q,
-                (
-                    SELECT COUNT(*) 
-                    FROM question_links ql 
-                    WHERE (ql.paper_session_id_english = ps.paper_session_id 
-                       OR ql.paper_session_id_hindi = ps.paper_session_id)
-                       AND ql.status = 'MANUALLY_CORRECTED'
-                ) as corrected_q
+                ra.status as assignment_status
             FROM review_assignments ra
             JOIN paper_session ps ON ra.paper_session_id = ps.paper_session_id
             WHERE ra.reviewer_id = $1
@@ -125,12 +111,6 @@ export default async function DashboardPage() {
                             </thead>
                             <tbody>
                                 {papers.map((paper) => {
-                                    // Calculate progress if available
-                                    const total = parseInt(paper.total_q || 0);
-                                    const corrected = parseInt(paper.corrected_q || 0);
-                                    const percent = total > 0 ? Math.round((corrected / total) * 100) : 0;
-                                    const showProgress = !user.isAdmin && total > 0;
-
                                     return (
                                         <tr key={paper.paper_session_id} className="bg-white border-b hover:bg-gray-50">
                                             <td className="px-6 py-4 whitespace-nowrap">
@@ -152,37 +132,20 @@ export default async function DashboardPage() {
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4">
-                                                {showProgress ? (
-                                                    // Progress Bar for Reviewers
-                                                    <div className="w-full max-w-[140px]">
-                                                        <div className="flex justify-between text-xs mb-1">
-                                                            <span className={`font-semibold ${paper.assignment_status === 'COMPLETED' ? 'text-green-600' : 'text-yellow-600'}`}>
-                                                                {paper.assignment_status === 'COMPLETED' ? 'Done' : 'In Progress'}
-                                                            </span>
-                                                            <span className="text-gray-500">{corrected}/{total}</span>
-                                                        </div>
-                                                        <div className="w-full bg-gray-200 rounded-full h-1.5">
-                                                            <div
-                                                                className={`h-1.5 rounded-full ${paper.assignment_status === 'COMPLETED' ? 'bg-green-500' : 'bg-blue-500'}`}
-                                                                style={{ width: `${percent}%` }}
-                                                            ></div>
-                                                        </div>
-                                                    </div>
-                                                ) : (
-                                                    // Simple Status for Admins (or if no progress data)
-                                                    user.isAdmin ? (
-                                                        paper.questions_reviewed ? (
-                                                            <span className="text-green-600 font-bold flex items-center">
-                                                                <span className="w-2 h-2 rounded-full bg-green-500 mr-2"></span> Reviewed
-                                                            </span>
-                                                        ) : (
-                                                            <span className="text-gray-400 flex items-center">
-                                                                <span className="w-2 h-2 rounded-full bg-gray-300 mr-2"></span> Pending
-                                                            </span>
-                                                        )
+                                                {user.isAdmin ? (
+                                                    paper.questions_reviewed ? (
+                                                        <span className="text-green-600 font-bold flex items-center">
+                                                            <span className="w-2 h-2 rounded-full bg-green-500 mr-2"></span> Reviewed
+                                                        </span>
                                                     ) : (
-                                                        <span className="text-gray-400">Loading...</span>
+                                                        <span className="text-gray-400 flex items-center">
+                                                            <span className="w-2 h-2 rounded-full bg-gray-300 mr-2"></span> Pending
+                                                        </span>
                                                     )
+                                                ) : (
+                                                    <span className={`font-semibold ${paper.assignment_status === 'COMPLETED' ? 'text-green-600' : 'text-yellow-600'}`}>
+                                                        {paper.assignment_status === 'COMPLETED' ? 'Done' : 'In Progress'}
+                                                    </span>
                                                 )}
                                             </td>
                                             <td className="px-6 py-4">
