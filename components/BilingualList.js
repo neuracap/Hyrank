@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Latex from '@/components/Latex';
 import ImageEditor from '@/components/ImageEditor';
 
-export default function BilingualList({ initialQuestions, total, currentPage, totalPages, paperSessionId, engDocInfo, hinDocInfo }) {
+export default function BilingualList({ initialQuestions, total, currentPage, totalPages, paperSessionId, engDocInfo, hinDocInfo, engSessionId, hinSessionId }) {
 
     // Helper to render links
     const renderDocLink = (path, label, colorClass = "text-blue-600") => {
@@ -544,7 +544,10 @@ Are you sure you want to proceed?`;
                 <div className="flex justify-between items-center mb-4">
                     <div>
                         <h1 className="text-2xl font-bold text-gray-900 mb-2">Bilingual Review Dashboard</h1>
-                        <p className="text-gray-500">Session ID: {paperSessionId}</p>
+                        <div className="flex flex-col text-xs text-gray-500 gap-1">
+                            <p><strong>English Session ID:</strong> {engSessionId || 'N/A'}</p>
+                            <p><strong>Hindi Session ID:</strong> {hinSessionId || 'N/A'}</p>
+                        </div>
                     </div>
 
                     <div className="flex gap-3 items-center">
@@ -714,7 +717,7 @@ Are you sure you want to proceed?`;
                             )}
                             <div className={`px-6 py-3 border-b flex justify-between items-center text-sm ${isLowScore && !isCorrected ? 'bg-red-100 border-red-200' : 'bg-gray-50/50 border-gray-200'}`}>
                                 <div className="font-mono text-gray-500">
-                                    Q.{q.eng_source_no || q.eng_id?.substring(0, 6) || 'N/A'} {/* Showing Question Number/ID as title instead of Link ID */}
+                                    Q.{q.eng_source_no || q.eng_id?.substring(0, 6) || 'N/A'} <span className="text-xs text-gray-400 font-normal ml-2">({q.eng_id})</span>
                                 </div>
                                 <div className="flex gap-2 items-center">
                                     {/* Feedback Message */}

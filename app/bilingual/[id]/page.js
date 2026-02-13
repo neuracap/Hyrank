@@ -143,9 +143,12 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortB
 
         let engDocInfo = {};
         let hinDocInfo = {};
+        let engSessionId = null;
+        let hinSessionId = null;
 
         if (isEnglishSession) {
             // Current session is English
+            engSessionId = paperSessionId;
             const engDocRes = await client.query(docQuery, [paperSessionId]);
             engDocInfo = engDocRes.rows[0] || {};
 
@@ -158,12 +161,13 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortB
             `, [paperSessionId]);
 
             if (hinLinkRes.rows.length > 0 && hinLinkRes.rows[0].paper_session_id_hindi) {
-                const hinSessionId = hinLinkRes.rows[0].paper_session_id_hindi;
+                hinSessionId = hinLinkRes.rows[0].paper_session_id_hindi;
                 const hinDocRes = await client.query(docQuery, [hinSessionId]);
                 hinDocInfo = hinDocRes.rows[0] || {};
             }
         } else {
             // Current session is Hindi
+            hinSessionId = paperSessionId;
             const hinDocRes = await client.query(docQuery, [paperSessionId]);
             hinDocInfo = hinDocRes.rows[0] || {};
 
@@ -182,7 +186,7 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortB
             }
         }
 
-        return { questions, total, engDocInfo, hinDocInfo };
+        return { questions, total, engDocInfo, hinDocInfo, engSessionId, hinSessionId };
 
     } catch (e) {
         console.error("Error fetching linked questions:", e);
@@ -200,7 +204,7 @@ export default async function BilingualPage({ params, searchParams }) {
     const limit = 100;
     const sortBy = sort === 'hin' ? 'hin' : 'eng';
 
-    const { questions, total, engDocInfo, hinDocInfo } = await fetchLinkedQuestions(paperSessionId, currentPage, limit, sortBy);
+    const { questions, total, engDocInfo, hinDocInfo, engSessionId, hinSessionId } = await fetchLinkedQuestions(paperSessionId, currentPage, limit, sortBy);
     const totalPages = Math.ceil(total / limit);
 
     return (
@@ -212,6 +216,8 @@ export default async function BilingualPage({ params, searchParams }) {
             paperSessionId={paperSessionId}
             engDocInfo={engDocInfo}
             hinDocInfo={hinDocInfo}
+            engSessionId={engSessionId}
+            hinSessionId={hinSessionId}
         />
     );
 }
