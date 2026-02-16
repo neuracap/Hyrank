@@ -2,11 +2,10 @@ import db from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-edge';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import BulkReclassifyButton from '@/components/BulkReclassifyButton';
 
 export const dynamic = 'force-dynamic';
 
-export default async function DashboardPage() {
+export default async function TestReviewPage() {
     // 1. Authenticate
     const user = await getCurrentUser();
     if (!user) {
@@ -40,7 +39,7 @@ export default async function DashboardPage() {
         const res = await client.query(query);
         papers = res.rows;
     } else {
-        // Reviewer: See assigned papers (simplified - no progress tracking to avoid timeouts)
+        // Reviewer: See assigned papers
         const query = `
             SELECT 
                 ps.paper_session_id,
@@ -58,7 +57,7 @@ export default async function DashboardPage() {
                 ) as total_q
             FROM review_assignments ra
             JOIN paper_session ps ON ra.paper_session_id = ps.paper_session_id
-            WHERE ra.reviewer_id = $1 AND ps.language = 'EN'
+            WHERE ra.reviewer_id = $1
             ORDER BY ra.assigned_at DESC, ps.paper_date DESC
             LIMIT 50
         `;
@@ -72,28 +71,17 @@ export default async function DashboardPage() {
         <div className="container mx-auto px-4 py-8">
             <header className="mb-8 flex justify-between items-center">
                 <div>
-                    <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
+                    <h1 className="text-3xl font-bold text-gray-900">Test Review Dashboard</h1>
                     <p className="text-gray-500 mt-1">
                         Welcome back, {user.name} ({user.isAdmin ? 'Admin' : 'Reviewer'})
                     </p>
                 </div>
-                {user.isAdmin && (
-                    <div className="flex gap-4">
-                        <BulkReclassifyButton />
-                        <Link href="/bilingdash" className="text-purple-600 hover:text-purple-800 font-medium">
-                            BiLingDash [Beta] →
-                        </Link>
-                        <Link href="/analytics" className="text-blue-600 hover:text-blue-800 font-medium">
-                            View Analytics →
-                        </Link>
-                    </div>
-                )}
             </header>
 
             <div className="bg-white shadow rounded-lg border border-gray-200 overflow-hidden">
                 <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
                     <h2 className="text-lg font-bold text-gray-800">
-                        {user.isAdmin ? 'All Papers' : 'Your Assigned Papers'}
+                        {user.isAdmin ? 'All Papers' : 'Your Assigned Papers (All Languages)'}
                     </h2>
                 </div>
 
@@ -156,11 +144,11 @@ export default async function DashboardPage() {
                                             <td className="px-6 py-4">
                                                 <div className="flex flex-col gap-2">
                                                     <Link
-                                                        href={`/bilingual/${paper.paper_session_id}`}
+                                                        href={`/test?testId=${paper.paper_session_id}&locked=true`}
                                                         prefetch={false}
-                                                        className="block w-full text-center px-3 py-1 bg-purple-600 text-white text-xs font-bold rounded hover:bg-purple-700 transition-colors shadow-sm"
+                                                        className="block w-full text-center px-3 py-1 bg-teal-600 text-white text-xs font-bold rounded hover:bg-teal-700 transition-colors shadow-sm"
                                                     >
-                                                        Bilingual Review
+                                                        Test Review
                                                     </Link>
                                                 </div>
                                             </td>

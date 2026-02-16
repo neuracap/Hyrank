@@ -38,6 +38,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.0.7",
     "postcss": "^8.5.6",
-    "tailwindcss": "^4.1.18"
+    "tailwindcss": "^4.1.18",
+    "vercel": "^50.17.1"
   }
 }
