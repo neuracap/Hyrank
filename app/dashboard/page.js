@@ -122,7 +122,7 @@ export default async function DashboardPage() {
                                                 {paper.paper_date ? new Date(paper.paper_date).toLocaleDateString() : 'N/A'}
                                             </td>
                                             <td className="px-6 py-4 font-medium text-gray-900">
-                                                {paper.caption || paper.session_label}
+                                                {paper.session_label}
                                                 {paper.subject && <div className="text-xs text-gray-400 font-normal">{paper.subject}</div>}
                                             </td>
                                             <td className="px-6 py-4">
