@@ -620,6 +620,13 @@ Are you sure you want to proceed?`;
                         errors.push(`Image Mismatch: ${engHasImg ? 'English' : 'Hindi'} has images, but ${engHasImg ? 'Hindi' : 'English'} does not.`);
                     }
 
+                    // 3. Forbidden Phrases Check (Defined here to be accessible in both if/else blocks)
+                    const forbiddenPhrases = ['Click Here', 'Challenge', 'Question No.', 'https://', 'Not provided in the source'];
+                    const checkForForbidden = (text) => {
+                        if (!text) return false;
+                        return forbiddenPhrases.some(phrase => text.includes(phrase));
+                    };
+
                     // 2. Option Count & Empty Check
                     const emptyEngOpts = q.eng_options.some(o => !o.opt_text || !o.opt_text.trim());
                     const emptyHinOpts = q.hin_options.some(o => !o.opt_text || !o.opt_text.trim());
