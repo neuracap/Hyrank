@@ -90,7 +90,10 @@ const Latex = ({ children }) => {
                     table: ({ node, ...props }) => <table style={{ borderCollapse: 'collapse', width: '100%', margin: '1rem 0', border: '1px solid #d1d5db' }} className="border-collapse border border-gray-300 my-4 w-full text-sm" {...props} />,
                     thead: ({ node, ...props }) => <thead className="bg-gray-50" {...props} />,
                     th: ({ node, ...props }) => <th style={{ border: '1px solid #d1d5db', padding: '0.5rem' }} className="border border-gray-300 px-3 py-2 font-semibold text-left" {...props} />,
-                    td: ({ node, ...props }) => <td style={{ border: '1px solid #d1d5db', padding: '0.5rem' }} className="border border-gray-300 px-3 py-2" {...props} />
+                    td: ({ node, ...props }) => <td style={{ border: '1px solid #d1d5db', padding: '0.5rem' }} className="border border-gray-300 px-3 py-2" {...props} />,
+                    ul: ({ node, ...props }) => <ul className="list-disc pl-5 mb-4" {...props} />,
+                    ol: ({ node, ...props }) => <ol className="list-decimal pl-5 mb-4" {...props} />,
+                    li: ({ node, ...props }) => <li className="mb-1" {...props} />,
                 }}
             >
                 {processedContent}

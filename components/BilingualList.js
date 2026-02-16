@@ -663,15 +663,19 @@ Are you sure you want to proceed?`;
 
                         // Rule C: Disable 15-char limit check (Do nothing here, just don't run the check below)
 
-                    } else {
-                        // --- STANDARD SECTION RULES ---
+                        // 3. Forbidden Phrases Check
+                        const forbiddenPhrases = ['Click Here', 'Challenge', 'Question No.', 'https://', 'Not provided in the source'];
+                        const checkForForbidden = (text) => {
+                            if (!text) return false;
+                            return forbiddenPhrases.some(phrase => text.includes(phrase));
+                        };
 
-                        // 3. Option Length Check (> 15 chars)
-                        const longEngOpts = q.eng_options.some(o => o.opt_text && o.opt_text.length > 15 && !hasImage(o.opt_text));
-                        const longHinOpts = q.hin_options.some(o => o.opt_text && o.opt_text.length > 15 && !hasImage(o.opt_text));
+                        if (checkForForbidden(q.eng_text)) errors.push("English text contains forbidden phrase.");
+                        if (checkForForbidden(q.hin_text)) errors.push("Hindi text contains forbidden phrase.");
 
-                        if (longEngOpts) warnings.push("English options are long (>15 chars). verify if they should be images.");
-                        if (longHinOpts) warnings.push("Hindi options are long (>15 chars). verify if they should be images.");
+                        // Check options
+                        if (q.eng_options.some(o => checkForForbidden(o.opt_text))) errors.push("English option contains forbidden phrase.");
+                        if (q.hin_options.some(o => checkForForbidden(o.opt_text))) errors.push("Hindi option contains forbidden phrase.");
                     }
 
                     const hasErrors = errors.length > 0;
@@ -789,7 +793,7 @@ Are you sure you want to proceed?`;
                                         <div className="relative">
                                             <textarea
                                                 id={`eng-text-${index}`}
-                                                className="w-full p-3 border border-gray-300 rounded font-mono text-sm min-h-[150px] mb-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                className={`w-full p-3 border rounded font-mono text-sm min-h-[150px] mb-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${checkForForbidden(q.eng_text) ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
                                                 value={q.eng_text}
                                                 onChange={(e) => handleTextChange(index, 'eng', 'text', e.target.value)}
                                                 onPaste={(e) => handlePaste(e, index, 'eng')}
@@ -825,7 +829,7 @@ Are you sure you want to proceed?`;
                                                         {opt.opt_label}
                                                     </div>
                                                     <input
-                                                        className="flex-1 text-xs p-1 border border-gray-300 rounded font-mono"
+                                                        className={`flex-1 text-xs p-1 border rounded font-mono ${checkForForbidden(opt.opt_text) ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
                                                         value={opt.opt_text}
                                                         onChange={(e) => handleTextChange(index, 'eng', 'opt', e.target.value, optIdx)}
                                                         onPaste={(e) => handlePaste(e, index, 'eng', optIdx)}
@@ -891,7 +895,7 @@ Are you sure you want to proceed?`;
                                         <div className="relative">
                                             <textarea
                                                 id={`hin-text-${index}`}
-                                                className="w-full p-3 border border-gray-300 rounded font-mono text-sm min-h-[150px] mb-2 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                                                className={`w-full p-3 border rounded font-mono text-sm min-h-[150px] mb-2 focus:ring-2 focus:ring-orange-500 focus:border-orange-500 ${checkForForbidden(q.hin_text) ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
                                                 value={q.hin_text || ''}
                                                 onChange={(e) => handleTextChange(index, 'hin', 'text', e.target.value)}
                                                 onPaste={(e) => handlePaste(e, index, 'hin')}
@@ -927,7 +931,7 @@ Are you sure you want to proceed?`;
                                                         {opt.opt_label}
                                                     </div>
                                                     <input
-                                                        className="flex-1 text-xs p-1 border border-gray-300 rounded font-mono"
+                                                        className={`flex-1 text-xs p-1 border rounded font-mono ${checkForForbidden(opt.opt_text) ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
                                                         value={opt.opt_text}
                                                         onChange={(e) => handleTextChange(index, 'hin', 'opt', e.target.value, optIdx)}
                                                         onPaste={(e) => handlePaste(e, index, 'hin', optIdx)}

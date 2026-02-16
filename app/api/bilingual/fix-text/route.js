@@ -14,7 +14,7 @@ CRITICAL RULES:
 2. If you cannot fix it, return the original text exactly as-is.
 3. Preserve all original Hindi/English wording exactly; fix ONLY LaTeX syntax.
 4. Use inline math with \\(...\\) format.
-5. Fix: mismatched braces, missing backslashes, wrong fractions, malformed degrees (use ^\\circ), theta tokens (use \\theta), trig powers (e.g., \\cos^2\\theta), \\left(\\right) pairs.
+5. Fix: mismatched braces, missing backslashes, wrong fractions, malformed degrees (use ^\\circ), theta tokens (use \\theta), trig powers (e.g., \\cos^2\\theta), \\left(\\right) pairs, and ordinal superscripts (e.g., change 5^{th} to \\(5^{th}\\)).
 6. Remove OCR artifacts like (/circ), stray ), }.
 
 Input: __INPUT_TEXT__
