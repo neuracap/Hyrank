@@ -43,6 +43,7 @@ export default async function BiLingDashPage({ searchParams }) {
                 s1.paper_session_id AS english_session_id,
                 s2.paper_session_id AS hindi_session_id,
                 COUNT(DISTINCT ql.id) AS questions_linked,
+                COUNT(DISTINCT CASE WHEN ql.status = 'MANUALLY_CORRECTED' THEN ql.id END) AS manually_corrected_count,
                 ROUND(AVG(ql.similarity_score)::numeric, 2) AS avg_score
             FROM paper_session s1
             JOIN paper_session s2 
@@ -116,7 +117,7 @@ export default async function BiLingDashPage({ searchParams }) {
                                     <th className="px-6 py-3">Hindi Paper</th>
                                     <th className="px-6 py-3">English Paper</th>
                                     <th className="px-6 py-3">Questions Linked</th>
-
+                                    <th className="px-6 py-3">Manually Corrected</th>
                                     <th className="px-6 py-3">Bilingual Review</th>
                                 </tr>
                             </thead>
@@ -173,6 +174,11 @@ export default async function BiLingDashPage({ searchParams }) {
                                                         </span>
                                                     )}
                                                 </div>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <span className={`font-bold ${parseInt(paper.manually_corrected_count || 0) > 0 ? 'text-purple-600' : 'text-gray-500'}`}>
+                                                    {parseInt(paper.manually_corrected_count || 0)}
+                                                </span>
                                             </td>
 
                                             <td className="px-6 py-4">
