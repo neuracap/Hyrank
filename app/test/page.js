@@ -26,34 +26,46 @@ async function fetchData(testId, page = 1, limit = 200) {
         if (computedTestId) {
             // 2. Fetch Questions for the Test
             const questionsRes = await client.query(`
-                SELECT DISTINCT ON (qv.question_id, qv.version_no)
-                    qv.question_id as id, 
-                    qv.version_no,
-                    qv.difficulty,
-                    qv.language,
-                    qv.meta_json->>'canonical_code' as exam,
-                    qv.body_json->>'text' as question_text,
-                    qv.has_image as has_figure,
-                    qv.source_question_no,
-                    qv.meta_json,
-                    es.code as section_code,
-                    (ql.id IS NULL) as is_unlinked
-                FROM question_version qv
-                LEFT JOIN exam_section es ON qv.exam_section_id = es.section_id
-                -- CHECK FOR LINK STATUS (Unlinked = No entry in question_links for this session)
-                -- We join on English ID first, then Hindi ID if needed, but simplest is to check if it exists as either.
-                LEFT JOIN question_links ql ON (
-                    (ql.english_question_id = qv.question_id AND ql.english_version_no = qv.version_no) OR
-                    (ql.hindi_question_id = qv.question_id AND ql.hindi_version_no = qv.version_no)
-                ) AND (ql.paper_session_id_english = $1 OR ql.paper_session_id_hindi = $1)
-                
-                WHERE qv.paper_session_id = $1
+                WITH distinct_questions AS (
+                    SELECT DISTINCT ON (qv.question_id, qv.version_no)
+                        qv.question_id, 
+                        qv.version_no,
+                        qv.difficulty,
+                        qv.language,
+                        qv.meta_json,
+                        qv.body_json,
+                        qv.has_image,
+                        qv.source_question_no,
+                        qv.created_at,
+                        es.code as section_code,
+                        es.sort_order as section_sort_order,
+                        (ql.id IS NULL) as is_unlinked
+                    FROM question_version qv
+                    LEFT JOIN exam_section es ON qv.exam_section_id = es.section_id
+                    LEFT JOIN question_links ql ON (
+                        (ql.english_question_id = qv.question_id AND ql.english_version_no = qv.version_no) OR
+                        (ql.hindi_question_id = qv.question_id AND ql.hindi_version_no = qv.version_no)
+                    ) AND (ql.paper_session_id_english = $1 OR ql.paper_session_id_hindi = $1)
+                    WHERE qv.paper_session_id = $1
+                    ORDER BY qv.question_id, qv.version_no
+                )
+                SELECT 
+                    question_id as id,
+                    version_no,
+                    difficulty,
+                    language,
+                    meta_json->>'canonical_code' as exam,
+                    body_json->>'text' as question_text,
+                    has_image as has_figure,
+                    source_question_no,
+                    meta_json,
+                    section_code,
+                    is_unlinked
+                FROM distinct_questions
                 ORDER BY 
-                    qv.question_id,
-                    qv.version_no,
-                    qv.exam_section_id ASC NULLS LAST,
-                    CAST(SUBSTRING(qv.source_question_no FROM '[0-9]+') AS INTEGER) ASC NULLS LAST,
-                    qv.created_at ASC 
+                    section_sort_order ASC NULLS LAST,
+                    CAST(SUBSTRING(source_question_no FROM '[0-9]+') AS INTEGER) ASC NULLS LAST,
+                    created_at ASC 
                 LIMIT $2 OFFSET $3
             `, [computedTestId, limit, offset]);
 
