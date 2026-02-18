@@ -56,8 +56,8 @@ export async function POST(req) {
 
         await client.query(`
             INSERT INTO question_version 
-            (question_id, version_no, language, status, paper_session_id, exam_section_id, body_json, question_type, has_image, source_question_no)
-            VALUES ($1, 1, $2, 'draft', $3, $4, $5, 'MCQ', false, 'Q.New')
+            (question_id, version_no, language, status, paper_session_id, exam_section_id, body_json, question_type, has_image, source_question_no, created_at)
+            VALUES ($1, 1, $2, 'draft', $3, $4, $5, 'MCQ', false, 'Q.New', NOW())
         `, [questionId, language, paper_session_id, exam_section_id, { text: initialText }]);
 
         await client.query('COMMIT');
