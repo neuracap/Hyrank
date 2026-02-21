@@ -87,14 +87,24 @@ export async function POST(request) {
         }
 
         // 5. Update review_assignments status to COMPLETED
-        // Upsert just in case the assignment wasn't formally created before completion
+        // Upsert explicitly: check if existence first to avoid ON CONFLICT constraint errors
         for (const sessionId of sessionIds) {
-            await client.query(`
-                INSERT INTO review_assignments (paper_session_id, reviewer_id, status)
-                VALUES ($1, $2, 'COMPLETED')
-                ON CONFLICT (paper_session_id) 
-                DO UPDATE SET status = 'COMPLETED', assigned_at = NOW()
-            `, [sessionId, reviewerId]);
+            const assignmentCheck = await client.query(`
+                SELECT id FROM review_assignments WHERE paper_session_id = $1
+            `, [sessionId]);
+
+            if (assignmentCheck.rows.length > 0) {
+                await client.query(`
+                    UPDATE review_assignments 
+                    SET status = 'COMPLETED', assigned_at = NOW()
+                    WHERE paper_session_id = $1
+                 `, [sessionId]);
+            } else {
+                await client.query(`
+                    INSERT INTO review_assignments (paper_session_id, reviewer_id, status)
+                    VALUES ($1, $2, 'COMPLETED')
+                `, [sessionId, reviewerId]);
+            }
         }
 
         await client.query('COMMIT');
