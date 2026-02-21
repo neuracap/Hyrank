@@ -181,3 +181,20 @@ body {
   color: #111827;
   /* Gray 900 */
 }
+
+/* Make KaTeX ignore prose/body fonts and weights */
+.latex-container .katex,
+.latex-container .katex * {
+  font-family: KaTeX_Main, KaTeX_Math, "Times New Roman", serif !important;
+  font-weight: 400 !important;
+  font-style: normal !important;
+  letter-spacing: normal !important;
+  text-transform: none !important;
+}
+
+/* Optional: improves stroke consistency on Windows */
+.latex-container .katex {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-synthesis: none;
+}

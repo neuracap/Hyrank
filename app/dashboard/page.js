@@ -86,6 +86,9 @@ export default async function DashboardPage() {
                         <Link href="/analytics" className="text-blue-600 hover:text-blue-800 font-medium">
                             View Analytics →
                         </Link>
+                        <Link href="/question-review" className="text-orange-600 hover:text-orange-800 font-medium">
+                            Question Review →
+                        </Link>
                     </div>
                 )}
             </header>
