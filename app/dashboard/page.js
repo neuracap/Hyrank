@@ -152,7 +152,7 @@ export default async function DashboardPage() {
                                                     )
                                                 ) : (
                                                     <span className={`font-semibold ${paper.assignment_status === 'COMPLETED' ? 'text-green-600' : 'text-yellow-600'}`}>
-                                                        {paper.assignment_status === 'COMPLETED' ? 'Done' : 'In Progress'}
+                                                        {paper.assignment_status === 'COMPLETED' ? 'Completed' : 'In Progress'}
                                                     </span>
                                                 )}
                                             </td>
