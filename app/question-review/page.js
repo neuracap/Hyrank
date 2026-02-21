@@ -3,12 +3,14 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import Latex from '@/components/Latex';
+import BilingualList from '@/components/BilingualList';
 
 export default function QuestionReviewPage() {
     const [questionId, setQuestionId] = useState('');
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState(null);
     const [error, setError] = useState('');
+    const [flaggedQuestions, setFlaggedQuestions] = useState([]);
 
     const handleSearch = async (e) => {
         e.preventDefault();
@@ -17,6 +19,7 @@ export default function QuestionReviewPage() {
         setLoading(true);
         setError('');
         setResult(null);
+        setFlaggedQuestions([]);
 
         try {
             const res = await fetch(`/api/question-review?questionId=${encodeURIComponent(questionId.trim())}`);
@@ -24,6 +27,20 @@ export default function QuestionReviewPage() {
 
             if (res.ok && data.success) {
                 setResult(data.data);
+
+                // Fetch flagged questions for this session
+                const sessionId = data.data.english_paper_session_id || data.data.hindi_paper_session_id;
+                if (sessionId) {
+                    try {
+                        const flaggedRes = await fetch(`/api/question-review/flagged?paperSessionId=${sessionId}`);
+                        const flaggedData = await flaggedRes.json();
+                        if (flaggedRes.ok && flaggedData.success) {
+                            setFlaggedQuestions(flaggedData.data);
+                        }
+                    } catch (err) {
+                        console.error('Error fetching flagged questions:', err);
+                    }
+                }
             } else {
                 setError(data.error || 'Question not found or an error occurred.');
             }
@@ -186,6 +203,23 @@ export default function QuestionReviewPage() {
                         </div>
 
                     </div>
+                </div>
+            )}
+
+            {/* Flagged Editor Section */}
+            {result && flaggedQuestions.length > 0 && (
+                <div className="mt-12 border-t pt-8 animate-fade-in">
+                    <h2 className="text-2xl font-bold text-gray-900 mb-6">Other "Marked for Review" Questions in this Session</h2>
+                    <BilingualList
+                        initialQuestions={flaggedQuestions}
+                        total={flaggedQuestions.length}
+                        currentPage={1}
+                        totalPages={1}
+                        paperSessionId={result.english_paper_session_id || result.hindi_paper_session_id}
+                        engSessionId={result.english_paper_session_id}
+                        hinSessionId={result.hindi_paper_session_id}
+                        isReviewMode={true}
+                    />
                 </div>
             )}
         </div>

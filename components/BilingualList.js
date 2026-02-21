@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Latex from '@/components/Latex';
 import ImageEditor from '@/components/ImageEditor';
 
-export default function BilingualList({ initialQuestions, total, currentPage, totalPages, paperSessionId, engDocInfo, hinDocInfo, engSessionId, hinSessionId }) {
+export default function BilingualList({ initialQuestions, total, currentPage, totalPages, paperSessionId, engDocInfo, hinDocInfo, engSessionId, hinSessionId, isReviewMode = false }) {
 
     // Helper to render links
     const renderDocLink = (path, label, colorClass = "text-blue-600") => {
@@ -539,60 +539,62 @@ Are you sure you want to proceed?`;
                 onCancel={() => setImageEditor({ ...imageEditor, isOpen: false })}
             />
 
-            <header className="mb-8">
-                <div className="flex justify-between items-center mb-4">
-                    <div>
-                        <h1 className="text-2xl font-bold text-gray-900 mb-2">Bilingual Review Dashboard</h1>
-                        <div className="flex flex-col text-xs text-gray-500 gap-1">
-                            <p><strong>English Session ID:</strong> {engSessionId || 'N/A'}</p>
-                            <p><strong>Hindi Session ID:</strong> {hinSessionId || 'N/A'}</p>
+            {!isReviewMode && (
+                <header className="mb-8">
+                    <div className="flex justify-between items-center mb-4">
+                        <div>
+                            <h1 className="text-2xl font-bold text-gray-900 mb-2">Bilingual Review Dashboard</h1>
+                            <div className="flex flex-col text-xs text-gray-500 gap-1">
+                                <p><strong>English Session ID:</strong> {engSessionId || 'N/A'}</p>
+                                <p><strong>Hindi Session ID:</strong> {hinSessionId || 'N/A'}</p>
+                            </div>
                         </div>
-                    </div>
 
-                    <div className="flex gap-3 items-center">
-                        <div className="flex items-center gap-2 bg-white border border-gray-300 rounded-md px-2 py-1 shadow-sm">
-                            <span className="text-xs font-semibold text-gray-500 uppercase">Sort By:</span>
-                            <select
-                                value={new URLSearchParams(window.location.search).get('sort') || 'eng'}
-                                onChange={(e) => {
-                                    const params = new URLSearchParams(window.location.search);
-                                    params.set('sort', e.target.value);
-                                    window.location.search = params.toString();
-                                }}
-                                className="text-sm border-none focus:ring-0 text-gray-700 font-medium bg-transparent cursor-pointer"
+                        <div className="flex gap-3 items-center">
+                            <div className="flex items-center gap-2 bg-white border border-gray-300 rounded-md px-2 py-1 shadow-sm">
+                                <span className="text-xs font-semibold text-gray-500 uppercase">Sort By:</span>
+                                <select
+                                    value={new URLSearchParams(window.location.search).get('sort') || 'eng'}
+                                    onChange={(e) => {
+                                        const params = new URLSearchParams(window.location.search);
+                                        params.set('sort', e.target.value);
+                                        window.location.search = params.toString();
+                                    }}
+                                    className="text-sm border-none focus:ring-0 text-gray-700 font-medium bg-transparent cursor-pointer"
+                                >
+                                    <option value="eng">English Order</option>
+                                    <option value="hin">Hindi Order</option>
+                                </select>
+                            </div>
+                            <button
+                                onClick={handleFormatAll}
+                                className="px-4 py-2 rounded-lg font-bold text-sm uppercase tracking-wide transition-all shadow-md bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white"
+                                title="Format all questions by adding line spacing before Note, Statement, Conclusion keywords"
                             >
-                                <option value="eng">English Order</option>
-                                <option value="hin">Hindi Order</option>
-                            </select>
+                                📝 Format All
+                            </button>
+
+                            {/* Complete Review Button Removed from here */}
                         </div>
-                        <button
-                            onClick={handleFormatAll}
-                            className="px-4 py-2 rounded-lg font-bold text-sm uppercase tracking-wide transition-all shadow-md bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white"
-                            title="Format all questions by adding line spacing before Note, Statement, Conclusion keywords"
-                        >
-                            📝 Format All
-                        </button>
-
-                        {/* Complete Review Button Removed from here */}
-                    </div>
-                </div>
-
-                <div className="flex flex-wrap gap-4 mt-2 text-xs items-center">
-                    <div className="flex items-center gap-2">
-                        <span className="font-bold text-gray-400 uppercase text-[10px]">English:</span>
-                        {renderDocLink(engDocInfo?.source_pdf_path, "Source PDF", "text-blue-600")}
                     </div>
 
-                    {(hinDocInfo?.source_pdf_path) && (
-                        <div className="flex items-center gap-2 border-l pl-4 ml-2 border-gray-300">
-                            <span className="font-bold text-gray-400 uppercase text-[10px]">Hindi:</span>
-                            {renderDocLink(hinDocInfo?.source_pdf_path, "Source PDF", "text-orange-600")}
+                    <div className="flex flex-wrap gap-4 mt-2 text-xs items-center">
+                        <div className="flex items-center gap-2">
+                            <span className="font-bold text-gray-400 uppercase text-[10px]">English:</span>
+                            {renderDocLink(engDocInfo?.source_pdf_path, "Source PDF", "text-blue-600")}
                         </div>
-                    )}
-                </div>
 
-                <p className="text-sm text-gray-400 mt-2">Found {total} linked pairs (Page {currentPage} of {totalPages})</p>
-            </header>
+                        {(hinDocInfo?.source_pdf_path) && (
+                            <div className="flex items-center gap-2 border-l pl-4 ml-2 border-gray-300">
+                                <span className="font-bold text-gray-400 uppercase text-[10px]">Hindi:</span>
+                                {renderDocLink(hinDocInfo?.source_pdf_path, "Source PDF", "text-orange-600")}
+                            </div>
+                        )}
+                    </div>
+
+                    <p className="text-sm text-gray-400 mt-2">Found {total} linked pairs (Page {currentPage} of {totalPages})</p>
+                </header>
+            )}
 
             <div className="space-y-12 mb-12">
                 {questions.map((q, index) => {
@@ -997,51 +999,53 @@ Are you sure you want to proceed?`;
                 )}
             </div>
 
-            <div className="flex justify-end mb-8 px-4">
-                <button
-                    onClick={handleBulkComplete}
-                    disabled={bulkCompleting}
-                    className={`px-6 py-3 rounded-lg font-bold text-sm uppercase tracking-wide transition-all shadow-lg ${bulkCompleting
-                        ? 'bg-gray-400 cursor-not-allowed'
-                        : 'bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white'
-                        }`}
-                    title="Mark all questions in both papers as manually corrected"
-                >
-                    {bulkCompleting ? (
-                        <span className="flex items-center gap-2">
-                            <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            Processing...
-                        </span>
-                    ) : (
-                        <span className="flex items-center gap-2">
-                            ✅ Complete Review
-                        </span>
-                    )}
-                </button>
-            </div>
-            {/* Pagination Bottom */}
-            {
-                totalPages > 1 && (
-                    <div className="flex justify-center gap-2 mb-12">
-                        {currentPage > 1 && (
-                            <a href={`/bilingual/${paperSessionId}?page=${currentPage - 1}`} className="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200 text-sm font-medium">
-                                Previous
-                            </a>
-                        )}
-                        <span className="px-4 py-2 text-gray-600 text-sm">
-                            Page {currentPage} of {totalPages}
-                        </span>
-                        {currentPage < totalPages && (
-                            <a href={`/bilingual/${paperSessionId}?page=${currentPage + 1}`} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium">
-                                Next
-                            </a>
-                        )}
+            {!isReviewMode && (
+                <>
+                    <div className="flex justify-end mb-8 px-4">
+                        <button
+                            onClick={handleBulkComplete}
+                            disabled={bulkCompleting}
+                            className={`px-6 py-3 rounded-lg font-bold text-sm uppercase tracking-wide transition-all shadow-lg ${bulkCompleting
+                                ? 'bg-gray-400 cursor-not-allowed'
+                                : 'bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white'
+                                }`}
+                            title="Mark all questions in both papers as manually corrected"
+                        >
+                            {bulkCompleting ? (
+                                <span className="flex items-center gap-2">
+                                    <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    Processing...
+                                </span>
+                            ) : (
+                                <span className="flex items-center gap-2">
+                                    ✅ Complete Review
+                                </span>
+                            )}
+                        </button>
                     </div>
-                )
-            }
+                    {/* Pagination Bottom */}
+                    {totalPages > 1 && (
+                        <div className="flex justify-center gap-2 mb-12">
+                            {currentPage > 1 && (
+                                <a href={`/bilingual/${paperSessionId}?page=${currentPage - 1}`} className="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200 text-sm font-medium">
+                                    Previous
+                                </a>
+                            )}
+                            <span className="px-4 py-2 text-gray-600 text-sm">
+                                Page {currentPage} of {totalPages}
+                            </span>
+                            {currentPage < totalPages && (
+                                <a href={`/bilingual/${paperSessionId}?page=${currentPage + 1}`} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium">
+                                    Next
+                                </a>
+                            )}
+                        </div>
+                    )}
+                </>
+            )}
         </div>
     );
 }

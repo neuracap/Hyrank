@@ -1,0 +1,135 @@
+import db from '@/lib/db';
+import { getCurrentUser } from '@/lib/auth-edge';
+
+export const dynamic = 'force-dynamic';
+
+export async function GET(request) {
+    const user = await getCurrentUser();
+
+    if (!user || !user.isAdmin) {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const paperSessionId = searchParams.get('paperSessionId');
+
+    if (!paperSessionId) {
+        return Response.json({ error: 'Missing paperSessionId parameter' }, { status: 400 });
+    }
+
+    const client = await db.connect();
+
+    try {
+        // First, determine if this session is English or Hindi
+        const sessionLangRes = await client.query(`
+            SELECT language, questions_reviewed FROM paper_session WHERE paper_session_id = $1
+        `, [paperSessionId]);
+
+        if (sessionLangRes.rows.length === 0) {
+            return Response.json({ error: 'Paper session not found' }, { status: 404 });
+        }
+
+        const sessionLanguage = sessionLangRes.rows[0].language;
+        const isEnglishSession = sessionLanguage === 'EN';
+
+        const query = `
+            WITH RankedQuestions AS (
+                SELECT 
+                    qe.question_id,
+                    qe.version_no,
+                    qe.language,
+                    qe.body_json,
+                    qe.has_image,
+                    qe.source_question_no,
+                    qe.exam_section_id,
+                    qe.difficulty,
+                    s.section_id,
+                    s.sort_order,
+                    ROW_NUMBER() OVER (PARTITION BY qe.question_id ORDER BY qe.version_no DESC) as rn
+                FROM exam_section s
+                JOIN question_version qe ON s.section_id = qe.exam_section_id
+                WHERE qe.paper_session_id = $1
+            )
+            SELECT 
+                ql.id as link_id,
+                ql.similarity_score,
+                ql.updated_score,
+                ql.status,
+                
+                -- English Question
+                qe.question_id as eng_id,
+                qe.version_no as eng_version,
+                qe.body_json->>'text' as eng_text,
+                qe.has_image as eng_has_figure,
+                qe.source_question_no as eng_source_no,
+                qe.exam_section_id as eng_section_id,
+                qe.difficulty as eng_difficulty,
+                
+                -- Hindi Question
+                qh.question_id as hin_id,
+                qh.version_no as hin_version,
+                qh.body_json->>'text' as hin_text,
+                qh.has_image as hin_has_figure,
+                qh.source_question_no as hin_source_no,
+                qh.exam_section_id as hin_section_id,
+                
+                ql.translated_debug
+            FROM RankedQuestions qe
+            INNER JOIN question_links ql ON (
+                ql.english_question_id = qe.question_id AND 
+                ql.english_version_no = qe.version_no
+            )
+            LEFT JOIN question_version qh ON (
+                ql.hindi_question_id = qh.question_id AND 
+                ql.hindi_version_no = qh.version_no AND 
+                ql.hindi_language = qh.language
+            )
+            LEFT JOIN exam_section s ON qe.exam_section_id = s.section_id
+            LEFT JOIN exam_section sh ON qh.exam_section_id = sh.section_id
+            WHERE qe.rn = 1 
+              AND ql.status = 'FLAGGED'
+            ORDER BY 
+                 s.sort_order ASC NULLS LAST,
+                 CAST(SUBSTRING(qe.source_question_no FROM '[0-9]+') AS INTEGER) ASC NULLS LAST,
+                 ql.created_at ASC;
+        `;
+
+        const res = await client.query(query, [paperSessionId]);
+        const links = res.rows;
+
+        const engIds = links.map(l => l.eng_id).filter(Boolean);
+        const hinIds = links.map(l => l.hin_id).filter(Boolean);
+        const allIds = [...new Set([...engIds, ...hinIds])];
+
+        let allOptions = [];
+        if (allIds.length > 0) {
+            const optionsRes = await client.query(`
+                SELECT 
+                    question_id,
+                    version_no,
+                    language,
+                    option_key as opt_label,
+                    option_json->>'text' as opt_text
+                FROM question_option
+                WHERE question_id = ANY($1)
+                ORDER BY option_key ASC
+            `, [allIds]);
+            allOptions = optionsRes.rows;
+        }
+
+        // Attach options
+        const questions = links.map(link => ({
+            ...link,
+            eng_options: allOptions.filter(o => o.question_id === link.eng_id && o.version_no === link.eng_version && o.language === 'EN'),
+            hin_options: allOptions.filter(o => o.question_id === link.hin_id && o.version_no === link.hin_version && o.language === 'HI')
+        }));
+
+        return Response.json({ success: true, data: questions });
+
+    } catch (e) {
+        console.error('Error fetching flagged questions:', e);
+        return Response.json({ error: 'Internal Server Error' }, { status: 500 });
+    } finally {
+        client.release();
+    }
+}
