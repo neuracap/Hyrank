@@ -28,25 +28,25 @@ export async function GET(request) {
                 en.paper_session_id      AS english_paper_session_id,
                 en.language              AS english_language,
                 en.question_number_int   AS english_qno,
-                en.body_json             AS english_question_stem,
+                en.body_json->>'text'    AS english_question_stem,
 
                 hi.paper_session_id      AS hindi_paper_session_id,
                 hi.language              AS hindi_language,
                 hi.question_number_int   AS hindi_qno,
-                hi.body_json             AS hindi_question_stem,
+                hi.body_json->>'text'    AS hindi_question_stem,
 
-                -- English options (key -> json), ordered by option_key
+                -- English options (key -> text), ordered by option_key
                 (
-                    SELECT jsonb_object_agg(eo.option_key, eo.option_json ORDER BY eo.option_key)
+                    SELECT jsonb_object_agg(eo.option_key, eo.option_json->>'text' ORDER BY eo.option_key)
                     FROM public.question_option eo
                     WHERE eo.question_id = ql.english_question_id
                     AND eo.version_no  = ql.english_version_no
                     AND eo.language    = ql.english_language
                 ) AS english_options,
 
-                -- Hindi options (key -> json), ordered by option_key
+                -- Hindi options (key -> text), ordered by option_key
                 (
-                    SELECT jsonb_object_agg(ho.option_key, ho.option_json ORDER BY ho.option_key)
+                    SELECT jsonb_object_agg(ho.option_key, ho.option_json->>'text' ORDER BY ho.option_key)
                     FROM public.question_option ho
                     WHERE ho.question_id = ql.hindi_question_id
                     AND ho.version_no  = ql.hindi_version_no
