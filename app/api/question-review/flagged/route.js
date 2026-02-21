@@ -32,6 +32,51 @@ export async function GET(request) {
         const sessionLanguage = sessionLangRes.rows[0].language;
         const isEnglishSession = sessionLanguage === 'EN';
 
+        // Build join conditions dynamically based on session language
+        const qeJoinCondition = isEnglishSession
+            ? 'ql.english_question_id = qe.question_id AND ql.english_version_no = qe.version_no'
+            : 'ql.hindi_question_id = qe.question_id AND ql.hindi_version_no = qe.version_no AND ql.hindi_language = qe.language';
+
+        const qhJoinCondition = isEnglishSession
+            ? 'ql.hindi_question_id = qh.question_id AND ql.hindi_version_no = qh.version_no AND ql.hindi_language = qh.language'
+            : 'ql.english_question_id = qh.question_id AND ql.english_version_no = qh.version_no';
+
+        const engSelects = isEnglishSession ? `
+                -- English Question
+                qe.question_id as eng_id,
+                qe.version_no as eng_version,
+                qe.body_json->>'text' as eng_text,
+                qe.has_image as eng_has_figure,
+                qe.source_question_no as eng_source_no,
+                qe.exam_section_id as eng_section_id,
+                qe.difficulty as eng_difficulty,
+                
+                -- Hindi Question
+                qh.question_id as hin_id,
+                qh.version_no as hin_version,
+                qh.body_json->>'text' as hin_text,
+                qh.has_image as hin_has_figure,
+                qh.source_question_no as hin_source_no,
+                qh.exam_section_id as hin_section_id
+        ` : `
+                -- English Question (Now in qh)
+                qh.question_id as eng_id,
+                qh.version_no as eng_version,
+                qh.body_json->>'text' as eng_text,
+                qh.has_image as eng_has_figure,
+                qh.source_question_no as eng_source_no,
+                qh.exam_section_id as eng_section_id,
+                qh.difficulty as eng_difficulty,
+                
+                -- Hindi Question (Now in qe)
+                qe.question_id as hin_id,
+                qe.version_no as hin_version,
+                qe.body_json->>'text' as hin_text,
+                qe.has_image as hin_has_figure,
+                qe.source_question_no as hin_source_no,
+                qe.exam_section_id as hin_section_id
+        `;
+
         const query = `
             WITH RankedQuestions AS (
                 SELECT 
@@ -56,33 +101,15 @@ export async function GET(request) {
                 ql.updated_score,
                 ql.status,
                 
-                -- English Question
-                qe.question_id as eng_id,
-                qe.version_no as eng_version,
-                qe.body_json->>'text' as eng_text,
-                qe.has_image as eng_has_figure,
-                qe.source_question_no as eng_source_no,
-                qe.exam_section_id as eng_section_id,
-                qe.difficulty as eng_difficulty,
-                
-                -- Hindi Question
-                qh.question_id as hin_id,
-                qh.version_no as hin_version,
-                qh.body_json->>'text' as hin_text,
-                qh.has_image as hin_has_figure,
-                qh.source_question_no as hin_source_no,
-                qh.exam_section_id as hin_section_id,
+                ${engSelects},
                 
                 ql.translated_debug
             FROM RankedQuestions qe
             INNER JOIN question_links ql ON (
-                ql.english_question_id = qe.question_id AND 
-                ql.english_version_no = qe.version_no
+                ${qeJoinCondition}
             )
             LEFT JOIN question_version qh ON (
-                ql.hindi_question_id = qh.question_id AND 
-                ql.hindi_version_no = qh.version_no AND 
-                ql.hindi_language = qh.language
+                ${qhJoinCondition}
             )
             LEFT JOIN exam_section s ON qe.exam_section_id = s.section_id
             LEFT JOIN exam_section sh ON qh.exam_section_id = sh.section_id
