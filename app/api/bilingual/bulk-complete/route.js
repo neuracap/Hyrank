@@ -1,5 +1,6 @@
 import db from '@/lib/db';
 import { NextResponse } from 'next/server';
+import { getCurrentUser } from '@/lib/auth-edge';
 
 export async function POST(request) {
     const body = await request.json();
@@ -10,6 +11,10 @@ export async function POST(request) {
     }
 
     const client = await db.connect();
+
+    // Get current user for assignment
+    const user = await getCurrentUser();
+    const reviewerId = user ? user.id : 1; // Fallback to 1 if no user context somehow
 
     try {
         await client.query('BEGIN');
@@ -59,21 +64,7 @@ export async function POST(request) {
             }
         }
 
-        // 3. Update ALL question_links for both sessions
-        const updateResult = await client.query(`
-            UPDATE question_links
-            SET updated_score = 1.0,
-                status = 'MANUALLY_CORRECTED'
-            WHERE 
-                ($1::uuid IS NOT NULL AND paper_session_id_english = $1)
-                OR
-                ($2::uuid IS NOT NULL AND paper_session_id_hindi = $2)
-        `, [engSessionId, hinSessionId]);
-
-        const updatedCount = updateResult.rowCount;
-
-        // 4. Mark paper sessions as reviewed (if the field exists)
-        // Try to update questions_reviewed field, but don't fail if it doesn't exist
+        // 3. Mark paper sessions as reviewed 
         const sessionIds = [engSessionId, hinSessionId].filter(id => id !== null);
 
         for (const sessionId of sessionIds) {
@@ -97,18 +88,20 @@ export async function POST(request) {
         }
 
         // 5. Update review_assignments status to COMPLETED
-        // Only if the table exists (it should now)
-        await client.query(`
-            UPDATE review_assignments
-            SET status = 'COMPLETED'
-            WHERE paper_session_id = ANY($1)
-        `, [sessionIds]);
+        // Upsert just in case the assignment wasn't formally created before completion
+        for (const sessionId of sessionIds) {
+            await client.query(`
+                INSERT INTO review_assignments (paper_session_id, reviewer_id, status)
+                VALUES ($1, $2, 'COMPLETED')
+                ON CONFLICT (paper_session_id) 
+                DO UPDATE SET status = 'COMPLETED', assigned_at = NOW()
+            `, [sessionId, reviewerId]);
+        }
 
         await client.query('COMMIT');
 
         return NextResponse.json({
             success: true,
-            updatedCount,
             engSessionId,
             hinSessionId
         });

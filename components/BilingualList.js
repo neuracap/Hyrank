@@ -266,11 +266,10 @@ export default function BilingualList({ initialQuestions, total, currentPage, to
     };
 
     const handleBulkComplete = async () => {
-        const confirmMsg = `This will mark ALL ${total} question pairs in both English and Hindi papers as "Manually Corrected".
+        const confirmMsg = `This will mark this paper session and its translated pair as "Review Completed".
 
 This action will:
-- Set status to MANUALLY_CORRECTED for all questions
-- Set updated_score to 1.0 for all questions
+- Set review status to COMPLETED
 - Mark both paper sessions as reviewed
 
 Are you sure you want to proceed?`;
@@ -291,7 +290,7 @@ Are you sure you want to proceed?`;
             const data = await res.json();
 
             if (res.ok) {
-                alert(`✅ Success! Updated ${data.updatedCount} question pairs.\n\nBoth paper sessions have been marked as reviewed.\n\nRefreshing page...`);
+                alert(`✅ Success! Both paper sessions have been marked as reviewed.\n\nRefreshing page...`);
                 window.location.reload();
             } else {
                 alert(`❌ Error: ${data.error}\n\n${data.details || ''}`);
