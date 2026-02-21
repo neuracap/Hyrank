@@ -89,6 +89,9 @@ export default async function DashboardPage() {
                         <Link href="/question-review" className="text-orange-600 hover:text-orange-800 font-medium">
                             Question Review →
                         </Link>
+                        <Link href="/flagged" className="text-red-600 hover:text-red-800 font-medium">
+                            Flagged Questions →
+                        </Link>
                     </div>
                 )}
             </header>

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Latex from '@/components/Latex';
 import ImageEditor from '@/components/ImageEditor';
 
-export default function BilingualList({ initialQuestions, total, currentPage, totalPages, paperSessionId, engDocInfo, hinDocInfo, engSessionId, hinSessionId, isReviewMode = false }) {
+export default function BilingualList({ initialQuestions, total, currentPage, totalPages, paperSessionId, engDocInfo, hinDocInfo, engSessionId, hinSessionId, isReviewMode = false, isGlobalFlaggedMode = false }) {
 
     // Helper to render links
     const renderDocLink = (path, label, colorClass = "text-blue-600") => {
@@ -539,7 +539,7 @@ Are you sure you want to proceed?`;
                 onCancel={() => setImageEditor({ ...imageEditor, isOpen: false })}
             />
 
-            {!isReviewMode && (
+            {!isReviewMode && !isGlobalFlaggedMode && (
                 <header className="mb-8">
                     <div className="flex justify-between items-center mb-4">
                         <div>
@@ -757,6 +757,26 @@ Are you sure you want to proceed?`;
                                     </button>
                                 </div>
                             </div>
+
+                            {/* Global Flagged PDF/Session Information */}
+                            {isGlobalFlaggedMode && (
+                                <div className="px-6 py-2 bg-indigo-50/50 border-b border-gray-200 flex flex-wrap gap-x-8 gap-y-2 text-xs items-center justify-between">
+                                    <div className="flex items-center gap-6">
+                                        <div className="flex items-center gap-2">
+                                            <span className="font-bold text-gray-500 uppercase">English PDF:</span>
+                                            {renderDocLink(q.engDocInfo?.source_pdf_path, "Source PDF", "text-blue-600")}
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="font-bold text-gray-500 uppercase">Hindi PDF:</span>
+                                            {renderDocLink(q.hinDocInfo?.source_pdf_path, "Source PDF", "text-orange-600")}
+                                        </div>
+                                    </div>
+                                    <div className="text-gray-400 flex gap-4 font-mono text-[10px] uppercase">
+                                        <span>EN Session: {q.eng_session_id?.substring(0, 8) || 'N/A'}</span>
+                                        <span>HI Session: {q.hin_session_id?.substring(0, 8) || 'N/A'}</span>
+                                    </div>
+                                </div>
+                            )}
 
                             <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-gray-200">
                                 {/* English Column */}
@@ -1001,36 +1021,38 @@ Are you sure you want to proceed?`;
 
             {!isReviewMode && (
                 <>
-                    <div className="flex justify-end mb-8 px-4">
-                        <button
-                            onClick={handleBulkComplete}
-                            disabled={bulkCompleting}
-                            className={`px-6 py-3 rounded-lg font-bold text-sm uppercase tracking-wide transition-all shadow-lg ${bulkCompleting
-                                ? 'bg-gray-400 cursor-not-allowed'
-                                : 'bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white'
-                                }`}
-                            title="Mark all questions in both papers as manually corrected"
-                        >
-                            {bulkCompleting ? (
-                                <span className="flex items-center gap-2">
-                                    <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                    Processing...
-                                </span>
-                            ) : (
-                                <span className="flex items-center gap-2">
-                                    ✅ Complete Review
-                                </span>
-                            )}
-                        </button>
-                    </div>
+                    {!isGlobalFlaggedMode && (
+                        <div className="flex justify-end mb-8 px-4">
+                            <button
+                                onClick={handleBulkComplete}
+                                disabled={bulkCompleting}
+                                className={`px-6 py-3 rounded-lg font-bold text-sm uppercase tracking-wide transition-all shadow-lg ${bulkCompleting
+                                    ? 'bg-gray-400 cursor-not-allowed'
+                                    : 'bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white'
+                                    }`}
+                                title="Mark all questions in both papers as manually corrected"
+                            >
+                                {bulkCompleting ? (
+                                    <span className="flex items-center gap-2">
+                                        <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        Processing...
+                                    </span>
+                                ) : (
+                                    <span className="flex items-center gap-2">
+                                        ✅ Complete Review
+                                    </span>
+                                )}
+                            </button>
+                        </div>
+                    )}
                     {/* Pagination Bottom */}
                     {totalPages > 1 && (
                         <div className="flex justify-center gap-2 mb-12">
                             {currentPage > 1 && (
-                                <a href={`/bilingual/${paperSessionId}?page=${currentPage - 1}`} className="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200 text-sm font-medium">
+                                <a href={`${isGlobalFlaggedMode ? '/flagged' : `/bilingual/${paperSessionId}`}?page=${currentPage - 1}`} className="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200 text-sm font-medium">
                                     Previous
                                 </a>
                             )}
@@ -1038,7 +1060,7 @@ Are you sure you want to proceed?`;
                                 Page {currentPage} of {totalPages}
                             </span>
                             {currentPage < totalPages && (
-                                <a href={`/bilingual/${paperSessionId}?page=${currentPage + 1}`} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium">
+                                <a href={`${isGlobalFlaggedMode ? '/flagged' : `/bilingual/${paperSessionId}`}?page=${currentPage + 1}`} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium">
                                     Next
                                 </a>
                             )}
