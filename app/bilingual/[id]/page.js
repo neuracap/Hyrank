@@ -185,7 +185,25 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortB
             }
         }
 
-        return { questions, total, engDocInfo, hinDocInfo, engSessionId, hinSessionId };
+        // Fetch Reviewer Name
+        let reviewerName = null;
+        try {
+            const reviewerRes = await client.query(`
+                SELECT u.name, u.email 
+                FROM review_assignments ra
+                JOIN users u ON ra.reviewer_id = u.id
+                WHERE ra.paper_session_id = $1
+                LIMIT 1
+            `, [paperSessionId]);
+
+            if (reviewerRes.rows.length > 0) {
+                reviewerName = reviewerRes.rows[0].name || reviewerRes.rows[0].email;
+            }
+        } catch (err) {
+            console.error("Error fetching assigned reviewer:", err);
+        }
+
+        return { questions, total, engDocInfo, hinDocInfo, engSessionId, hinSessionId, reviewerName };
 
     } catch (e) {
         console.error("Error fetching linked questions:", e);
@@ -204,7 +222,7 @@ export default async function BilingualPage({ params, searchParams }) {
     const sortBy = sort === 'hin' ? 'hin' : 'eng';
     const flaggedOnly = flagged === 'true';
 
-    const { questions, total, engDocInfo, hinDocInfo, engSessionId, hinSessionId } = await fetchLinkedQuestions(paperSessionId, currentPage, limit, sortBy, flaggedOnly);
+    const { questions, total, engDocInfo, hinDocInfo, engSessionId, hinSessionId, reviewerName } = await fetchLinkedQuestions(paperSessionId, currentPage, limit, sortBy, flaggedOnly);
     const totalPages = Math.ceil(total / limit);
 
     return (
@@ -218,6 +236,7 @@ export default async function BilingualPage({ params, searchParams }) {
             hinDocInfo={hinDocInfo}
             engSessionId={engSessionId}
             hinSessionId={hinSessionId}
+            reviewerName={reviewerName}
         />
     );
 }

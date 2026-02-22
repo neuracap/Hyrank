@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Latex from '@/components/Latex';
 import ImageEditor from '@/components/ImageEditor';
 
-export default function BilingualList({ initialQuestions, total, currentPage, totalPages, paperSessionId, engDocInfo, hinDocInfo, engSessionId, hinSessionId, isReviewMode = false, isGlobalFlaggedMode = false }) {
+export default function BilingualList({ initialQuestions, total, currentPage, totalPages, paperSessionId, engDocInfo, hinDocInfo, engSessionId, hinSessionId, reviewerName, isReviewMode = false, isGlobalFlaggedMode = false }) {
 
     // Helper to render links
     const renderDocLink = (path, label, colorClass = "text-blue-600") => {
@@ -545,6 +545,7 @@ Are you sure you want to proceed?`;
                         <div>
                             <h1 className="text-2xl font-bold text-gray-900 mb-2">Bilingual Review Dashboard</h1>
                             <div className="flex flex-col text-xs text-gray-500 gap-1">
+                                <p><strong>Assigned To:</strong> <span className="text-indigo-600 font-semibold">{reviewerName || 'Unassigned'}</span></p>
                                 <p><strong>English Session ID:</strong> {engSessionId || 'N/A'}</p>
                                 <p><strong>Hindi Session ID:</strong> {hinSessionId || 'N/A'}</p>
                             </div>
