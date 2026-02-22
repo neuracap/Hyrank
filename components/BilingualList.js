@@ -551,13 +551,33 @@ Are you sure you want to proceed?`;
                         </div>
 
                         <div className="flex gap-3 items-center">
+                            <label className="flex items-center gap-2 bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 px-3 py-1.5 rounded-md cursor-pointer transition-colors shadow-sm">
+                                <input
+                                    type="checkbox"
+                                    className="form-checkbox h-4 w-4 text-red-600 rounded border-red-300 focus:ring-red-500"
+                                    checked={new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('flagged') === 'true'}
+                                    onChange={(e) => {
+                                        const params = new URLSearchParams(window.location.search);
+                                        if (e.target.checked) {
+                                            params.set('flagged', 'true');
+                                        } else {
+                                            params.delete('flagged');
+                                        }
+                                        params.delete('page'); // Reset pagination to page 1 on filter
+                                        window.location.search = params.toString();
+                                    }}
+                                />
+                                <span className="text-sm font-semibold">Show Flagged Only</span>
+                            </label>
+
                             <div className="flex items-center gap-2 bg-white border border-gray-300 rounded-md px-2 py-1 shadow-sm">
                                 <span className="text-xs font-semibold text-gray-500 uppercase">Sort By:</span>
                                 <select
-                                    value={new URLSearchParams(window.location.search).get('sort') || 'eng'}
+                                    value={new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('sort') || 'eng'}
                                     onChange={(e) => {
                                         const params = new URLSearchParams(window.location.search);
                                         params.set('sort', e.target.value);
+                                        params.delete('page'); // Reset pagination on sort change too
                                         window.location.search = params.toString();
                                     }}
                                     className="text-sm border-none focus:ring-0 text-gray-700 font-medium bg-transparent cursor-pointer"
@@ -597,7 +617,13 @@ Are you sure you want to proceed?`;
             )}
 
             <div className="space-y-12 mb-12">
-                {questions.map((q, index) => {
+                {questions.length === 0 ? (
+                    <div className="text-center text-gray-500 py-12 bg-gray-50 rounded-lg border border-gray-200">
+                        {new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('flagged') === 'true'
+                            ? "No flagged questions found in this paper session."
+                            : "No questions found for this paper session."}
+                    </div>
+                ) : questions.map((q, index) => {
                     const isLowScore = q.updated_score != null && q.updated_score < 0.8;
                     const isCorrected = q.status === 'MANUALLY_CORRECTED';
                     const isUnlinked = !q.link_id;

@@ -70,7 +70,13 @@ export default async function DashboardPage({ searchParams }) {
                     SELECT COUNT(*) 
                     FROM question_version qv
                     WHERE qv.paper_session_id = ps.paper_session_id
-                ) as total_q
+                ) as total_q,
+                (
+                    SELECT COUNT(*)
+                    FROM question_links ql
+                    WHERE ql.paper_session_id_english = ps.paper_session_id
+                    AND ql.status = 'MANUALLY_CORRECTED'
+                ) as corrected_count
             FROM paper_session ps
             ${whereClause}
             ORDER BY ps.paper_date DESC NULLS LAST
@@ -119,7 +125,13 @@ export default async function DashboardPage({ searchParams }) {
                     SELECT COUNT(*) 
                     FROM question_version qv
                     WHERE qv.paper_session_id = ps.paper_session_id
-                ) as total_q
+                ) as total_q,
+                (
+                    SELECT COUNT(*)
+                    FROM question_links ql
+                    WHERE ql.paper_session_id_english = ps.paper_session_id
+                    AND ql.status = 'MANUALLY_CORRECTED'
+                ) as corrected_count
             FROM review_assignments ra
             JOIN paper_session ps ON ra.paper_session_id = ps.paper_session_id
             ${whereClause}
@@ -185,6 +197,7 @@ export default async function DashboardPage({ searchParams }) {
                                     <th className="px-6 py-3">Paper Name</th>
                                     <th className="px-6 py-3">Lang</th>
                                     <th className="px-6 py-3">Questions</th>
+                                    <th className="px-6 py-3">Corrected</th>
                                     <th className="px-6 py-3">Status / Progress</th>
                                     <th className="px-6 py-3 text-right">Action</th>
                                 </tr>
@@ -209,6 +222,16 @@ export default async function DashboardPage({ searchParams }) {
                                             <td className="px-6 py-4">
                                                 <span className="font-bold text-gray-900 bg-gray-100 px-2 py-1 rounded">
                                                     {parseInt(paper.total_q || 0)}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <span className={`font-bold px-2 py-1 rounded ${parseInt(paper.corrected_count || 0) === parseInt(paper.total_q || 0) && parseInt(paper.total_q || 0) > 0
+                                                        ? 'bg-green-100 text-green-800' // all corrected!
+                                                        : parseInt(paper.corrected_count || 0) > 0
+                                                            ? 'bg-blue-100 text-blue-800' // partially corrected
+                                                            : 'bg-gray-100 text-gray-500' // none corrected
+                                                    }`}>
+                                                    {parseInt(paper.corrected_count || 0)}
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4">

@@ -3,7 +3,7 @@ import db from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
-async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortBy = 'eng') {
+async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortBy = 'eng', flaggedOnly = false) {
     const offset = (page - 1) * limit;
     const client = await db.connect();
     try {
@@ -21,9 +21,8 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortB
         const isEnglishSession = sessionLanguage === 'EN';
 
         // Build query based on which language this session is
-        const whereClause = isEnglishSession
-            ? 'ql.paper_session_id_english = $1'
-            : 'ql.paper_session_id_hindi = $1';
+        let statusWhere = flaggedOnly ? " AND ql.status = 'FLAGGED'" : "";
+        let baseWhereParams = [paperSessionId];
 
         const query = `
             WITH RankedQuestions AS (
@@ -79,7 +78,7 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortB
             )
             LEFT JOIN exam_section s ON qe.exam_section_id = s.section_id
             LEFT JOIN exam_section sh ON qh.exam_section_id = sh.section_id
-            WHERE qe.rn = 1 -- Get latest version of each question
+            WHERE qe.rn = 1 ${statusWhere}
             ORDER BY 
                  s.sort_order ASC NULLS LAST,
                  CAST(SUBSTRING(qe.source_question_no FROM '[0-9]+') AS INTEGER) ASC NULLS LAST,
@@ -98,7 +97,7 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortB
                 ql.english_question_id = qe.question_id AND 
                 ql.english_version_no = qe.version_no
             )
-            WHERE qe.paper_session_id = $1
+            WHERE qe.paper_session_id = $1 ${statusWhere}
         `, [paperSessionId]);
         const total = parseInt(countRes.rows[0].c, 10);
 
@@ -198,13 +197,14 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortB
 
 export default async function BilingualPage({ params, searchParams }) {
     const { id: paperSessionId } = await params;
-    const { page, sort } = await searchParams;
+    const { page, sort, flagged } = await searchParams;
 
     const currentPage = parseInt(page || '1', 10);
     const limit = 100;
     const sortBy = sort === 'hin' ? 'hin' : 'eng';
+    const flaggedOnly = flagged === 'true';
 
-    const { questions, total, engDocInfo, hinDocInfo, engSessionId, hinSessionId } = await fetchLinkedQuestions(paperSessionId, currentPage, limit, sortBy);
+    const { questions, total, engDocInfo, hinDocInfo, engSessionId, hinSessionId } = await fetchLinkedQuestions(paperSessionId, currentPage, limit, sortBy, flaggedOnly);
     const totalPages = Math.ceil(total / limit);
 
     return (
