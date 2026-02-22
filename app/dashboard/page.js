@@ -74,7 +74,7 @@ export default async function DashboardPage({ searchParams }) {
                 (
                     SELECT COUNT(*)
                     FROM question_links ql
-                    WHERE ql.paper_session_id_english = ps.paper_session_id
+                    WHERE (ql.paper_session_id_english = ps.paper_session_id OR ql.paper_session_id_hindi = ps.paper_session_id)
                     AND ql.status = 'MANUALLY_CORRECTED'
                 ) as corrected_count
             FROM paper_session ps
@@ -129,7 +129,7 @@ export default async function DashboardPage({ searchParams }) {
                 (
                     SELECT COUNT(*)
                     FROM question_links ql
-                    WHERE ql.paper_session_id_english = ps.paper_session_id
+                    WHERE (ql.paper_session_id_english = ps.paper_session_id OR ql.paper_session_id_hindi = ps.paper_session_id)
                     AND ql.status = 'MANUALLY_CORRECTED'
                 ) as corrected_count
             FROM review_assignments ra
@@ -226,10 +226,10 @@ export default async function DashboardPage({ searchParams }) {
                                             </td>
                                             <td className="px-6 py-4">
                                                 <span className={`font-bold px-2 py-1 rounded ${parseInt(paper.corrected_count || 0) === parseInt(paper.total_q || 0) && parseInt(paper.total_q || 0) > 0
-                                                        ? 'bg-green-100 text-green-800' // all corrected!
-                                                        : parseInt(paper.corrected_count || 0) > 0
-                                                            ? 'bg-blue-100 text-blue-800' // partially corrected
-                                                            : 'bg-gray-100 text-gray-500' // none corrected
+                                                    ? 'bg-green-100 text-green-800' // all corrected!
+                                                    : parseInt(paper.corrected_count || 0) > 0
+                                                        ? 'bg-blue-100 text-blue-800' // partially corrected
+                                                        : 'bg-gray-100 text-gray-500' // none corrected
                                                     }`}>
                                                     {parseInt(paper.corrected_count || 0)}
                                                 </span>
