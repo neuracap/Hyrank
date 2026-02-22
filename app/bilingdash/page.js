@@ -119,6 +119,7 @@ export default async function BiLingDashPage({ searchParams }) {
                                     <th className="px-6 py-3">Questions Linked</th>
                                     <th className="px-6 py-3">Manually Corrected</th>
                                     <th className="px-6 py-3">Bilingual Review</th>
+                                    <th className="px-6 py-3">Add Question</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -187,6 +188,14 @@ export default async function BiLingDashPage({ searchParams }) {
                                                     className="inline-block px-3 py-1 bg-purple-600 text-white text-xs font-bold rounded hover:bg-purple-700 transition-colors"
                                                 >
                                                     Review
+                                                </Link>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <Link
+                                                    href={`/add-question/${paper.english_session_id}`}
+                                                    className="inline-block px-3 py-1 bg-emerald-600 text-white text-xs font-bold rounded hover:bg-emerald-700 transition-colors"
+                                                >
+                                                    + Add Q
                                                 </Link>
                                             </td>
                                         </tr>
