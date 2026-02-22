@@ -50,8 +50,8 @@ export async function POST(req) {
         // Insert English options
         for (const [key, text] of Object.entries(english.options || {})) {
             await client.query(`
-                INSERT INTO question_option (question_id, version_no, language, option_key, option_json, is_correct)
-                VALUES ($1, 1, 'EN', $2, $3, false)
+                INSERT INTO question_option (question_id, version_no, language, option_key, option_json, is_correct, created_at, updated_at)
+                VALUES ($1, 1, 'EN', $2, $3, false, NOW(), NOW())
             `, [engQuestionId, key, { text: text || '' }]);
         }
 
@@ -71,8 +71,8 @@ export async function POST(req) {
         // Insert Hindi options
         for (const [key, text] of Object.entries(hindi.options || {})) {
             await client.query(`
-                INSERT INTO question_option (question_id, version_no, language, option_key, option_json, is_correct)
-                VALUES ($1, 1, 'HI', $2, $3, false)
+                INSERT INTO question_option (question_id, version_no, language, option_key, option_json, is_correct, created_at, updated_at)
+                VALUES ($1, 1, 'HI', $2, $3, false, NOW(), NOW())
             `, [hinQuestionId, key, { text: text || '' }]);
         }
 

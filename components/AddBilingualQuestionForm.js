@@ -50,8 +50,8 @@ function QuestionGrid({ questionNos, title, colorClass = 'bg-blue-100 text-blue-
                                 key={n}
                                 title={isPresent ? `Q.${n} present` : `Q.${n} MISSING`}
                                 className={`inline-flex items-center justify-center text-[10px] font-bold w-7 h-7 rounded ${isPresent
-                                        ? colorClass
-                                        : 'bg-red-100 text-red-600 ring-1 ring-red-300'
+                                    ? colorClass
+                                    : 'bg-red-100 text-red-600 ring-1 ring-red-300'
                                     }`}
                             >
                                 {n}
@@ -235,6 +235,32 @@ export default function AddBilingualQuestionForm({
                         )}
                     </div>
 
+                    {/* ── Copy buttons bar ── */}
+                    <div className="border-b border-amber-100 bg-amber-50 px-5 py-3 flex gap-3 flex-wrap items-center">
+                        <span className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Quick Copy →</span>
+                        <button
+                            type="button"
+                            onClick={() => setHindi(prev => ({ ...prev, text: english.text }))}
+                            className="px-3 py-1 text-xs font-semibold bg-white border border-amber-300 text-amber-700 rounded hover:bg-amber-100 transition-colors"
+                        >
+                            📋 Copy Question Stem to Hindi
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setHindi(prev => ({ ...prev, options: { ...english.options } }))}
+                            className="px-3 py-1 text-xs font-semibold bg-white border border-amber-300 text-amber-700 rounded hover:bg-amber-100 transition-colors"
+                        >
+                            📋 Copy Options to Hindi
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setHindi({ text: english.text, options: { ...english.options } })}
+                            className="px-3 py-1 text-xs font-semibold bg-amber-600 text-white rounded hover:bg-amber-700 transition-colors"
+                        >
+                            📋 Copy All to Hindi
+                        </button>
+                    </div>
+
                     {/* Side-by-side English & Hindi */}
                     <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-100">
                         {/* English column */}
@@ -310,10 +336,10 @@ export default function AddBilingualQuestionForm({
                             type="submit"
                             disabled={submitting || !hinSessionId}
                             className={`px-6 py-2.5 rounded-lg font-bold text-sm transition-all shadow ${!hinSessionId
-                                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                                    : submitting
-                                        ? 'bg-indigo-400 text-white cursor-wait'
-                                        : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                : submitting
+                                    ? 'bg-indigo-400 text-white cursor-wait'
+                                    : 'bg-indigo-600 hover:bg-indigo-700 text-white'
                                 }`}
                         >
                             {submitting ? 'Saving…' : '➕ Add Question to Both Papers'}
