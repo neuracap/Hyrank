@@ -57,6 +57,12 @@ const Latex = ({ children }) => {
 
     processedContent = processedContent.replace(/\\n/g, '\n');
 
+    // Prevent markdown from turning lines starting with + or - into lists, 
+    // unless it looks like an intentional list item (e.g., has a space after it).
+    // The issue is simply `+ और -` being parsed as a list.
+    // We will escape + and - if they appear at the start of a line (with optional whitespace)
+    processedContent = processedContent.replace(/^(?:\s*)([+-])(?=\s)/gm, '\\$1');
+
     const ImageRenderer = ({ src, alt, ...props }) => {
         let realSrc = src;
         if (src && (src.startsWith('./images/') || src.startsWith('images/') || src.includes('/images/'))) {

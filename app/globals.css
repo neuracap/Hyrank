@@ -183,8 +183,7 @@ body {
 }
 
 /* Make KaTeX ignore prose/body fonts and weights */
-.latex-container .katex,
-.latex-container .katex * {
+.latex-container .katex {
   font-family: KaTeX_Main, KaTeX_Math, "Times New Roman", serif !important;
   font-weight: 400 !important;
   font-style: normal !important;
