@@ -76,8 +76,11 @@ export default async function DashboardPage({ searchParams }) {
                     FROM question_links ql
                     WHERE (ql.paper_session_id_english = ps.paper_session_id OR ql.paper_session_id_hindi = ps.paper_session_id)
                     AND ql.status = 'MANUALLY_CORRECTED'
-                ) as corrected_count
+                ) as corrected_count,
+                ru.email as reviewer_email
             FROM paper_session ps
+            LEFT JOIN review_assignments ra ON ps.paper_session_id = ra.paper_session_id
+            LEFT JOIN users ru ON ra.reviewer_id = ru.id
             ${whereClause}
             ORDER BY ps.paper_date DESC NULLS LAST
             LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
@@ -196,6 +199,7 @@ export default async function DashboardPage({ searchParams }) {
                                     <th className="px-6 py-3">Date</th>
                                     <th className="px-6 py-3">Paper Name</th>
                                     <th className="px-6 py-3">Lang</th>
+                                    {user.isAdmin && <th className="px-6 py-3">Assigned To</th>}
                                     <th className="px-6 py-3">Questions</th>
                                     <th className="px-6 py-3">Corrected</th>
                                     <th className="px-6 py-3">Status / Progress</th>
@@ -219,6 +223,17 @@ export default async function DashboardPage({ searchParams }) {
                                                     {paper.language}
                                                 </span>
                                             </td>
+                                            {user.isAdmin && (
+                                                <td className="px-6 py-4 font-medium text-gray-900">
+                                                    {paper.reviewer_email ? (
+                                                        <span className="bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded">
+                                                            {paper.reviewer_email.split('@')[0]}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-gray-400 italic">Unassigned</span>
+                                                    )}
+                                                </td>
+                                            )}
                                             <td className="px-6 py-4">
                                                 <span className="font-bold text-gray-900 bg-gray-100 px-2 py-1 rounded">
                                                     {parseInt(paper.total_q || 0)}
