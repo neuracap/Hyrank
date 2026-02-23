@@ -22,12 +22,13 @@ export async function POST(request) {
             WHERE question_id = $2 AND version_no = $3
         `, [english.question_text, english.id, english.version]);
 
-        // 2. Update English Options
+        // 2. Upsert English Options (INSERT if row missing, UPDATE if exists)
         for (const opt of english.options) {
             await client.query(`
-                UPDATE question_option 
-                SET option_json = jsonb_set(option_json, '{text}', to_jsonb($1::text))
-                WHERE question_id = $2 AND version_no = $3 AND language = 'EN' AND option_key = $4
+                INSERT INTO question_option (question_id, version_no, language, option_key, option_json, is_correct, created_at)
+                VALUES ($2, $3, 'EN', $4, jsonb_build_object('text', $1::text), false, NOW())
+                ON CONFLICT ON CONSTRAINT unique_question_option_key
+                DO UPDATE SET option_json = jsonb_set(question_option.option_json, '{text}', to_jsonb($1::text))
             `, [opt.opt_text || "", english.id, english.version, opt.opt_label]);
         }
 
@@ -39,12 +40,13 @@ export async function POST(request) {
             WHERE question_id = $2 AND version_no = $3
         `, [hindi.question_text, hindi.id, hindi.version]);
 
-        // 4. Update Hindi Options
+        // 4. Upsert Hindi Options (INSERT if row missing, UPDATE if exists)
         for (const opt of hindi.options) {
             await client.query(`
-                UPDATE question_option 
-                SET option_json = jsonb_set(option_json, '{text}', to_jsonb($1::text))
-                WHERE question_id = $2 AND version_no = $3 AND language = 'HI' AND option_key = $4
+                INSERT INTO question_option (question_id, version_no, language, option_key, option_json, is_correct, created_at)
+                VALUES ($2, $3, 'HI', $4, jsonb_build_object('text', $1::text), false, NOW())
+                ON CONFLICT ON CONSTRAINT unique_question_option_key
+                DO UPDATE SET option_json = jsonb_set(question_option.option_json, '{text}', to_jsonb($1::text))
             `, [opt.opt_text || "", hindi.id, hindi.version, opt.opt_label]);
         }
 
