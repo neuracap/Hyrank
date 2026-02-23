@@ -79,10 +79,11 @@ export async function POST(req) {
         // --- Link them ---
         await client.query(`
             INSERT INTO question_links
-            (english_question_id, english_version_no, hindi_question_id, hindi_version_no, 
-             hindi_language, paper_session_id_english, paper_session_id_hindi,
+            (english_question_id, english_version_no, english_language,
+             hindi_question_id, hindi_version_no, hindi_language,
+             paper_session_id_english, paper_session_id_hindi,
              similarity_score, updated_score, status, created_at)
-            VALUES ($1, 1, $2, 1, 'HI', $3, $4, 1.0, 1.0, 'MANUALLY_CORRECTED', NOW())
+            VALUES ($1, 1, 'EN', $2, 1, 'HI', $3, $4, 1.0, 1.0, 'MANUALLY_CORRECTED', NOW())
         `, [engQuestionId, hinQuestionId, eng_session_id, hin_session_id]);
 
         await client.query('COMMIT');
