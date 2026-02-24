@@ -1,5 +1,6 @@
 import db from '@/lib/db';
 import { requireAdmin } from '@/lib/auth-edge';
+import DetailedAssignmentsTable from '@/components/DetailedAssignmentsTable';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,6 +54,7 @@ export default async function AnalyticsPage() {
             ps.paper_session_id,
             ps.caption as paper_name,
             ps.language,
+            EXTRACT(YEAR FROM ps.paper_date) as paper_year,
             ra.status as assignment_status,
             ra.assigned_at,
             (
@@ -159,53 +161,7 @@ export default async function AnalyticsPage() {
             </div>
 
             {/* Detailed List */}
-            <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-                    <h2 className="text-lg font-bold text-gray-800">Detailed Assignments</h2>
-                </div>
-                <div className="p-6 max-h-[600px] overflow-y-auto">
-                    {details.map((row, idx) => {
-                        const pTotal = parseInt(row.paper_total_q);
-                        const pCorrected = parseInt(row.paper_corrected_q);
-                        const pPercent = pTotal > 0 ? Math.round((pCorrected / pTotal) * 100) : 0;
-
-                        return (
-                            <div key={idx} className="flex flex-col sm:flex-row justify-between items-start sm:items-center py-3 border-b last:border-0 border-gray-100">
-                                <div className="mb-2 sm:mb-0">
-                                    <div className="flex items-center mb-1">
-                                        <span className={`inline-block w-20 text-xs font-bold px-2 py-1 rounded mr-3 text-center ${row.assignment_status === 'COMPLETED' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                                            {row.assignment_status === 'COMPLETED' ? 'DONE' : 'ACTIVE'}
-                                        </span>
-                                        <span className={`text-xs font-bold px-2 py-[2px] rounded mr-2 border ${row.language === 'EN' ? 'border-blue-200 text-blue-600 bg-blue-50' : 'border-orange-200 text-orange-600 bg-orange-50'}`}>
-                                            {row.language}
-                                        </span>
-                                        <span className="text-gray-800 text-sm font-medium truncat max-w-[300px] sm:max-w-md" title={row.paper_name}>
-                                            {row.paper_name}
-                                        </span>
-                                    </div>
-                                    <div className="ml-[100px] text-xs text-gray-400">
-                                        Assigned to: {row.email}
-                                    </div>
-                                </div>
-
-                                <div className="flex items-center w-full sm:w-auto ml-[100px] sm:ml-0">
-                                    <div className="w-32 mr-3">
-                                        <div className="w-full bg-gray-200 rounded-full h-2">
-                                            <div
-                                                className="bg-green-500 h-2 rounded-full transition-all duration-500"
-                                                style={{ width: `${pPercent}%` }}
-                                            ></div>
-                                        </div>
-                                    </div>
-                                    <span className="text-sm font-medium text-gray-600 min-w-[80px] text-right">
-                                        {pCorrected} / {pTotal}
-                                    </span>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            </div>
+            <DetailedAssignmentsTable details={details} />
         </div>
     );
 }

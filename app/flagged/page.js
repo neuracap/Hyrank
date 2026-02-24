@@ -40,6 +40,10 @@ async function fetchFlaggedQuestions(page = 1, limit = 100) {
                 pe_ij.source_pdf_path as eng_source_pdf,
                 ph_ij.source_pdf_path as hin_source_pdf,
                 
+                -- Exam Details
+                e.name as exam_name,
+                pe.paper_date as exam_date,
+                
                 ql.translated_debug
             FROM question_links ql
             JOIN question_version qe ON (ql.english_question_id = qe.question_id AND ql.english_version_no = qe.version_no)
@@ -47,6 +51,7 @@ async function fetchFlaggedQuestions(page = 1, limit = 100) {
             
             -- English PDF Joins
             LEFT JOIN paper_session pe ON ql.paper_session_id_english = pe.paper_session_id
+            LEFT JOIN exam e ON pe.exam_id = e.exam_id
             LEFT JOIN raw_mmd_doc pe_doc ON pe.raw_mmd_doc_id = pe_doc.raw_mmd_doc_id
             LEFT JOIN import_job pe_ij ON pe_doc.import_job_id = pe_ij.import_job_id
             

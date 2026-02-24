@@ -755,8 +755,15 @@ Are you sure you want to proceed?`;
                                 </div>
                             )}
                             <div className={`px-6 py-3 border-b flex justify-between items-center text-sm ${isLowScore && !isCorrected ? 'bg-red-100 border-red-200' : 'bg-gray-50/50 border-gray-200'}`}>
-                                <div className="font-mono text-gray-500">
-                                    Q.{q.eng_source_no || q.eng_id?.substring(0, 6) || 'N/A'} <span className="text-xs text-gray-400 font-normal ml-2">({q.eng_id})</span>
+                                <div>
+                                    {isGlobalFlaggedMode && (
+                                        <div className="font-bold text-indigo-700 mb-1 text-xs uppercase tracking-wide">
+                                            {q.exam_name || 'Unknown Exam'} {q.exam_date ? `• ${new Date(q.exam_date).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' })}` : ''}
+                                        </div>
+                                    )}
+                                    <div className="font-mono text-gray-500">
+                                        Q.{q.eng_source_no || q.eng_id?.substring(0, 6) || 'N/A'} <span className="text-xs text-gray-400 font-normal ml-2">({q.eng_id})</span>
+                                    </div>
                                 </div>
                                 <div className="flex gap-2 items-center">
                                     {/* Feedback Message */}
