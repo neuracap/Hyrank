@@ -1,6 +1,6 @@
-
 import db from '@/lib/db';
 import Dashboard from '@/components/Dashboard';
+import { getCurrentUser } from '@/lib/auth-edge';
 
 export const dynamic = 'force-dynamic';
 
@@ -153,6 +153,9 @@ export default async function TestPage({ searchParams }) {
     const { testId, locked } = await searchParams;
     const { questions, total, tests, selectedTestId, sections, docInfo } = await fetchData(testId);
 
+    // Fetch user to allow admins to bypass the "locked" restriction
+    const user = await getCurrentUser();
+
     return (
         <Dashboard
             questions={questions}
@@ -162,6 +165,7 @@ export default async function TestPage({ searchParams }) {
             sections={sections}
             docInfo={docInfo}
             locked={locked === 'true'}
+            isAdmin={user?.isAdmin || false}
         />
     );
 }
