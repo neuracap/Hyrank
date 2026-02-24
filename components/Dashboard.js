@@ -129,9 +129,9 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
     const handleTestChange = (e) => {
         const id = e.target.value;
         if (id) {
-            router.push(`/?testId=${id}`);
+            router.push(`/test?testId=${id}`);
         } else {
-            router.push('/');
+            router.push('/test');
         }
     };
 
