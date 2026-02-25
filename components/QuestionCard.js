@@ -92,10 +92,26 @@ export default function QuestionCard({ question, onSave, onImagePaste, onAddImag
     const q = isEditing ? editedQuestion : question;
     const hasError = !q.options || q.options.length < 4;
 
+    let isImbalanced = false;
+    if (!hasError && q.options.length === 4) {
+        const lengths = [...q.options].map(o => (o.opt_text || '').trim().length).sort((a, b) => a - b);
+        const lower3Avg = (lengths[0] + lengths[1] + lengths[2]) / 3;
+        if (lower3Avg > 0 && lengths[3] > 3 * lower3Avg) {
+            isImbalanced = true;
+        } else if (lower3Avg === 0 && lengths[3] > 0) {
+            isImbalanced = true;
+        }
+    }
+
     return (
         <div
             id={`q-${question.id}`}
-            className={`scroll-mt-20 bg-white p-6 md:p-8 rounded-lg border shadow-[0_2px_4px_rgba(0,0,0,0.02)] relative transition-all duration-300 target:ring-2 target:ring-blue-500 target:shadow-lg ${hasError ? 'border-red-200 ring-1 ring-red-100' : 'border-gray-200'}`}
+            className={`scroll-mt-20 p-6 md:p-8 rounded-lg border shadow-[0_2px_4px_rgba(0,0,0,0.02)] relative transition-all duration-300 target:ring-2 target:ring-blue-500 target:shadow-lg ${hasError
+                    ? 'border-red-200 ring-1 ring-red-100 bg-white'
+                    : isImbalanced
+                        ? 'border-pink-300 ring-1 ring-pink-200 bg-pink-50'
+                        : 'border-gray-200 bg-white'
+                }`}
             onPaste={handlePaste}
         >
             {/* Top Right ID & Edit Button */}
@@ -171,7 +187,7 @@ export default function QuestionCard({ question, onSave, onImagePaste, onAddImag
                                 </div>
                             </div>
                         ) : (
-                            <div className="text-lg font-bold text-gray-900 leading-relaxed">
+                            <div className="text-lg font-normal text-gray-900 leading-relaxed">
                                 <Latex>{q.question_text}</Latex>
                             </div>
                         )}
