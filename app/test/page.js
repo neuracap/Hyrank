@@ -128,10 +128,11 @@ async function fetchData(testId, page = 1, limit = 200) {
         let docInfo = {};
         if (computedTestId) {
             const docQuery = `
-                SELECT j.source_pdf_path, j.notes, d.file_path as mmd_path
+                SELECT j.source_pdf_path, j.notes, d.file_path as mmd_path, ps.status, e.num_questions
                 FROM paper_session ps 
-                JOIN raw_mmd_doc d ON ps.raw_mmd_doc_id = d.raw_mmd_doc_id
-                JOIN import_job j ON d.import_job_id = j.import_job_id
+                LEFT JOIN raw_mmd_doc d ON ps.raw_mmd_doc_id = d.raw_mmd_doc_id
+                LEFT JOIN import_job j ON d.import_job_id = j.import_job_id
+                LEFT JOIN exam e ON ps.exam_id = e.exam_id
                 WHERE ps.paper_session_id = $1
             `;
             const docRes = await client.query(docQuery, [computedTestId]);

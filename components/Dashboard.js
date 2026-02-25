@@ -745,6 +745,54 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                                     <p className="text-gray-500">No questions found for the selected test.</p>
                                 </div>
                             )}
+
+                            {isAdmin && ['TEAM_REVIEWED', 'ADMIN_REVIEWED'].includes(docInfo?.status) && (
+                                <div className="mt-8 pt-8 border-t border-gray-200 flex flex-col items-center justify-center text-center bg-gray-50 rounded-lg p-6 border">
+                                    <h3 className="text-xl font-bold text-gray-800 mb-2">Complete Missing Questions Phase</h3>
+                                    <p className="text-gray-600 mb-6 max-w-xl">
+                                        Are you sure you want to mark this paper as having all missing questions added?
+                                        This will advance the paper out of <span className="font-semibold text-gray-800">{docInfo?.status}</span> and into the <strong className="text-blue-700">Missing Added</strong> stage.
+                                        <br /><br />
+                                        <span className={`font-semibold bg-white px-3 py-1.5 rounded border shadow-sm ${total === parseInt(docInfo?.num_questions || 100, 10) ? 'text-green-600 border-green-200' : 'text-red-600 border-red-200'}`}>
+                                            Current Question Count: {total} / {docInfo?.num_questions || 100}
+                                        </span>
+                                    </p>
+                                    <button
+                                        onClick={async () => {
+                                            const targetCount = parseInt(docInfo?.num_questions || 100, 10);
+                                            if (total !== targetCount) {
+                                                alert(`Cannot advance: This exam requires exactly ${targetCount} questions.`);
+                                                return;
+                                            }
+                                            if (confirm('Advance paper to MISSING_ADDED?')) {
+                                                try {
+                                                    const res = await fetch('/api/paper/advance-status', {
+                                                        method: 'POST',
+                                                        headers: { 'Content-Type': 'application/json' },
+                                                        body: JSON.stringify({
+                                                            paper_session_id: selectedTestId,
+                                                            next_status: 'MISSING_ADDED'
+                                                        })
+                                                    });
+                                                    if (res.ok) {
+                                                        alert('Status updated successfully!');
+                                                        router.refresh();
+                                                    } else {
+                                                        const data = await res.json();
+                                                        alert(data.error || 'Failed to update status');
+                                                    }
+                                                } catch (e) {
+                                                    alert('An error occurred.');
+                                                }
+                                            }
+                                        }}
+                                        className={`px-8 py-3 rounded-lg shadow text-white font-bold text-sm transition-colors ${total === parseInt(docInfo?.num_questions || 100, 10) ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-400 cursor-not-allowed opacity-80'}`}
+                                        disabled={total !== parseInt(docInfo?.num_questions || 100, 10)}
+                                    >
+                                        Mark as "Missing Added"
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 ) : (
