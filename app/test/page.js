@@ -39,7 +39,9 @@ async function fetchData(testId, page = 1, limit = 200) {
                         qv.created_at,
                         es.code as section_code,
                         es.sort_order as section_sort_order,
-                        (ql.id IS NULL) as is_unlinked
+                        (ql.id IS NULL) as is_unlinked,
+                        ql.status as link_status,
+                        qv.status as qv_status
                     FROM question_version qv
                     LEFT JOIN exam_section es ON qv.exam_section_id = es.section_id
                     LEFT JOIN question_links ql ON (
@@ -60,7 +62,9 @@ async function fetchData(testId, page = 1, limit = 200) {
                     source_question_no,
                     meta_json,
                     section_code,
-                    is_unlinked
+                    is_unlinked,
+                    link_status,
+                    qv_status
                 FROM distinct_questions
                 ORDER BY 
                     section_sort_order ASC NULLS LAST,
@@ -82,6 +86,7 @@ async function fetchData(testId, page = 1, limit = 200) {
                 subject: q.section_code || (q.meta_json ? q.meta_json.section_name : '') || 'General',
                 has_figure: q.has_figure,
                 is_unlinked: q.is_unlinked,
+                is_manually_corrected: (q.link_status === 'MANUALLY_CORRECTED' || q.qv_status === 'MANUALLY_CORRECTED'),
                 figure_path: null,
                 options: []
             }));

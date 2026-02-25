@@ -22,7 +22,9 @@ export async function POST(req) {
             UPDATE question_version 
             SET 
                 body_json = jsonb_set(body_json, '{text}', to_jsonb($1::text)),
-                source_question_no = COALESCE($5, source_question_no)
+                source_question_no = COALESCE($5, source_question_no),
+                status = 'MANUALLY_CORRECTED',
+                updated_at = NOW()
             WHERE question_id = $2 AND version_no = $3 AND language = $4
         `, [question_text, id, version_no, language, source_question_no]);
 

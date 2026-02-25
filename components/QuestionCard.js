@@ -110,10 +110,19 @@ export default function QuestionCard({ question, onSave, onImagePaste, onAddImag
                     ? 'border-red-200 ring-1 ring-red-100 bg-white'
                     : isImbalanced
                         ? 'border-pink-300 ring-1 ring-pink-200 bg-pink-50'
-                        : 'border-gray-200 bg-white'
+                        : !q.is_manually_corrected
+                            ? 'border-amber-300 ring-1 ring-amber-200 bg-amber-50'
+                            : 'border-gray-200 bg-white'
                 }`}
             onPaste={handlePaste}
         >
+            {/* Unreviewed Badge */}
+            {!q.is_manually_corrected && !hasError && !isImbalanced && (
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 px-3 py-0.5 bg-amber-100 text-amber-800 text-xs font-bold rounded-full border border-amber-200 shadow-sm pointer-events-none">
+                    Unreviewed
+                </div>
+            )}
+
             {/* Top Right ID & Edit Button */}
             <div className="absolute top-4 right-4 flex items-center gap-3">
                 <div className="text-xs text-gray-300 font-mono select-all">
