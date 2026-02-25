@@ -69,8 +69,12 @@ export default function DashboardFilters({ subjects }) {
                         className="text-sm border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 py-1.5 pl-3 pr-8"
                     >
                         <option value="ALL">All Statuses</option>
-                        <option value="PENDING">Pending Review</option>
-                        <option value="COMPLETED">Completed</option>
+                        <option value="NOT_REVIEWED">1. Not Reviewed</option>
+                        <option value="TEAM_REVIEWED">2. Team Reviewed</option>
+                        <option value="MISSING_ADDED">3. Missing Added</option>
+                        <option value="PRE_PUBLISH_READY">4. Pre-Publish Ready</option>
+                        <option value="SOLUTION_REVIEW">5. Solution Review</option>
+                        <option value="PRODUCTION">6. Production</option>
                     </select>
                 </div>
             </div>

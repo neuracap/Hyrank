@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import BulkReclassifyButton from '@/components/BulkReclassifyButton';
 import DashboardFilters from '@/components/DashboardFilters';
+import StatusSelector from '@/components/StatusSelector';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,10 +44,10 @@ export default async function DashboardPage({ searchParams }) {
 
     if (user.isAdmin) {
         // --- ADMIN QUERY ---
-        if (status === 'COMPLETED') {
-            whereConditions.push(`ps.questions_reviewed = TRUE`);
-        } else if (status === 'PENDING') {
-            whereConditions.push(`ps.questions_reviewed = FALSE`);
+        if (status !== 'ALL') {
+            whereConditions.push(`ps.status = $${paramIndex}`);
+            queryParams.push(status);
+            paramIndex++;
         }
 
         const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
@@ -65,7 +66,7 @@ export default async function DashboardPage({ searchParams }) {
                 ps.caption,
                 ps.subject,
                 ps.language,
-                ps.questions_reviewed,
+                ps.status as pipeline_status,
                 (
                     SELECT COUNT(*) 
                     FROM question_version qv
@@ -95,10 +96,12 @@ export default async function DashboardPage({ searchParams }) {
 
         whereConditions.push(`ps.language = 'EN'`); // Reviewers only see English sessions by default
 
-        if (status === 'COMPLETED') {
-            whereConditions.push(`ra.status = 'COMPLETED'`);
-        } else if (status === 'PENDING') {
-            whereConditions.push(`ra.status != 'COMPLETED'`);
+        if (status !== 'ALL') {
+            // For reviewers, they can also filter by the paper's pipeline status, or you could keep their PENDING/COMPLETED filter tied to ra.status. 
+            // We'll update this to filter by ps.status to match the global filter dropdown.
+            whereConditions.push(`ps.status = $${paramIndex}`);
+            queryParams.push(status);
+            paramIndex++;
         }
 
         const whereClause = `WHERE ${whereConditions.join(' AND ')}`;
@@ -122,7 +125,7 @@ export default async function DashboardPage({ searchParams }) {
                 ps.caption,
                 ps.subject,
                 ps.language,
-                ps.questions_reviewed,
+                ps.status as pipeline_status,
                 ra.status as assignment_status,
                 (
                     SELECT COUNT(*) 
@@ -148,6 +151,27 @@ export default async function DashboardPage({ searchParams }) {
     client.release();
 
     const totalPages = Math.ceil(totalCount / limit);
+
+    // Helper to render the status pill
+    const getStatusPill = (statusStr) => {
+        const statusMap = {
+            'NOT_REVIEWED': { label: 'Not Reviewed', color: 'bg-gray-100 text-gray-500', dot: 'bg-gray-400' },
+            'TEAM_REVIEWED': { label: 'Team Reviewed', color: 'bg-purple-100 text-purple-700', dot: 'bg-purple-500' },
+            'MISSING_ADDED': { label: 'Missing Added', color: 'bg-blue-100 text-blue-700', dot: 'bg-blue-500' },
+            'PRE_PUBLISH_READY': { label: 'Pre-Publish Ready', color: 'bg-teal-100 text-teal-700', dot: 'bg-teal-500' },
+            'SOLUTION_REVIEW': { label: 'Solution Review', color: 'bg-orange-100 text-orange-700', dot: 'bg-orange-500' },
+            'PRODUCTION': { label: 'Production', color: 'bg-green-100 text-green-800', dot: 'bg-green-500' }
+        };
+
+        const config = statusMap[statusStr] || { label: statusStr || 'Unknown', color: 'bg-gray-100 text-gray-800', dot: 'bg-gray-500' };
+
+        return (
+            <span className={`font-medium flex items-center gap-1.5 px-2.5 py-1 rounded-full w-fit ${config.color}`}>
+                <div className={`w-2 h-2 rounded-full ${config.dot}`}></div>
+                {config.label}
+            </span>
+        );
+    };
 
     return (
         <div className="container mx-auto px-4 py-8">
@@ -251,20 +275,17 @@ export default async function DashboardPage({ searchParams }) {
                                             </td>
                                             <td className="px-6 py-4">
                                                 {user.isAdmin ? (
-                                                    paper.questions_reviewed ? (
-                                                        <span className="text-green-600 font-bold flex items-center gap-1.5 bg-green-50 px-2 py-1 rounded-full w-fit">
-                                                            <div className="w-2 h-2 rounded-full bg-green-500"></div> Reviewed
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-gray-500 font-medium flex items-center gap-1.5 bg-gray-100 px-2 py-1 rounded-full w-fit">
-                                                            <div className="w-2 h-2 rounded-full bg-gray-400"></div> Pending
-                                                        </span>
-                                                    )
+                                                    <StatusSelector
+                                                        paperSessionId={paper.paper_session_id}
+                                                        currentStatus={paper.pipeline_status}
+                                                    />
                                                 ) : (
-                                                    <span className={`font-semibold flex items-center gap-1.5 px-2 py-1 rounded-full w-fit ${paper.assignment_status === 'COMPLETED' ? 'text-green-600 bg-green-50' : 'text-yellow-700 bg-yellow-50'}`}>
-                                                        <div className={`w-2 h-2 rounded-full ${paper.assignment_status === 'COMPLETED' ? 'bg-green-500' : 'bg-yellow-500'}`}></div>
-                                                        {paper.assignment_status === 'COMPLETED' ? 'Completed' : 'In Progress'}
-                                                    </span>
+                                                    getStatusPill(paper.pipeline_status)
+                                                )}
+                                                {!user.isAdmin && (
+                                                    <div className="mt-2 text-xs">
+                                                        My Task: <span className={`font-semibold ${paper.assignment_status === 'COMPLETED' ? 'text-green-600' : 'text-yellow-600'}`}>{paper.assignment_status}</span>
+                                                    </div>
                                                 )}
                                             </td>
                                             <td className="px-6 py-4 text-right">

@@ -80,7 +80,7 @@ export async function POST(request) {
                 // Column exists, update it
                 await client.query(`
                     UPDATE paper_session
-                    SET questions_reviewed = true
+                    SET questions_reviewed = true, status = 'TEAM_REVIEWED'
                     WHERE paper_session_id = $1
                 `, [sessionId]);
             }

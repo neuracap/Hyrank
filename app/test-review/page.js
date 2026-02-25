@@ -26,7 +26,7 @@ export default async function TestReviewPage() {
                 ps.caption,
                 ps.subject,
                 ps.language,
-                ps.questions_reviewed,
+                ps.status as pipeline_status,
                 (
                     SELECT COUNT(*) 
                     FROM question_version qv
@@ -48,7 +48,7 @@ export default async function TestReviewPage() {
                 ps.caption,
                 ps.subject,
                 ps.language,
-                ps.questions_reviewed,
+                ps.status as pipeline_status,
                 ra.status as assignment_status,
                 (
                     SELECT COUNT(*) 
@@ -66,6 +66,27 @@ export default async function TestReviewPage() {
     }
 
     client.release();
+
+    // Helper to render the status pill
+    const getStatusPill = (statusStr) => {
+        const statusMap = {
+            'NOT_REVIEWED': { label: 'Not Reviewed', color: 'bg-gray-100 text-gray-500', dot: 'bg-gray-400' },
+            'TEAM_REVIEWED': { label: 'Team Reviewed', color: 'bg-purple-100 text-purple-700', dot: 'bg-purple-500' },
+            'MISSING_ADDED': { label: 'Missing Added', color: 'bg-blue-100 text-blue-700', dot: 'bg-blue-500' },
+            'PRE_PUBLISH_READY': { label: 'Pre-Publish Ready', color: 'bg-teal-100 text-teal-700', dot: 'bg-teal-500' },
+            'SOLUTION_REVIEW': { label: 'Solution Review', color: 'bg-orange-100 text-orange-700', dot: 'bg-orange-500' },
+            'PRODUCTION': { label: 'Production', color: 'bg-green-100 text-green-800', dot: 'bg-green-500' }
+        };
+
+        const config = statusMap[statusStr] || { label: statusStr || 'Unknown', color: 'bg-gray-100 text-gray-800', dot: 'bg-gray-500' };
+
+        return (
+            <span className={`font-medium flex items-center gap-1.5 px-2.5 py-1 rounded-full w-fit ${config.color}`}>
+                <div className={`w-2 h-2 rounded-full ${config.dot}`}></div>
+                {config.label}
+            </span>
+        );
+    };
 
     return (
         <div className="container mx-auto px-4 py-8">
@@ -125,20 +146,11 @@ export default async function TestReviewPage() {
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4">
-                                                {user.isAdmin ? (
-                                                    paper.questions_reviewed ? (
-                                                        <span className="text-green-600 font-bold flex items-center">
-                                                            <span className="w-2 h-2 rounded-full bg-green-500 mr-2"></span> Reviewed
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-gray-400 flex items-center">
-                                                            <span className="w-2 h-2 rounded-full bg-gray-300 mr-2"></span> Pending
-                                                        </span>
-                                                    )
-                                                ) : (
-                                                    <span className={`font-semibold ${paper.assignment_status === 'COMPLETED' ? 'text-green-600' : 'text-yellow-600'}`}>
-                                                        {paper.assignment_status === 'COMPLETED' ? 'Done' : 'In Progress'}
-                                                    </span>
+                                                {getStatusPill(paper.pipeline_status)}
+                                                {!user.isAdmin && (
+                                                    <div className="mt-2 text-xs">
+                                                        My Task: <span className={`font-semibold ${paper.assignment_status === 'COMPLETED' ? 'text-green-600' : 'text-yellow-600'}`}>{paper.assignment_status}</span>
+                                                    </div>
                                                 )}
                                             </td>
                                             <td className="px-6 py-4">
