@@ -71,10 +71,11 @@ export default function DashboardFilters({ subjects }) {
                         <option value="ALL">All Statuses</option>
                         <option value="NOT_REVIEWED">1. Not Reviewed</option>
                         <option value="TEAM_REVIEWED">2. Team Reviewed</option>
-                        <option value="MISSING_ADDED">3. Missing Added</option>
-                        <option value="PRE_PUBLISH_READY">4. Pre-Publish Ready</option>
-                        <option value="SOLUTION_REVIEW">5. Solution Review</option>
-                        <option value="PRODUCTION">6. Production</option>
+                        <option value="ADMIN_REVIEWED">3. Admin Reviewed</option>
+                        <option value="MISSING_ADDED">4. Missing Added</option>
+                        <option value="PRE_PUBLISH_READY">5. Pre-Publish Ready</option>
+                        <option value="SOLUTION_REVIEW">6. Solution Review</option>
+                        <option value="PRODUCTION">7. Production</option>
                     </select>
                 </div>
             </div>

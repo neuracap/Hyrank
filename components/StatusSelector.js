@@ -10,12 +10,13 @@ export default function StatusSelector({ paperSessionId, currentStatus }) {
     const [error, setError] = useState('');
 
     const statusMap = {
-        'NOT_REVIEWED': { label: 'Not Reviewed', color: 'bg-gray-100 text-gray-500', dot: 'bg-gray-400' },
-        'TEAM_REVIEWED': { label: 'Team Reviewed', color: 'bg-purple-100 text-purple-700', dot: 'bg-purple-500' },
-        'MISSING_ADDED': { label: 'Missing Added', color: 'bg-blue-100 text-blue-700', dot: 'bg-blue-500' },
-        'PRE_PUBLISH_READY': { label: 'Pre-Publish Ready', color: 'bg-teal-100 text-teal-700', dot: 'bg-teal-500' },
-        'SOLUTION_REVIEW': { label: 'Solution Review', color: 'bg-orange-100 text-orange-700', dot: 'bg-orange-500' },
-        'PRODUCTION': { label: 'Production', color: 'bg-green-100 text-green-800', dot: 'bg-green-500' }
+        'NOT_REVIEWED': { label: '1. Not Reviewed', color: 'bg-gray-100 text-gray-500', dot: 'bg-gray-400' },
+        'TEAM_REVIEWED': { label: '2. Team Reviewed', color: 'bg-purple-100 text-purple-700', dot: 'bg-purple-500' },
+        'ADMIN_REVIEWED': { label: '3. Admin Reviewed', color: 'bg-indigo-100 text-indigo-700', dot: 'bg-indigo-500' },
+        'MISSING_ADDED': { label: '4. Missing Added', color: 'bg-blue-100 text-blue-700', dot: 'bg-blue-500' },
+        'PRE_PUBLISH_READY': { label: '5. Pre-Publish Ready', color: 'bg-teal-100 text-teal-700', dot: 'bg-teal-500' },
+        'SOLUTION_REVIEW': { label: '6. Solution Review', color: 'bg-orange-100 text-orange-700', dot: 'bg-orange-500' },
+        'PRODUCTION': { label: '7. Production', color: 'bg-green-100 text-green-800', dot: 'bg-green-500' }
     };
 
     const handleStatusChange = async (e) => {

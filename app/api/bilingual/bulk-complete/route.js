@@ -67,6 +67,8 @@ export async function POST(request) {
         // 3. Mark paper sessions as reviewed 
         const sessionIds = [engSessionId, hinSessionId].filter(id => id !== null);
 
+        const newTargetStatus = user && user.isAdmin ? 'ADMIN_REVIEWED' : 'TEAM_REVIEWED';
+
         for (const sessionId of sessionIds) {
             // First check if the column exists
             const columnCheckRes = await client.query(`
@@ -80,9 +82,9 @@ export async function POST(request) {
                 // Column exists, update it
                 await client.query(`
                     UPDATE paper_session
-                    SET questions_reviewed = true, status = 'TEAM_REVIEWED'
-                    WHERE paper_session_id = $1
-                `, [sessionId]);
+                    SET questions_reviewed = true, status = $1
+                    WHERE paper_session_id = $2
+                `, [newTargetStatus, sessionId]);
             }
         }
 

@@ -21,6 +21,7 @@ export async function POST(request) {
     const validStatuses = [
         'NOT_REVIEWED',
         'TEAM_REVIEWED',
+        'ADMIN_REVIEWED',
         'MISSING_ADDED',
         'PRE_PUBLISH_READY',
         'SOLUTION_REVIEW',
