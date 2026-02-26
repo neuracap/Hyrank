@@ -531,7 +531,7 @@ Are you sure you want to proceed?`;
     };
 
     const examName = engDocInfo?.exam_name || hinDocInfo?.exam_name;
-    const sessionLabel = engDocInfo?.session_label || hinDocInfo?.session_label;
+    const paperName = engDocInfo?.session_label;
     const examDate = engDocInfo?.exam_date || hinDocInfo?.exam_date;
     const shift = engDocInfo?.shift || hinDocInfo?.shift;
     const formattedDate = examDate ? new Date(examDate).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
@@ -550,9 +550,9 @@ Are you sure you want to proceed?`;
                     <div className="flex justify-between items-center mb-4">
                         <div>
                             <h1 className="text-2xl font-bold text-gray-900 mb-1">Bilingual Review Dashboard</h1>
-                            {(sessionLabel || examName || formattedDate || shift) && (
+                            {(paperName || examName || formattedDate || shift) && (
                                 <div className="mb-3 border-b pb-2">
-                                    {sessionLabel && <div className="text-xl font-bold text-gray-800">{sessionLabel}</div>}
+                                    {paperName && <div className="text-xl font-bold text-gray-900 mb-1">{paperName}</div>}
                                     <div className="text-sm font-semibold text-indigo-700 mt-1">
                                         {examName || 'Unknown Exam'} {formattedDate ? `• ${formattedDate}` : ''} {shift ? `• Shift ${shift}` : ''}
                                     </div>
