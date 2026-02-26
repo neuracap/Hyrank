@@ -135,17 +135,16 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortB
         const docQuery = `
             SELECT 
                 ps.session_label,
+                ps.paper_date as exam_date,
+                ps.shift_number as shift,
                 j.source_pdf_path, 
                 j.notes, 
                 d.file_path as mmd_path,
-                COALESCE(e1.name, e2.name) as exam_name,
-                COALESCE(ps.paper_date, j.exam_date) as exam_date,
-                COALESCE(ps.shift_number, j.shift) as shift
+                e.name as exam_name
             FROM paper_session ps 
+            LEFT JOIN exam e ON ps.exam_id = e.exam_id
             LEFT JOIN raw_mmd_doc d ON ps.raw_mmd_doc_id = d.raw_mmd_doc_id
             LEFT JOIN import_job j ON d.import_job_id = j.import_job_id
-            LEFT JOIN exam e1 ON ps.exam_id = e1.exam_id
-            LEFT JOIN exam e2 ON j.exam_id = e2.exam_id
             WHERE ps.paper_session_id = $1
         `;
 
