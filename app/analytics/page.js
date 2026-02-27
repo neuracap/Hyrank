@@ -31,18 +31,20 @@ export default async function AnalyticsPage() {
             u.email,
             COUNT(DISTINCT ra.id) as papers_assigned,
             COALESCE(rl_stats.total_q, 0) as total_questions,
-            COALESCE(rl_stats.corrected_q, 0) as corrected_questions
+            COALESCE(rl_stats.corrected_q, 0) as corrected_questions,
+            COALESCE(rl_stats.flagged_q, 0) as flagged_questions
         FROM users u
         JOIN review_assignments ra ON ra.reviewer_id = u.id
         LEFT JOIN (
             SELECT 
                 reviewer_id,
                 COUNT(link_id) as total_q,
-                COUNT(CASE WHEN status = 'MANUALLY_CORRECTED' THEN 1 END) as corrected_q
+                COUNT(CASE WHEN status = 'MANUALLY_CORRECTED' THEN 1 END) as corrected_q,
+                COUNT(CASE WHEN status = 'FLAGGED' THEN 1 END) as flagged_q
             FROM reviewer_links
             GROUP BY reviewer_id
         ) rl_stats ON u.id = rl_stats.reviewer_id
-        GROUP BY u.id, u.name, u.email, rl_stats.total_q, rl_stats.corrected_q
+        GROUP BY u.id, u.name, u.email, rl_stats.total_q, rl_stats.corrected_q, rl_stats.flagged_q
         ORDER BY corrected_questions DESC, u.name
     `);
 
@@ -124,6 +126,7 @@ export default async function AnalyticsPage() {
                                 <th className="px-6 py-3">Paper Sets</th>
                                 <th className="px-6 py-3">Questions (Total)</th>
                                 <th className="px-6 py-3">Corrected</th>
+                                <th className="px-6 py-3">Flagged</th>
                                 <th className="px-6 py-3">Progress</th>
                             </tr>
                         </thead>
@@ -131,7 +134,9 @@ export default async function AnalyticsPage() {
                             {stats.map((user) => {
                                 const total = parseInt(user.total_questions);
                                 const corrected = parseInt(user.corrected_questions);
+                                const flagged = parseInt(user.flagged_questions);
                                 const percentage = total > 0 ? Math.round((corrected / total) * 100) : 0;
+                                const flaggedPct = corrected > 0 ? Math.round((flagged / corrected) * 100) : 0;
                                 const papersCount = parseInt(user.papers_assigned);
 
                                 return (
@@ -143,6 +148,12 @@ export default async function AnalyticsPage() {
                                         <td className="px-6 py-4">{papersCount / 2} pairs ({papersCount})</td>
                                         <td className="px-6 py-4">{total}</td>
                                         <td className="px-6 py-4 text-green-600 font-bold">{corrected}</td>
+                                        <td className="px-6 py-4">
+                                            <span className="font-bold text-orange-600">{flagged}</span>
+                                            {corrected > 0 && (
+                                                <span className="text-xs text-gray-400 ml-1">({flaggedPct}%)</span>
+                                            )}
+                                        </td>
                                         <td className="px-6 py-4">
                                             <div className="w-full bg-gray-200 rounded-full h-2.5">
                                                 <div
