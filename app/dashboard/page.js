@@ -78,6 +78,12 @@ export default async function DashboardPage({ searchParams }) {
                     WHERE (ql.paper_session_id_english = ps.paper_session_id OR ql.paper_session_id_hindi = ps.paper_session_id)
                     AND ql.status = 'MANUALLY_CORRECTED'
                 ) as corrected_count,
+                (
+                    SELECT COUNT(*)
+                    FROM question_links ql
+                    WHERE (ql.paper_session_id_english = ps.paper_session_id OR ql.paper_session_id_hindi = ps.paper_session_id)
+                    AND ql.status = 'FLAGGED'
+                ) as flagged_count,
                 ru.email as reviewer_email
             FROM paper_session ps
             LEFT JOIN review_assignments ra ON ps.paper_session_id = ra.paper_session_id
@@ -137,7 +143,13 @@ export default async function DashboardPage({ searchParams }) {
                     FROM question_links ql
                     WHERE (ql.paper_session_id_english = ps.paper_session_id OR ql.paper_session_id_hindi = ps.paper_session_id)
                     AND ql.status = 'MANUALLY_CORRECTED'
-                ) as corrected_count
+                ) as corrected_count,
+                (
+                    SELECT COUNT(*)
+                    FROM question_links ql
+                    WHERE (ql.paper_session_id_english = ps.paper_session_id OR ql.paper_session_id_hindi = ps.paper_session_id)
+                    AND ql.status = 'FLAGGED'
+                ) as flagged_count
             FROM review_assignments ra
             JOIN paper_session ps ON ra.paper_session_id = ps.paper_session_id
             ${whereClause}
@@ -227,6 +239,7 @@ export default async function DashboardPage({ searchParams }) {
                                     {user.isAdmin && <th className="px-6 py-3">Assigned To</th>}
                                     <th className="px-6 py-3">Questions</th>
                                     <th className="px-6 py-3">Corrected</th>
+                                    <th className="px-6 py-3">Flagged</th>
                                     <th className="px-6 py-3">Status / Progress</th>
                                     <th className="px-6 py-3 text-right">Action</th>
                                 </tr>
@@ -273,6 +286,15 @@ export default async function DashboardPage({ searchParams }) {
                                                     }`}>
                                                     {parseInt(paper.corrected_count || 0)}
                                                 </span>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                {parseInt(paper.flagged_count || 0) > 0 ? (
+                                                    <span className="font-bold px-2 py-1 rounded bg-orange-100 text-orange-700">
+                                                        🚩 {parseInt(paper.flagged_count)}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-gray-300 text-xs">—</span>
+                                                )}
                                             </td>
                                             <td className="px-6 py-4">
                                                 {user.isAdmin ? (
