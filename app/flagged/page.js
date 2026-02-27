@@ -44,6 +44,9 @@ async function fetchFlaggedQuestions(page = 1, limit = 100) {
                 e.name as exam_name,
                 pe.paper_date as exam_date,
                 
+                -- Reviewer assigned to this paper
+                u.name as reviewer_name,
+                
                 ql.translated_debug
             FROM question_links ql
             JOIN question_version qe ON (ql.english_question_id = qe.question_id AND ql.english_version_no = qe.version_no)
@@ -59,6 +62,10 @@ async function fetchFlaggedQuestions(page = 1, limit = 100) {
             LEFT JOIN paper_session ph ON ql.paper_session_id_hindi = ph.paper_session_id
             LEFT JOIN raw_mmd_doc ph_doc ON ph.raw_mmd_doc_id = ph_doc.raw_mmd_doc_id
             LEFT JOIN import_job ph_ij ON ph_doc.import_job_id = ph_ij.import_job_id
+            
+            -- Reviewer assigned to the English paper session
+            LEFT JOIN review_assignments ra ON ra.paper_session_id = ql.paper_session_id_english
+            LEFT JOIN users u ON u.id = ra.reviewer_id
             
             WHERE ql.status = 'FLAGGED'
             ORDER BY ql.created_at ASC

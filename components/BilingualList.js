@@ -771,8 +771,16 @@ Are you sure you want to proceed?`;
                             <div className={`px-6 py-3 border-b flex justify-between items-center text-sm ${isLowScore && !isCorrected ? 'bg-red-100 border-red-200' : 'bg-gray-50/50 border-gray-200'}`}>
                                 <div>
                                     {isGlobalFlaggedMode && (
-                                        <div className="font-bold text-indigo-700 mb-1 text-xs uppercase tracking-wide">
-                                            {q.exam_name || 'Unknown Exam'} {q.exam_date ? `• ${new Date(q.exam_date).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' })}` : ''}
+                                        <div className="flex items-center gap-3 flex-wrap mb-1">
+                                            <div className="font-bold text-indigo-700 text-xs uppercase tracking-wide">
+                                                {q.exam_name || 'Unknown Exam'} {q.exam_date ? `• ${new Date(q.exam_date).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' })}` : ''}
+                                            </div>
+                                            <div className="flex items-center gap-1 text-xs">
+                                                <span className="text-gray-400 font-semibold uppercase">Reviewer:</span>
+                                                <span className={`font-bold px-2 py-0.5 rounded-full text-xs ${q.reviewer_name ? 'bg-violet-100 text-violet-700' : 'bg-gray-100 text-gray-400'}`}>
+                                                    {q.reviewer_name || 'Unassigned'}
+                                                </span>
+                                            </div>
                                         </div>
                                     )}
                                     <div className="font-mono text-gray-500">
