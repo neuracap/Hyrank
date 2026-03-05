@@ -30,8 +30,13 @@ const Latex = ({ children }) => {
         .replace(/\\captionsetup\{.*?\}/g, '')
         .replace(/\\caption\{(.*?)\}/g, '\n*$1*\n')
         .replace(/\\includegraphics(?:\[.*?\])?\{(.*?)\}/g, '![]($1)')
-        .replace(/\\begin\{tabular\}\{.*?\}([\s\S]*?)\\end\{tabular\}/g, (match, tableContent) => {
-            const cleanContent = tableContent.replace(/\\hline/g, '').trim();
+        .replace(/\\begin\{tabular\}\{[^}]*\}([\s\S]*?)\\end\{tabular\}/g, (match, tableContent) => {
+            const cleanContent = tableContent
+                .replace(/\\hline/g, '')
+                .replace(/\\cline\{[^}]*\}/g, '')
+                .replace(/\\multicolumn\{[^}]*\}\{[^}]*\}\{([^}]*)\}/g, '$1')
+                .replace(/\\multirow\{[^}]*\}\{[^}]*\}\{([^}]*)\}/g, '$1')
+                .trim();
             const rows = cleanContent.split(/\\\\/);
 
             const headerCells = rows[0].split('&').map(c => c.trim());
