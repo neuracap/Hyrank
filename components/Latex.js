@@ -35,7 +35,7 @@ const Latex = ({ children }) => {
                 .replace(/\\hline/g, '')
                 .replace(/\\cline\{[^}]*\}/g, '')
                 .replace(/\\multicolumn\{[^}]*\}\{[^}]*\}\{([^}]*)\}/g, '$1')
-                .replace(/\\multirow\{[^}]*\}\{[^}]*\}\{([^}]*)\}/g, '$1')
+                .replace(/\\multirow(?:\[[^\]]*\])?\{[^}]*\}\{[^}]*\}\{([^}]*)\}/g, '$1')
                 .trim();
             const rows = cleanContent.split(/\\\\/);
 

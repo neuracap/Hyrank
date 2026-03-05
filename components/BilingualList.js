@@ -499,6 +499,61 @@ Are you sure you want to proceed?`;
         }
     };
 
+    const handleFixTable = (index, lang) => {
+        const newQs = [...questions];
+        const targetQ = newQs[index];
+        const text = lang === 'eng' ? targetQ.eng_text : targetQ.hin_text;
+
+        if (!text || !/\\begin\{tabular\}/.test(text)) {
+            alert('No LaTeX tabular found in this text.');
+            return;
+        }
+
+        const converted = text.replace(
+            /\\begin\{tabular\}\{[^}]*\}([\s\S]*?)\\end\{tabular\}/g,
+            (match, tableContent) => {
+                const cleaned = tableContent
+                    .replace(/\\hline/g, '')
+                    .replace(/\\cline\{[^}]*\}/g, '')
+                    .replace(/\\multicolumn\{[^}]*\}\{[^}]*\}\{([^}]*)\}/g, '$1')
+                    .replace(/\\multirow(?:\[[^\]]*\])?\{[^}]*\}\{[^}]*\}\{([^}]*)\}/g, '$1')
+                    .trim();
+
+                const rows = cleaned
+                    .split(/\\\\/)
+                    .map(r => r.trim())
+                    .filter(r => r.length > 0);
+
+                if (rows.length === 0) return match;
+
+                const headerCells = rows[0].split('&').map(c => c.trim());
+                if (headerCells.length === 0) return match;
+
+                let md = '| ' + headerCells.join(' | ') + ' |\n';
+                md += '| ' + headerCells.map(() => '---').join(' | ') + ' |\n';
+
+                for (let i = 1; i < rows.length; i++) {
+                    const cells = rows[i].split('&').map(c => c.trim());
+                    if (cells.length === 0 || (cells.length === 1 && cells[0] === '')) continue;
+                    md += '| ' + cells.join(' | ') + ' |\n';
+                }
+                return '\n' + md + '\n';
+            }
+        );
+
+        if (converted === text) {
+            alert('No changes made — check tabular syntax.');
+            return;
+        }
+
+        if (lang === 'eng') {
+            targetQ.eng_text = converted;
+        } else {
+            targetQ.hin_text = converted;
+        }
+        setQuestions(newQs);
+    };
+
     const handleCopyOptions = (index, direction = 'eng-to-hin') => {
         const newQs = [...questions];
         const targetQ = newQs[index];
@@ -848,6 +903,13 @@ Are you sure you want to proceed?`;
                                                 FL
                                             </button>
                                             <button
+                                                onClick={() => handleFixTable(index, 'eng')}
+                                                className="px-2 py-1 text-xs font-bold bg-teal-600 text-white rounded hover:bg-teal-700 shadow-sm"
+                                                title="Convert LaTeX tabular to Markdown table"
+                                            >
+                                                FLT
+                                            </button>
+                                            <button
                                                 onClick={() => handleUnderline(index, 'eng')}
                                                 className="px-2 py-1 text-xs font-bold bg-blue-500 text-white rounded hover:bg-blue-600 shadow-sm"
                                                 title="Underline selected text"
@@ -948,6 +1010,13 @@ Are you sure you want to proceed?`;
                                                 title="Fix LaTeX syntax errors"
                                             >
                                                 FL
+                                            </button>
+                                            <button
+                                                onClick={() => handleFixTable(index, 'hin')}
+                                                className="px-2 py-1 text-xs font-bold bg-teal-600 text-white rounded hover:bg-teal-700 shadow-sm"
+                                                title="Convert LaTeX tabular to Markdown table"
+                                            >
+                                                FLT
                                             </button>
                                             <button
                                                 onClick={() => handleUnderline(index, 'hin')}
