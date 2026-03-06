@@ -7,11 +7,12 @@ export const dynamic = 'force-dynamic';
 
 async function fetchFlaggedQuestions(page = 1, limit = 100) {
     const offset = (page - 1) * limit;
-    const client = await db.connect();
+    let client;
 
     try {
+        client = await db.connect();
         const query = `
-            SELECT 
+            SELECT
                 ql.id as link_id,
                 ql.similarity_score,
                 ql.updated_score,
@@ -118,7 +119,7 @@ async function fetchFlaggedQuestions(page = 1, limit = 100) {
         console.error('Error fetching flagged questions:', e);
         return { questions: [], total: 0, totalPages: 0 };
     } finally {
-        client.release();
+        client?.release();
     }
 }
 

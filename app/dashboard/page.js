@@ -20,7 +20,13 @@ export default async function DashboardPage({ searchParams }) {
     const limit = 50;
     const offset = (currentPage - 1) * limit;
 
-    const client = await db.connect();
+    let client;
+    try {
+        client = await db.connect();
+    } catch (dbErr) {
+        console.error('Dashboard DB connect error:', dbErr);
+        redirect('/login');
+    }
 
     // 2. Fetch distinct subjects for the filter dropdown
     const subjectsRes = await client.query(`SELECT DISTINCT subject FROM paper_session WHERE subject IS NOT NULL ORDER BY subject ASC`);
@@ -160,7 +166,7 @@ export default async function DashboardPage({ searchParams }) {
         papers = res.rows;
     }
 
-    client.release();
+    client?.release();
 
     const totalPages = Math.ceil(totalCount / limit);
 

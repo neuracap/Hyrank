@@ -64,7 +64,7 @@ export async function POST(request) {
         return NextResponse.json({ success: true });
 
     } catch (error) {
-        await client.query('ROLLBACK');
+        if (client) await client.query('ROLLBACK');
         console.error('Save error:', error);
         console.error('Error stack:', error.stack);
         console.error('Error message:', error.message);
