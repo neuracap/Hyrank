@@ -9,9 +9,9 @@ export async function POST(request) {
         return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    const client = await db.connect();
-
+    let client;
     try {
+        client = await db.connect();
         await client.query('BEGIN');
 
         // 1. Update English Question
@@ -74,6 +74,6 @@ export async function POST(request) {
             stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         }, { status: 500 });
     } finally {
-        client.release();
+        client?.release();
     }
 }

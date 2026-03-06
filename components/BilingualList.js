@@ -189,8 +189,9 @@ export default function BilingualList({ initialQuestions, total, currentPage, to
                     })
                 }, 1500);
             } else {
-                const errorData = await res.json();
-                alert(`Failed to save.\n\nError: ${errorData.details || errorData.error}\n\n${errorData.stack || ''}`);
+                let errorData = {};
+                try { errorData = await res.json(); } catch (_) { /* non-JSON response */ }
+                alert(`Failed to save (HTTP ${res.status}).\n\nError: ${errorData.details || errorData.error || 'Unknown server error'}\n\n${errorData.stack || ''}`);
             }
         } catch (e) {
             console.error(e);
