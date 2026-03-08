@@ -5,6 +5,9 @@ import path from 'path';
 
 export const dynamic = 'force-dynamic';
 
+// In-memory cache: asset name → resolved URL (lives for the lifetime of the function instance)
+const assetUrlCache = new Map();
+
 export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const name = searchParams.get('name');
@@ -15,12 +18,21 @@ export async function GET(request) {
     }
 
     try {
+        // Serve from in-memory cache if available (skips DB entirely)
+        if (!isDebug && assetUrlCache.has(name)) {
+            const cachedUrl = assetUrlCache.get(name);
+            return NextResponse.redirect(cachedUrl, {
+                status: 302,
+                headers: { 'Cache-Control': 'public, max-age=31536000, s-maxage=31536000, immutable' }
+            });
+        }
+
         const client = await db.connect();
         try {
             // Find asset by original name or local_path match
             const res = await client.query(`
-                SELECT local_path, mime_type 
-                FROM asset 
+                SELECT local_path, mime_type
+                FROM asset
                 WHERE local_path LIKE '%' || $1 || '%' OR original_name = $1
                 LIMIT 1
             `, [name]);
@@ -65,7 +77,14 @@ export async function GET(request) {
             }
 
             if (finalUrl) {
-                return NextResponse.redirect(finalUrl, 302);
+                assetUrlCache.set(name, finalUrl); // cache for next request on same instance
+                // Cache at CDN + browser for 1 year — asset URLs are immutable
+                return NextResponse.redirect(finalUrl, {
+                    status: 302,
+                    headers: {
+                        'Cache-Control': 'public, max-age=31536000, s-maxage=31536000, immutable',
+                    }
+                });
             }
 
             // Otherwise, serve from local filesystem
