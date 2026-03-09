@@ -6,10 +6,6 @@ export default function BulkReclassifyButton() {
     const [isProcessing, setIsProcessing] = useState(false);
 
     const handleBulkReclassify = async () => {
-        if (!confirm('This will reclassify ALL papers with sections containing more than 30 questions. This may take several minutes. Continue?')) {
-            return;
-        }
-
         setIsProcessing(true);
         try {
             const res = await fetch('/api/paper/bulk-reclassify', {
