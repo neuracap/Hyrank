@@ -15,30 +15,12 @@ export default function BulkReclassifyButton() {
 
             const data = await res.json();
             if (data.success) {
-                const summary = data.details
-                    .map(d => `${d.paper} - ${d.section}: ${d.updated}/${d.originalCount} reclassified`)
-                    .join('\n');
-
-                let message = `✅ Bulk Reclassification Complete!\n\n` +
-                    `Sections processed: ${data.totalSections}\n` +
-                    `Questions updated: ${data.totalQuestionsUpdated}\n\n`;
-
-                if (data.remainingPapers > 0) {
-                    message += `⚠️ ${data.remainingPapers} more papers still need reclassification.\n\n` +
-                        `Click "Bulk Reclassify" again to process the next batch.\n\n`;
-                }
-
-                message += `Details:\n${summary}`;
-
-                alert(message);
-
                 window.location.reload();
             } else {
-                alert('❌ Error: ' + (data.error || 'Unknown error occurred'));
+                console.error('Bulk reclassify error:', data.error);
             }
         } catch (error) {
-            console.error('Bulk reclassify error:', error);
-            alert(`❌ Failed to complete bulk reclassification\n\nError: ${error.message}\n\nThis might be due to:\n- Network timeout (too many papers to process)\n- Server error\n\nTry processing fewer papers or contact support.`);
+            console.error('Bulk reclassify error:', error.message);
         } finally {
             setIsProcessing(false);
         }
