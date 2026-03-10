@@ -126,7 +126,7 @@ async function fetchFlaggedQuestions(page = 1, limit = 100) {
 export default async function FlaggedPage({ searchParams }) {
     const user = await getCurrentUser();
 
-    if (!user || !user.isAdmin) {
+    if (!user) {
         redirect('/login');
     }
 

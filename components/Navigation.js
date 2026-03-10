@@ -63,7 +63,6 @@ export default function Navigation({ user }) {
                                 </Link>
                             )}
 
-                            {user?.isAdmin && (
                                 <Link
                                     href="/flagged"
                                     className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${isActive('/flagged')
@@ -73,7 +72,6 @@ export default function Navigation({ user }) {
                                 >
                                     Flagged
                                 </Link>
-                            )}
 
                             {user?.isAdmin && (
                                 <Link
