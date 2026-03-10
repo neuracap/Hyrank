@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth-edge';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import BulkReclassifyButton from '@/components/BulkReclassifyButton';
+import SyncVerifiedButton from '@/components/SyncVerifiedButton';
 import DashboardFilters from '@/components/DashboardFilters';
 import StatusSelector from '@/components/StatusSelector';
 
@@ -204,6 +205,7 @@ export default async function DashboardPage({ searchParams }) {
                 {user.isAdmin && (
                     <div className="flex gap-4 items-center flex-wrap">
                         <BulkReclassifyButton />
+                        <SyncVerifiedButton />
                         <Link href="/bilingdash" className="text-purple-600 hover:text-purple-800 font-medium">
                             BiLingDash [Beta] →
                         </Link>
