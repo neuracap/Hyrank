@@ -44,6 +44,11 @@ async function fetchUnverifiedQuestions(page = 1, limit = 100) {
             LEFT JOIN raw_mmd_doc d     ON ps.raw_mmd_doc_id = d.raw_mmd_doc_id
             LEFT JOIN import_job j      ON d.import_job_id = j.import_job_id
             WHERE (qv.is_verified = FALSE OR qv.is_verified IS NULL)
+              AND qv.question_id NOT IN (
+                  SELECT english_question_id FROM question_links WHERE status = 'FLAGGED'
+                  UNION
+                  SELECT hindi_question_id FROM question_links WHERE status = 'FLAGGED' AND hindi_question_id IS NOT NULL
+              )
             ORDER BY ps.paper_date DESC NULLS LAST,
                      CAST(SUBSTRING(qv.source_question_no FROM '[0-9]+') AS INTEGER) ASC NULLS LAST,
                      qv.question_id ASC
@@ -59,6 +64,11 @@ async function fetchUnverifiedQuestions(page = 1, limit = 100) {
             FROM question_version qv
             JOIN qualified_sessions qs ON qv.paper_session_id = qs.paper_session_id
             WHERE (qv.is_verified = FALSE OR qv.is_verified IS NULL)
+              AND qv.question_id NOT IN (
+                  SELECT english_question_id FROM question_links WHERE status = 'FLAGGED'
+                  UNION
+                  SELECT hindi_question_id FROM question_links WHERE status = 'FLAGGED' AND hindi_question_id IS NOT NULL
+              )
         `);
         const total = parseInt(countRes.rows[0].c, 10);
 
