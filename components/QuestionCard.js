@@ -17,11 +17,15 @@ export default function QuestionCard({ question, onSave, onImagePaste, onAddImag
     });
     const [isSaving, setIsSaving] = useState(false);
     const [feedbackMessage, setFeedbackMessage] = useState(null);
+    const [savedStatus, setSavedStatus] = useState(
+        question.is_manually_corrected ? 'MANUALLY_CORRECTED' : null
+    );
 
     const handleSave = async (status = 'MANUALLY_CORRECTED') => {
         setIsSaving(true);
         try {
             await onSave({ ...q, saveStatus: status });
+            setSavedStatus(status);
             setFeedbackMessage(status === 'FLAGGED' ? 'Marked for Review!' : 'Saved!');
             setTimeout(() => setFeedbackMessage(null), 1500);
         } catch (error) {
@@ -96,17 +100,51 @@ export default function QuestionCard({ question, onSave, onImagePaste, onAddImag
         }
     };
 
-    // Validation
-    const hasError = q.options.some(o => !o.opt_text || !o.opt_text.trim());
-    const forbiddenPhrases = ['Click Here', 'Challenge', 'Question No.', 'https://', 'Not provided in the source'];
+    // Validation & Heuristics
+    const isCorrected = savedStatus === 'MANUALLY_CORRECTED';
+    const isFlagged = savedStatus === 'FLAGGED';
+
+    const warnings = [];
+
+    // 1. Blank/empty options
+    const blankOpts = q.options.filter(o => !o.opt_text || !o.opt_text.trim());
+    if (blankOpts.length > 0) {
+        warnings.push(`Blank option(s): ${blankOpts.map(o => o.opt_label).join(', ')}`);
+    }
+
+    // 2. Gibberish / forbidden phrases in question or options
+    const forbiddenPhrases = ['Question ID', 'Question ID:', 'Status', 'Click Here', 'Challenge', 'Question No.', 'https://', 'Not provided in the source', 'Not Available'];
     const hasForbidden = (text) => text && forbiddenPhrases.some(p => text.includes(p));
     const textHasForbidden = hasForbidden(q.question_text);
-    const isCorrected = q.is_manually_corrected || q.saveStatus === 'MANUALLY_CORRECTED';
+    if (textHasForbidden) warnings.push('Question text contains suspicious text (Question ID, Status, etc.)');
+    const forbiddenOpts = q.options.filter(o => hasForbidden(o.opt_text));
+    if (forbiddenOpts.length > 0) warnings.push(`Option(s) ${forbiddenOpts.map(o => o.opt_label).join(', ')} contain suspicious text`);
+
+    // 3. Probable missing image — keywords suggesting a figure should be present but no image tag found
+    const hasImageTag = (text) => /\\includegraphics|!\[.*?\]\(.*?\)|\.jpg|\.png|\.jpeg|\.gif|\.svg/.test(text || '');
+    const imageKeywords = /\b(mirror|image|figure|diagram|picture|graph|table|chart|map|given below|shown below|refer to|as shown|adjacent figure)\b/i;
+    const questionHasImageKeyword = imageKeywords.test(q.question_text || '');
+    const questionHasImage = hasImageTag(q.question_text) || q.options.some(o => hasImageTag(o.opt_text));
+    if (questionHasImageKeyword && !questionHasImage) {
+        warnings.push('Possible missing image (text mentions figure/image/diagram but none found)');
+    }
+
+    // 4. Image file references in text (likely raw .jpg/.png paths that weren't converted)
+    const rawImageRef = /\.(jpg|jpeg|png|gif|svg)\b/i;
+    if (rawImageRef.test(q.question_text || '')) warnings.push('Question text contains raw image file reference (.jpg/.png)');
+    const imgRefOpts = q.options.filter(o => rawImageRef.test(o.opt_text || ''));
+    if (imgRefOpts.length > 0) warnings.push(`Option(s) ${imgRefOpts.map(o => o.opt_label).join(', ')} contain raw image file reference`);
+
+    const hasWarnings = warnings.length > 0;
 
     let borderClass = 'border-gray-200';
     let bgClass = 'bg-white';
-    if (hasError) {
-        borderClass = 'border-red-300 ring-1 ring-red-100';
+    if (isFlagged) {
+        borderClass = 'border-orange-300 ring-1 ring-orange-100';
+        bgClass = 'bg-orange-50/30';
+    } else if (hasWarnings && !isCorrected) {
+        borderClass = 'border-pink-400 ring-2 ring-pink-100';
+        bgClass = 'bg-pink-50';
     } else if (!isCorrected) {
         borderClass = 'border-amber-300 ring-1 ring-amber-100';
         bgClass = 'bg-amber-50/30';
@@ -137,11 +175,13 @@ export default function QuestionCard({ question, onSave, onImagePaste, onAddImag
                             {feedbackMessage}
                         </span>
                     )}
-                    {!isCorrected && (
-                        <span className="px-2 py-0.5 rounded text-xs font-bold bg-amber-100 text-amber-700">
-                            Unreviewed
-                        </span>
-                    )}
+                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                        isCorrected ? 'bg-green-100 text-green-700' :
+                        isFlagged ? 'bg-orange-100 text-orange-700' :
+                        'bg-amber-100 text-amber-700'
+                    }`}>
+                        {isCorrected ? 'MANUALLY_CORRECTED' : isFlagged ? 'FLAGGED' : 'Unreviewed'}
+                    </span>
                     <button
                         onClick={() => handleSave('FLAGGED')}
                         disabled={isSaving}
@@ -159,6 +199,13 @@ export default function QuestionCard({ question, onSave, onImagePaste, onAddImag
                     </button>
                 </div>
             </div>
+
+            {/* Warning Banner */}
+            {hasWarnings && (
+                <div className="px-6 py-2 text-xs font-bold bg-pink-100 text-pink-800 border-b border-pink-200">
+                    {warnings.map((w, i) => <div key={i} className="flex items-center gap-2">&#x26A0;&#xFE0F; {w}</div>)}
+                </div>
+            )}
 
             {/* Question Body */}
             <div className="p-6">
@@ -232,19 +279,6 @@ export default function QuestionCard({ question, onSave, onImagePaste, onAddImag
                     ))}
                 </div>
 
-                {/* Delete button */}
-                <div className="mt-4 pt-3 border-t border-gray-100 flex justify-end">
-                    <button
-                        onClick={() => {
-                            if (confirm('Are you sure you want to delete this question? This action cannot be undone.')) {
-                                onSave({ ...q, isDeleted: true });
-                            }
-                        }}
-                        className="px-3 py-1.5 text-xs font-medium text-red-500 bg-white border border-red-200 rounded hover:bg-red-50 hover:text-red-700 transition-colors"
-                    >
-                        Delete Question
-                    </button>
-                </div>
             </div>
         </div>
     );
