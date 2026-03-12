@@ -4,7 +4,6 @@ import { getCurrentUser } from '@/lib/auth-edge';
 
 export async function POST(req) {
     const user = await getCurrentUser();
-    // Allow admin + designated verify-unlink reviewers (user2=3, user3=4)
     const VERIFY_REVIEWER_IDS = [2, 3];
     if (!user?.isAdmin && !VERIFY_REVIEWER_IDS.includes(user?.id)) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -13,23 +12,26 @@ export async function POST(req) {
     let client;
     try {
         client = await db.connect();
-        const { id, version_no, language, question_text, options } = await req.json();
+        const { id, version_no, language, question_text, options, status: saveStatus } = await req.json();
 
         if (!id || !version_no || !language) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
         }
 
+        const isFlagged = saveStatus === 'FLAGGED';
+
         await client.query('BEGIN');
 
-        // Update question text and mark is_verified = TRUE
+        // Update question text, status, and is_verified (only verify on MANUALLY_CORRECTED)
         await client.query(`
             UPDATE question_version
             SET
-                body_json  = jsonb_set(body_json, '{text}', to_jsonb($1::text)),
-                is_verified = TRUE,
+                body_json   = jsonb_set(body_json, '{text}', to_jsonb($1::text)),
+                is_verified = $5,
+                status      = $6,
                 updated_at  = NOW()
             WHERE question_id = $2 AND version_no = $3 AND language = $4
-        `, [question_text, id, version_no, language]);
+        `, [question_text, id, version_no, language, !isFlagged, isFlagged ? 'FLAGGED' : 'MANUALLY_CORRECTED']);
 
         // Update options
         if (options && options.length > 0) {

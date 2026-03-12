@@ -17,8 +17,9 @@ function VerifyCard({ question, onVerified }) {
     const [isSaving, setIsSaving] = useState(false);
     const [verified, setVerified] = useState(false);
     const [feedbackMessage, setFeedbackMessage] = useState(null);
+    const [savedStatus, setSavedStatus] = useState(null);
 
-    const handleSave = async () => {
+    const handleSave = async (status = 'MANUALLY_CORRECTED') => {
         setIsSaving(true);
         try {
             const res = await fetch('/api/verify-unlink/save', {
@@ -29,13 +30,23 @@ function VerifyCard({ question, onVerified }) {
                     version_no: question.version_no,
                     language: question.language,
                     question_text: questionText,
-                    options: options
+                    options: options,
+                    status: status
                 })
             });
             const data = await res.json();
             if (data.success) {
-                setVerified(true);
-                onVerified(question.id);
+                setSavedStatus(status);
+                setFeedbackMessage(status === 'FLAGGED' ? 'Marked for Review!' : 'Saved & Verified!');
+                if (status === 'MANUALLY_CORRECTED') {
+                    // Remove from list after a short delay so user sees the feedback
+                    setTimeout(() => {
+                        setVerified(true);
+                        onVerified(question.id);
+                    }, 800);
+                } else {
+                    setTimeout(() => setFeedbackMessage(null), 1500);
+                }
             } else {
                 alert('Save failed: ' + data.error);
             }
@@ -89,7 +100,7 @@ function VerifyCard({ question, onVerified }) {
     const handleKeyDown = (e) => {
         if ((e.ctrlKey || e.metaKey) && e.key === 's') {
             e.preventDefault();
-            handleSave();
+            handleSave('MANUALLY_CORRECTED');
         }
     };
 
@@ -121,10 +132,14 @@ function VerifyCard({ question, onVerified }) {
     if (imgRefOpts.length > 0) warnings.push(`Option(s) ${imgRefOpts.map(o => o.opt_label).join(', ')} contain raw image file reference`);
 
     const hasWarnings = warnings.length > 0;
+    const isFlagged = savedStatus === 'FLAGGED';
 
     let borderClass = 'border-gray-200';
     let bgClass = 'bg-white';
-    if (hasWarnings) {
+    if (isFlagged) {
+        borderClass = 'border-orange-300 ring-1 ring-orange-100';
+        bgClass = 'bg-orange-50/30';
+    } else if (hasWarnings) {
         borderClass = 'border-pink-400 ring-2 ring-pink-100';
         bgClass = 'bg-pink-50';
     }
@@ -167,8 +182,24 @@ function VerifyCard({ question, onVerified }) {
                             {feedbackMessage}
                         </span>
                     )}
+                    {savedStatus && (
+                        <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                            savedStatus === 'MANUALLY_CORRECTED' ? 'bg-green-100 text-green-700' :
+                            savedStatus === 'FLAGGED' ? 'bg-orange-100 text-orange-700' : ''
+                        }`}>
+                            {savedStatus}
+                        </span>
+                    )}
                     <button
-                        onClick={handleSave}
+                        onClick={() => handleSave('FLAGGED')}
+                        disabled={isSaving}
+                        className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded text-xs font-bold uppercase tracking-wide transition-colors shadow-sm disabled:opacity-50"
+                        title="Mark question for further review"
+                    >
+                        Mark for Review
+                    </button>
+                    <button
+                        onClick={() => handleSave('MANUALLY_CORRECTED')}
                         disabled={isSaving}
                         className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-xs font-bold uppercase tracking-wide transition-colors shadow-sm disabled:opacity-50"
                     >
