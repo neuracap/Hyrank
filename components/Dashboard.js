@@ -37,28 +37,42 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
     };
 
     const handleSaveQuestion = async (updatedQuestion) => {
+        // Handle delete
+        if (updatedQuestion.isDeleted) {
+            try {
+                const res = await fetch('/api/question/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: updatedQuestion.id, version_no: updatedQuestion.version_no, language: updatedQuestion.language })
+                });
+                if (res.ok) router.refresh();
+                else alert('Delete failed');
+            } catch (e) { alert('Error deleting'); }
+            return;
+        }
+
         try {
             const res = await fetch('/api/question/save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     id: updatedQuestion.id,
-                    version_no: updatedQuestion.version_no, // Ensure this exists in question object passed from page.js
+                    version_no: updatedQuestion.version_no,
                     language: updatedQuestion.language,
                     question_text: updatedQuestion.question_text,
-                    options: updatedQuestion.options
+                    options: updatedQuestion.options,
+                    source_question_no: updatedQuestion.source_q_no,
+                    status: updatedQuestion.saveStatus || 'MANUALLY_CORRECTED'
                 })
             });
 
-            if (res.ok) {
-                router.refresh(); // Refresh to show updated data
-            } else {
+            if (!res.ok) {
                 const data = await res.json();
-                alert('Save failed: ' + data.error);
+                throw new Error(data.error || 'Save failed');
             }
         } catch (error) {
             console.error('Error saving question:', error);
-            alert('Error saving question');
+            throw error;
         }
     };
 

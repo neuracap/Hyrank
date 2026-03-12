@@ -8,25 +8,28 @@ export async function POST(req) {
 
     try {
         const body = await req.json();
-        const { id, version_no, language, question_text, options, source_question_no } = body;
+        const { id, version_no, language, question_text, options, source_question_no, status: saveStatus } = body;
 
         if (!id || !version_no || !language) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
         }
+
+        const validStatuses = ['MANUALLY_CORRECTED', 'FLAGGED'];
+        const statusToSet = validStatuses.includes(saveStatus) ? saveStatus : 'MANUALLY_CORRECTED';
 
         await client.query('BEGIN');
 
         // 1. Update Question Text & Source Question No
         // We update body_json->>'text' and source_question_no column
         await client.query(`
-            UPDATE question_version 
-            SET 
+            UPDATE question_version
+            SET
                 body_json = jsonb_set(body_json, '{text}', to_jsonb($1::text)),
                 source_question_no = COALESCE($5, source_question_no),
-                status = 'MANUALLY_CORRECTED',
+                status = $6,
                 updated_at = NOW()
             WHERE question_id = $2 AND version_no = $3 AND language = $4
-        `, [question_text, id, version_no, language, source_question_no]);
+        `, [question_text, id, version_no, language, source_question_no, statusToSet]);
 
 
         // 2. Update/Insert Options
