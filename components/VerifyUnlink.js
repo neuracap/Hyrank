@@ -4,12 +4,19 @@ import { useState } from 'react';
 import Link from 'next/link';
 import Latex from './Latex';
 
-function QuestionCard({ question, onVerified }) {
-    const [isEditing, setIsEditing] = useState(false);
+function VerifyCard({ question, onVerified }) {
+    const REQUIRED_OPTS = ['A', 'B', 'C', 'D'];
+    const optMap = new Map((question.options || []).map(o => [o.opt_label, o]));
+    const initialOptions = REQUIRED_OPTS.map(label => ({
+        opt_label: label,
+        opt_text: optMap.get(label)?.opt_text || ''
+    }));
+
+    const [questionText, setQuestionText] = useState(question.question_text || '');
+    const [options, setOptions] = useState(initialOptions);
     const [isSaving, setIsSaving] = useState(false);
     const [verified, setVerified] = useState(false);
-    const [editedText, setEditedText] = useState(question.question_text || '');
-    const [editedOptions, setEditedOptions] = useState(question.options.map(o => ({ ...o })));
+    const [feedbackMessage, setFeedbackMessage] = useState(null);
 
     const handleSave = async () => {
         setIsSaving(true);
@@ -21,13 +28,12 @@ function QuestionCard({ question, onVerified }) {
                     id: question.id,
                     version_no: question.version_no,
                     language: question.language,
-                    question_text: editedText,
-                    options: editedOptions
+                    question_text: questionText,
+                    options: options
                 })
             });
             const data = await res.json();
             if (data.success) {
-                setIsEditing(false);
                 setVerified(true);
                 onVerified(question.id);
             } else {
@@ -40,158 +46,203 @@ function QuestionCard({ question, onVerified }) {
         }
     };
 
-    const handleMarkVerified = async () => {
-        // Save without edits — just marks is_verified = TRUE
-        setIsSaving(true);
-        try {
-            const res = await fetch('/api/verify-unlink/save', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    id: question.id,
-                    version_no: question.version_no,
-                    language: question.language,
-                    question_text: question.question_text,
-                    options: question.options
-                })
-            });
-            const data = await res.json();
-            if (data.success) {
-                setVerified(true);
-                onVerified(question.id);
-            } else {
-                alert('Failed: ' + data.error);
-            }
-        } catch (e) {
-            alert('Error: ' + e.message);
-        } finally {
-            setIsSaving(false);
+    const handleOptionChange = (optIdx, value) => {
+        setOptions(prev => {
+            const newOpts = [...prev];
+            newOpts[optIdx] = { ...newOpts[optIdx], opt_text: value };
+            return newOpts;
+        });
+    };
+
+    const handleUnderline = (textType, optIndex = null) => {
+        const textareaId = textType === 'question'
+            ? `vu-question-${question.id}`
+            : `vu-opt-${question.id}-${optIndex}`;
+        const textarea = document.getElementById(textareaId);
+        if (!textarea) return;
+
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const selectedText = textarea.value.substring(start, end);
+
+        if (!selectedText) {
+            alert('Please select some text first');
+            return;
+        }
+
+        const wrappedText = `$\\underline{\\text{${selectedText}}}$`;
+        const newValue = textarea.value.substring(0, start) + wrappedText + textarea.value.substring(end);
+
+        if (textType === 'question') {
+            setQuestionText(newValue);
+        } else {
+            handleOptionChange(optIndex, newValue);
+        }
+
+        setTimeout(() => {
+            textarea.focus();
+            const newCursorPos = start + wrappedText.length;
+            textarea.setSelectionRange(newCursorPos, newCursorPos);
+        }, 0);
+    };
+
+    const handleKeyDown = (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+            e.preventDefault();
+            handleSave();
         }
     };
 
     if (verified) return null;
 
+    // Heuristic warnings
+    const warnings = [];
+
+    const blankOpts = options.filter(o => !o.opt_text || !o.opt_text.trim());
+    if (blankOpts.length > 0) {
+        warnings.push(`Blank option(s): ${blankOpts.map(o => o.opt_label).join(', ')}`);
+    }
+
+    const forbiddenPhrases = ['Question ID', 'Question ID:', 'Status', 'Click Here', 'Challenge', 'Question No.', 'https://', 'Not provided in the source', 'Not Available'];
+    const hasForbidden = (text) => text && forbiddenPhrases.some(p => text.includes(p));
+    if (hasForbidden(questionText)) warnings.push('Question text contains suspicious text');
+    const forbiddenOpts = options.filter(o => hasForbidden(o.opt_text));
+    if (forbiddenOpts.length > 0) warnings.push(`Option(s) ${forbiddenOpts.map(o => o.opt_label).join(', ')} contain suspicious text`);
+
+    const hasImageTag = (text) => /\\includegraphics|!\[.*?\]\(.*?\)|\.jpg|\.png|\.jpeg|\.gif|\.svg/.test(text || '');
+    const imageKeywords = /\b(mirror|image|figure|diagram|picture|graph|table|chart|map|given below|shown below|refer to|as shown|adjacent figure)\b/i;
+    if (imageKeywords.test(questionText) && !hasImageTag(questionText) && !options.some(o => hasImageTag(o.opt_text))) {
+        warnings.push('Possible missing image (text mentions figure/image/diagram but none found)');
+    }
+
+    const rawImageRef = /\.(jpg|jpeg|png|gif|svg)\b/i;
+    if (rawImageRef.test(questionText)) warnings.push('Question text contains raw image file reference');
+    const imgRefOpts = options.filter(o => rawImageRef.test(o.opt_text || ''));
+    if (imgRefOpts.length > 0) warnings.push(`Option(s) ${imgRefOpts.map(o => o.opt_label).join(', ')} contain raw image file reference`);
+
+    const hasWarnings = warnings.length > 0;
+
+    let borderClass = 'border-gray-200';
+    let bgClass = 'bg-white';
+    if (hasWarnings) {
+        borderClass = 'border-pink-400 ring-2 ring-pink-100';
+        bgClass = 'bg-pink-50';
+    }
+
     return (
-        <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 mb-4">
-            {/* Header: session label + source Q no + PDF link */}
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-gray-100">
+        <div className={`rounded-lg border shadow-sm overflow-hidden transition-all duration-200 mb-4 ${borderClass} ${bgClass}`}>
+            {/* Top Bar */}
+            <div className="px-6 py-3 border-b flex justify-between items-center bg-gray-50/50 border-gray-200">
                 <div className="flex items-center gap-3 flex-wrap">
-                    <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full">
-                        {question.session_label || question.paper_session_id}
+                    <span className="text-sm font-bold text-gray-800 font-mono">
+                        Q.{question.source_question_no || question.id?.substring(0, 6)}
                     </span>
-                    {question.source_question_no && (
-                        <span className="text-xs text-gray-500 font-mono">
-                            Q{question.source_question_no}
-                        </span>
-                    )}
-                    <span className={`text-xs px-2 py-0.5 rounded font-bold ${question.language === 'EN' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'}`}>
+                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${question.language === 'EN' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'}`}>
                         {question.language}
+                    </span>
+                    <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-2.5 py-0.5 rounded-full">
+                        {question.session_label || question.paper_session_id}
                     </span>
                     {question.exam_name && (
                         <span className="text-xs text-gray-400">{question.exam_name}</span>
                     )}
-                </div>
-                <div className="flex items-center gap-2">
                     {question.source_pdf_path && (
                         <a
                             href={`/api/pdf?path=${encodeURIComponent(question.source_pdf_path)}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-blue-600 hover:underline flex items-center gap-1 bg-white border border-gray-200 px-2 py-1 rounded text-xs shadow-sm"
+                            className="text-blue-600 hover:underline flex items-center gap-1 bg-white border border-gray-200 px-2 py-0.5 rounded text-xs shadow-sm"
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5 text-gray-500">
                                 <path d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5H5.625Z" />
                                 <path d="M12.971 1.816A5.23 5.23 0 0 1 14.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 0 1 3.434 1.279 9.768 9.768 0 0 0-6.963-6.963Z" />
                             </svg>
-                            Source PDF
+                            PDF
                         </a>
                     )}
-                    {/* Mark Verified without editing */}
-                    {!isEditing && (
-                        <button
-                            onClick={handleMarkVerified}
-                            disabled={isSaving}
-                            className="px-3 py-1 text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded hover:bg-emerald-100 transition-colors disabled:opacity-50"
-                        >
-                            {isSaving ? 'Saving...' : '✓ Mark Verified'}
-                        </button>
-                    )}
-                    {/* Edit button */}
-                    {!isEditing && (
-                        <button
-                            onClick={() => setIsEditing(true)}
-                            className="px-3 py-1 text-xs font-semibold bg-gray-100 text-gray-700 border border-gray-200 rounded hover:bg-gray-200 transition-colors"
-                        >
-                            Edit
-                        </button>
-                    )}
                 </div>
-            </div>
-
-            {/* Question Body */}
-            <div className="mb-4">
-                {isEditing ? (
-                    <textarea
-                        className="w-full border border-gray-300 rounded-lg p-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-300 min-h-[100px] resize-y"
-                        value={editedText}
-                        onChange={e => setEditedText(e.target.value)}
-                    />
-                ) : (
-                    <div className="text-gray-800 text-sm leading-relaxed">
-                        <Latex>{question.question_text || ''}</Latex>
-                    </div>
-                )}
-            </div>
-
-            {/* Options */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
-                {(isEditing ? editedOptions : question.options).map((opt, idx) => (
-                    <div key={opt.opt_label} className="flex items-start gap-2">
-                        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-100 text-gray-600 text-xs font-bold flex items-center justify-center mt-0.5">
-                            {opt.opt_label}
+                <div className="flex gap-2 items-center">
+                    {feedbackMessage && (
+                        <span className="font-bold text-green-600 bg-green-50 px-2 py-1 rounded text-xs border border-green-200 shadow-sm">
+                            {feedbackMessage}
                         </span>
-                        {isEditing ? (
-                            <textarea
-                                className="flex-1 border border-gray-300 rounded p-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-blue-300 resize-y min-h-[40px]"
-                                value={opt.opt_text || ''}
-                                onChange={e => {
-                                    const newOpts = [...editedOptions];
-                                    newOpts[idx] = { ...newOpts[idx], opt_text: e.target.value };
-                                    setEditedOptions(newOpts);
-                                }}
-                            />
-                        ) : (
-                            <span className="text-sm text-gray-700">
-                                <Latex>{opt.opt_text || ''}</Latex>
-                            </span>
-                        )}
-                    </div>
-                ))}
-            </div>
-
-            {/* Edit mode action buttons */}
-            {isEditing && (
-                <div className="flex items-center gap-3 pt-3 border-t border-gray-100">
+                    )}
                     <button
                         onClick={handleSave}
                         disabled={isSaving}
-                        className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-xs font-bold uppercase tracking-wide transition-colors shadow-sm disabled:opacity-50"
                     >
                         {isSaving ? 'Saving...' : 'Save & Verify'}
                     </button>
-                    <button
-                        onClick={() => {
-                            setEditedText(question.question_text || '');
-                            setEditedOptions(question.options.map(o => ({ ...o })));
-                            setIsEditing(false);
-                        }}
-                        disabled={isSaving}
-                        className="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-200 transition-colors"
-                    >
-                        Cancel
-                    </button>
+                </div>
+            </div>
+
+            {/* Warning Banner */}
+            {hasWarnings && (
+                <div className="px-6 py-2 text-xs font-bold bg-pink-100 text-pink-800 border-b border-pink-200">
+                    {warnings.map((w, i) => <div key={i} className="flex items-center gap-2">&#x26A0;&#xFE0F; {w}</div>)}
                 </div>
             )}
+
+            {/* Question Body */}
+            <div className="p-6">
+                {/* Question Text */}
+                <div className="mb-6">
+                    <div className="flex justify-between items-center mb-2">
+                        <label className="text-xs font-semibold text-gray-500 uppercase">Question Text</label>
+                        <button
+                            onClick={() => handleUnderline('question')}
+                            className="px-2 py-1 text-xs font-bold bg-blue-500 text-white rounded hover:bg-blue-600 shadow-sm"
+                            title="Underline selected text"
+                        >
+                            U
+                        </button>
+                    </div>
+                    <textarea
+                        id={`vu-question-${question.id}`}
+                        className={`w-full p-3 border rounded font-mono text-sm min-h-[120px] mb-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y ${hasForbidden(questionText) ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                        value={questionText}
+                        onChange={(e) => setQuestionText(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        placeholder="Enter question text..."
+                    />
+                    <div className="p-3 bg-gray-50 rounded border border-gray-200 text-sm">
+                        <p className="text-xs font-bold text-gray-400 uppercase mb-1">Preview</p>
+                        <Latex>{questionText}</Latex>
+                    </div>
+                </div>
+
+                {/* Options */}
+                <div className="space-y-4">
+                    {options.map((opt, optIdx) => (
+                        <div key={opt.opt_label} className="p-2 border border-gray-100 rounded bg-gray-50/50">
+                            <div className="flex gap-2 items-center mb-2">
+                                <div className="w-6 h-6 flex items-center justify-center rounded-full bg-white border border-gray-300 text-xs font-bold text-gray-500 shrink-0">
+                                    {opt.opt_label}
+                                </div>
+                                <input
+                                    id={`vu-opt-${question.id}-${optIdx}`}
+                                    className={`flex-1 text-xs p-1.5 border rounded font-mono ${hasForbidden(opt.opt_text) ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                                    value={opt.opt_text || ''}
+                                    onChange={(e) => handleOptionChange(optIdx, e.target.value)}
+                                    onKeyDown={handleKeyDown}
+                                    placeholder={`Option ${opt.opt_label}...`}
+                                />
+                                <button
+                                    onClick={() => handleUnderline('option', optIdx)}
+                                    className="px-2 py-1 text-xs font-bold bg-blue-500 text-white rounded hover:bg-blue-600 shadow-sm shrink-0"
+                                    title="Underline selected text"
+                                >
+                                    U
+                                </button>
+                            </div>
+                            <div className="pl-8 text-xs text-gray-700">
+                                <Latex>{opt.opt_text || ''}</Latex>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
         </div>
     );
 }
@@ -223,13 +274,13 @@ export default function VerifyUnlink({ initialQuestions, total, currentPage, tot
                     <p className="text-lg font-medium">All questions on this page verified!</p>
                     {currentPage < totalPages && (
                         <Link href={buildPageUrl(currentPage + 1)} className="mt-4 inline-block px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700">
-                            Next Page →
+                            Next Page
                         </Link>
                     )}
                 </div>
             ) : (
                 questions.map(q => (
-                    <QuestionCard key={q.id} question={q} onVerified={handleVerified} />
+                    <VerifyCard key={q.id} question={q} onVerified={handleVerified} />
                 ))
             )}
 
@@ -242,12 +293,12 @@ export default function VerifyUnlink({ initialQuestions, total, currentPage, tot
                     <div className="flex gap-2">
                         {currentPage > 1 && (
                             <Link href={buildPageUrl(currentPage - 1)} className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 text-gray-700">
-                                ← Previous
+                                Previous
                             </Link>
                         )}
                         {currentPage < totalPages && (
                             <Link href={buildPageUrl(currentPage + 1)} className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800">
-                                Next →
+                                Next
                             </Link>
                         )}
                     </div>
