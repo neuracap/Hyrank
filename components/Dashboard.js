@@ -135,6 +135,33 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
         }
     };
 
+    const handleSmartReclassify = async () => {
+        if (!confirm('Smart Reclassify: This will detect oversized sections and redistribute their questions into undersized/missing sections. Continue?')) return;
+
+        setProcessingSection('__smart__');
+        try {
+            const res = await fetch('/api/paper/reclassify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    paper_session_id: selectedTestId,
+                    smart: true
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert(data.message + (data.targetSections ? `\nTarget sections: ${data.targetSections.join(', ')}` : ''));
+                router.refresh();
+            } else {
+                alert('Error: ' + data.error);
+            }
+        } catch (err) {
+            alert('Error: ' + err.message);
+        } finally {
+            setProcessingSection(null);
+        }
+    };
+
     const handleReclassify = async (sectionTag) => {
         if (!confirm(`Are you sure you want to reclassify questions in "${sectionTag}"? This will use AI to analyze them.`)) return;
 
@@ -280,10 +307,17 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
     }, {});
 
     // Calculate Stats
+    const expectedPerSection = (sections.length > 0 && docInfo?.num_questions)
+        ? Math.round(parseInt(docInfo.num_questions) / sections.length)
+        : null;
     const sectionStats = Object.entries(groupedQuestions).map(([subject, qs]) => ({
         subject,
-        count: qs.length
+        count: qs.length,
+        isOversized: expectedPerSection ? qs.length > expectedPerSection * 1.5 : false,
+        isUndersized: expectedPerSection ? qs.length < expectedPerSection * 0.5 : false
     }));
+    const hasImbalance = sectionStats.some(s => s.isOversized || s.isUndersized)
+        || (sections.length > 0 && sectionStats.length < sections.length);
 
     const paramsMissingQuestions = questions.filter(q => {
         const missingOptions = !q.options || q.options.length < 4;
@@ -501,7 +535,7 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                         {sectionStats.map(stat => (
                             <div key={stat.subject} className="flex items-center gap-2 group">
                                 <span className="text-gray-500">{stat.subject}:</span>
-                                <span className="font-semibold text-gray-900 bg-gray-100 px-2 py-0.5 rounded">{stat.count}</span>
+                                <span className={`font-semibold px-2 py-0.5 rounded ${stat.isOversized ? 'text-red-700 bg-red-50 border border-red-200' : stat.isUndersized ? 'text-amber-700 bg-amber-50 border border-amber-200' : 'text-gray-900 bg-gray-100'}`}>{stat.count}</span>
                                 <button
                                     onClick={() => handleReclassify(stat.subject)}
                                     disabled={processingSection === stat.subject}
@@ -521,6 +555,30 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                                 </button>
                             </div>
                         ))}
+
+                        {hasImbalance && (
+                            <>
+                                <div className="w-px h-8 bg-gray-200 hidden md:block"></div>
+                                <button
+                                    onClick={handleSmartReclassify}
+                                    disabled={processingSection === '__smart__'}
+                                    title="Smart reclassify: only sends oversized section questions, classifies into oversized+undersized sections only"
+                                    className="px-3 py-1.5 text-xs font-bold bg-violet-50 text-violet-700 border border-violet-200 rounded-lg hover:bg-violet-100 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                                >
+                                    {processingSection === '__smart__' ? (
+                                        <>
+                                            <svg className="animate-spin h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                            Processing...
+                                        </>
+                                    ) : (
+                                        <>Smart Reclassify</>
+                                    )}
+                                </button>
+                            </>
+                        )}
 
                         {paramsMissingQuestions.length > 0 && (
                             <>

@@ -5,42 +5,16 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 minutes for bulk processing
 
-// Initialize Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Helper function to reclassify a single section
-async function reclassifySection(client, paper_session_id, section_code, exam_id) {
-    // Fetch valid sections for this exam
-    const sectionsRes = await client.query(
-        'SELECT section_id, code, name FROM exam_section WHERE exam_id = $1',
-        [exam_id]
-    );
-    const validSections = sectionsRes.rows;
-    const codeToIdMap = validSections.reduce((acc, s) => ({ ...acc, [s.code]: s.section_id, [s.code.toLowerCase()]: s.section_id }), {});
-
-    // Get section_id from code
-    const targetId = codeToIdMap[section_code] || codeToIdMap[section_code.toLowerCase()];
-    if (!targetId) return { success: false, error: 'Section not found' };
-
-    // Fetch questions in this section
-    const questionsRes = await client.query(`
-        SELECT question_id, body_json->>'text' as text
-        FROM question_version
-        WHERE paper_session_id = $1 AND exam_section_id = $2
-    `, [paper_session_id, targetId]);
-
-    const questions = questionsRes.rows;
-    if (questions.length === 0) return { success: true, processed: 0, updated: 0 };
-
-    // Prepare Gemini prompt
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+function buildPrompt(questions, targetSections) {
     const qList = questions.map((q, i) => `Item ${i + 1}: ${q.text.substring(0, 300).replace(/\n/g, ' ')}...`).join('\n');
-    const validSectionList = validSections.map(s => `${s.code} (${s.name})`).join(', ');
+    const sectionList = targetSections.map(s => `${s.code} (${s.name})`).join(', ');
 
-    const prompt = `
-        You are an expert exam classifier. 
-        I have a list of exam questions. 
-        Classify each question into EXACTLY one of the following sections: [${validSectionList}].
+    return `
+        You are an expert exam classifier.
+        I have a list of exam questions.
+        Classify each question into EXACTLY one of the following sections: [${sectionList}].
 
         ### GUIDELINES:
         - **English Comprehension:** Questions about grammar, vocabulary, idioms, spelling, active/passive voice, or reading comprehension passages.
@@ -60,20 +34,67 @@ async function reclassifySection(client, paper_session_id, section_code, exam_id
         ### CRITICAL TIE-BREAKER (Reasoning vs. Quant):
         - If the question involves numbers but asks to "complete the series," "find the odd pair," "select the related number," or "interchange signs," classify as **Reasoning**.
         - If the question asks to "calculate the area," "find the value of x," "solve for interest," or involves geometric proofs/theorems, classify as **Quantitative Aptitude**.
-        
+
         Return ONLY a valid JSON object where keys are the Item numbers (e.g., "1", "2") and values are the section CODE from the list above.
         Do not output markdown code blocks. Just the JSON string.
-        
+
         Questions:
         ${qList}
     `;
+}
 
+// Smart reclassify a single paper: only touch oversized sections, only classify into oversized+undersized
+async function smartReclassifyPaper(client, paper_session_id, exam_id, num_questions) {
+    const sectionsRes = await client.query(
+        'SELECT section_id, code, name FROM exam_section WHERE exam_id = $1',
+        [exam_id]
+    );
+    const allSections = sectionsRes.rows;
+    if (allSections.length === 0) return { success: false, error: 'No sections defined' };
+
+    const codeToIdMap = allSections.reduce((acc, s) => ({ ...acc, [s.code]: s.section_id, [s.code.toLowerCase()]: s.section_id }), {});
+
+    const expectedPerSection = num_questions ? Math.round(num_questions / allSections.length) : 25;
+    const oversizeThreshold = expectedPerSection * 1.5;
+    const undersizeThreshold = expectedPerSection * 0.5;
+
+    // Get current distribution
+    const distRes = await client.query(`
+        SELECT es.section_id, es.code, es.name, COUNT(qv.question_id) as count
+        FROM exam_section es
+        LEFT JOIN question_version qv ON qv.exam_section_id = es.section_id AND qv.paper_session_id = $1
+        WHERE es.exam_id = $2
+        GROUP BY es.section_id, es.code, es.name
+    `, [paper_session_id, exam_id]);
+
+    const distribution = distRes.rows.map(r => ({ ...r, count: parseInt(r.count) }));
+    const oversized = distribution.filter(d => d.count > oversizeThreshold);
+    const undersized = distribution.filter(d => d.count < undersizeThreshold);
+
+    if (oversized.length === 0) return { success: true, processed: 0, updated: 0, skipped: true };
+
+    // Target sections = oversized + undersized
+    const targetSections = [...oversized, ...undersized].map(d => allSections.find(s => s.section_id === d.section_id));
+
+    // Fetch questions ONLY from oversized sections
+    const oversizedIds = oversized.map(d => d.section_id);
+    const questionsRes = await client.query(`
+        SELECT question_id, body_json->>'text' as text
+        FROM question_version
+        WHERE paper_session_id = $1 AND exam_section_id = ANY($2)
+    `, [paper_session_id, oversizedIds]);
+
+    const questions = questionsRes.rows;
+    if (questions.length === 0) return { success: true, processed: 0, updated: 0 };
+
+    // Call Gemini with only the target sections
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+    const prompt = buildPrompt(questions, targetSections);
     const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
-    const jsonStr = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+    const jsonStr = result.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
     const classification = JSON.parse(jsonStr);
 
-    // Update database
+    // Apply
     await client.query('BEGIN');
     let updatedCount = 0;
 
@@ -92,7 +113,7 @@ async function reclassifySection(client, paper_session_id, section_code, exam_id
                 meta.section_name = newCode;
 
                 await client.query(`
-                    UPDATE question_version 
+                    UPDATE question_version
                     SET exam_section_id = $1, meta_json = $2
                     WHERE question_id = $3
                 `, [newSectionId, meta, questionId]);
@@ -102,100 +123,85 @@ async function reclassifySection(client, paper_session_id, section_code, exam_id
     }
 
     await client.query('COMMIT');
-    return { success: true, processed: questions.length, updated: updatedCount };
+    return {
+        success: true,
+        processed: questions.length,
+        updated: updatedCount,
+        oversized: oversized.map(d => ({ code: d.code, count: d.count })),
+        undersized: undersized.map(d => ({ code: d.code, count: d.count })),
+        targetSections: targetSections.map(s => s.code)
+    };
 }
 
 export async function POST(req) {
     const client = await db.connect();
     try {
-        // Find papers with sections that have more than 30 questions
-        // LIMIT to 5 sections per run to avoid timeouts
+        // Find papers that have at least one oversized section
+        // A section is oversized if it has more than expected*1.5 questions
+        // We detect this by comparing section count vs (num_questions / num_sections)
         const query = `
-            SELECT 
+            SELECT
                 ps.paper_session_id,
                 ps.session_label,
                 ps.exam_id,
                 ps.paper_date,
+                e.num_questions,
                 es.code as section_code,
                 es.name as section_name,
-                COUNT(qv.question_id) as question_count
+                COUNT(qv.question_id) as question_count,
+                e.num_questions::float / NULLIF((SELECT COUNT(*) FROM exam_section WHERE exam_id = ps.exam_id), 0) as expected_per_section
             FROM paper_session ps
+            JOIN exam e ON ps.exam_id = e.exam_id
             JOIN question_version qv ON qv.paper_session_id = ps.paper_session_id
             JOIN exam_section es ON es.section_id = qv.exam_section_id
-            GROUP BY ps.paper_session_id, ps.session_label, ps.exam_id, ps.paper_date, es.code, es.name
-            HAVING COUNT(qv.question_id) > 30
-            ORDER BY ps.paper_date DESC, question_count DESC
-            LIMIT 5
+            GROUP BY ps.paper_session_id, ps.session_label, ps.exam_id, ps.paper_date, e.num_questions, es.code, es.name
+            HAVING COUNT(qv.question_id) > (e.num_questions::float / NULLIF((SELECT COUNT(*) FROM exam_section WHERE exam_id = ps.exam_id), 0)) * 1.5
+            ORDER BY ps.paper_date DESC, COUNT(qv.question_id) DESC
         `;
 
         const oversizedRes = await client.query(query);
         const oversizedSections = oversizedRes.rows;
 
         if (oversizedSections.length === 0) {
-            // Check if there are MORE papers beyond the limit
-            const countQuery = `
-                SELECT COUNT(DISTINCT ps.paper_session_id) as total
-                FROM paper_session ps
-                JOIN question_version qv ON qv.paper_session_id = ps.paper_session_id
-                JOIN exam_section es ON es.section_id = qv.exam_section_id
-                GROUP BY ps.paper_session_id, es.section_id
-                HAVING COUNT(qv.question_id) > 30
-            `;
-            const countRes = await client.query(countQuery);
-            const totalRemaining = parseInt(countRes.rows[0]?.total || 0);
-
             return NextResponse.json({
                 success: true,
-                message: 'No papers need reclassification',
-                totalSections: 0,
+                message: 'No papers need reclassification — all sections look balanced',
+                totalPapers: 0,
                 totalQuestionsUpdated: 0,
-                details: [],
-                remainingPapers: totalRemaining
+                details: []
             });
         }
 
-        // 2. Reclassify each oversized section
-        const results = [];
-        for (const section of oversizedSections) {
-            console.log(`Reclassifying ${section.session_label} - ${section.section_name} (${section.question_count} questions)`);
+        // Deduplicate by paper_session_id (a paper may have multiple oversized sections)
+        const uniquePapers = [...new Map(oversizedSections.map(s => [s.paper_session_id, s])).values()];
 
-            const result = await reclassifySection(
+        // Process up to 5 papers per run
+        const papersToProcess = uniquePapers.slice(0, 5);
+        const results = [];
+
+        for (const paper of papersToProcess) {
+            console.log(`Smart reclassifying: ${paper.session_label}`);
+
+            const result = await smartReclassifyPaper(
                 client,
-                section.paper_session_id,
-                section.section_code,
-                section.exam_id
+                paper.paper_session_id,
+                paper.exam_id,
+                parseInt(paper.num_questions)
             );
 
             results.push({
-                paper: section.session_label,
-                section: section.section_name,
-                originalCount: parseInt(section.question_count),
+                paper: paper.session_label,
                 ...result
             });
         }
 
-        const totalProcessed = results.reduce((sum, r) => sum + (r.processed || 0), 0);
         const totalQuestionsUpdated = results.reduce((sum, r) => sum + (r.updated || 0), 0);
-
-        // Count remaining papers that still need reclassification
-        const remainingQuery = `
-            SELECT COUNT(*) as total
-            FROM (
-                SELECT ps.paper_session_id
-                FROM paper_session ps
-                JOIN question_version qv ON qv.paper_session_id = ps.paper_session_id
-                JOIN exam_section es ON es.section_id = qv.exam_section_id
-                GROUP BY ps.paper_session_id, es.section_id
-                HAVING COUNT(qv.question_id) > 30
-            ) as oversized
-        `;
-        const remainingRes = await client.query(remainingQuery);
-        const remainingPapers = parseInt(remainingRes.rows[0]?.total || 0);
+        const remainingPapers = uniquePapers.length - papersToProcess.length;
 
         return NextResponse.json({
             success: true,
-            message: `Processed ${results.length} section(s)`,
-            totalSections: results.length,
+            message: `Smart reclassified ${papersToProcess.length} paper(s)`,
+            totalPapers: papersToProcess.length,
             totalQuestionsUpdated,
             details: results,
             remainingPapers,
@@ -203,6 +209,7 @@ export async function POST(req) {
         });
 
     } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
         console.error('Bulk reclassification error:', error);
         return NextResponse.json({ error: error.message }, { status: 500 });
     } finally {
