@@ -158,9 +158,17 @@ export default function QuestionCard({ question, onSave, onImagePaste, onAddImag
             {/* Top Bar */}
             <div className="px-6 py-3 border-b flex justify-between items-center bg-gray-50/50 border-gray-200">
                 <div className="flex items-center gap-3">
-                    <span className="text-sm font-bold text-gray-800 font-mono">
-                        Q.{q.source_q_no ? q.source_q_no.replace(/Q\.\s*/, '').trim() : q.q_no}
-                    </span>
+                    <div className="flex items-center gap-0.5 text-sm font-bold text-gray-800 font-mono">
+                        <span>Q.</span>
+                        <input
+                            type="text"
+                            className="w-12 px-1 py-0.5 text-sm font-bold font-mono text-gray-800 border border-transparent hover:border-gray-300 focus:border-blue-400 focus:ring-1 focus:ring-blue-300 rounded bg-transparent text-center"
+                            value={q.source_q_no ? q.source_q_no.replace(/Q\.\s*/, '').trim() : (q.q_no || '')}
+                            onChange={(e) => setQ(prev => ({ ...prev, source_q_no: e.target.value }))}
+                            onKeyDown={handleKeyDown}
+                            title="Edit question number"
+                        />
+                    </div>
                     <span className={`px-2 py-0.5 rounded text-xs font-bold ${q.language === 'EN' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'}`}>
                         {q.language}
                     </span>
