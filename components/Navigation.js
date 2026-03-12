@@ -75,7 +75,7 @@ export default function Navigation({ user }) {
                                 </Link>
                             )}
 
-                            {user?.isAdmin && (
+                            {(user?.isAdmin || [2, 3].includes(user?.id)) && (
                                 <Link
                                     href="/verify-unlink"
                                     className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${isActive('/verify-unlink')

@@ -5,7 +5,14 @@ import VerifyUnlink from '@/components/VerifyUnlink';
 
 export const dynamic = 'force-dynamic';
 
-async function fetchUnverifiedQuestions(page = 1, limit = 100) {
+// Reviewers assigned to verify-unlink work, mapped to their split slot
+const VERIFY_REVIEWERS = {
+    2: 0,  // user1@hyrank.com → slot 0
+    3: 1,  // user2@hyrank.com → slot 1
+};
+const VERIFY_REVIEWER_COUNT = Object.keys(VERIFY_REVIEWERS).length;
+
+async function fetchUnverifiedQuestions(page = 1, limit = 100, userSlot = null) {
     const offset = (page - 1) * limit;
     let client;
 
@@ -20,6 +27,11 @@ async function fetchUnverifiedQuestions(page = 1, limit = 100) {
             GROUP BY paper_session_id
             HAVING COUNT(*) > 90
         `;
+
+        // Split filter: for reviewers, only show their portion
+        const splitFilter = userSlot !== null
+            ? `AND abs(hashtext(qv.question_id::text)) % ${VERIFY_REVIEWER_COUNT} = ${userSlot}`
+            : '';
 
         // Unverified questions from those sessions
         const questionsRes = await client.query(`
@@ -49,6 +61,7 @@ async function fetchUnverifiedQuestions(page = 1, limit = 100) {
                   UNION
                   SELECT hindi_question_id FROM question_links WHERE status = 'FLAGGED' AND hindi_question_id IS NOT NULL
               )
+              ${splitFilter}
             ORDER BY ps.paper_date DESC NULLS LAST,
                      CAST(SUBSTRING(qv.source_question_no FROM '[0-9]+') AS INTEGER) ASC NULLS LAST,
                      qv.question_id ASC
@@ -69,6 +82,7 @@ async function fetchUnverifiedQuestions(page = 1, limit = 100) {
                   UNION
                   SELECT hindi_question_id FROM question_links WHERE status = 'FLAGGED' AND hindi_question_id IS NOT NULL
               )
+              ${splitFilter}
         `);
         const total = parseInt(countRes.rows[0].c, 10);
 
@@ -109,10 +123,17 @@ async function fetchUnverifiedQuestions(page = 1, limit = 100) {
 
 export default async function VerifyUnlinkPage({ searchParams }) {
     const user = await getCurrentUser();
-    if (!user?.isAdmin) redirect('/login');
+    if (!user) redirect('/login');
+
+    // Allow admin + designated reviewers
+    const isAllowed = user.isAdmin || (user.id in VERIFY_REVIEWERS);
+    if (!isAllowed) redirect('/login');
+
+    // Admin sees all, reviewers see their split
+    const userSlot = user.isAdmin ? null : VERIFY_REVIEWERS[user.id];
 
     const page = parseInt((await searchParams)?.page || '1', 10);
-    const { questions, total, totalPages } = await fetchUnverifiedQuestions(page, 100);
+    const { questions, total, totalPages } = await fetchUnverifiedQuestions(page, 100, userSlot);
 
     return (
         <div className="bg-gray-50 min-h-screen">
@@ -125,6 +146,7 @@ export default async function VerifyUnlinkPage({ searchParams }) {
                     </p>
                     <p className="text-sm font-semibold text-gray-700 mt-2">
                         {total} question{total !== 1 ? 's' : ''} remaining
+                        {!user.isAdmin && <span className="text-gray-400 font-normal ml-2">(your assigned portion)</span>}
                     </p>
                 </header>
 

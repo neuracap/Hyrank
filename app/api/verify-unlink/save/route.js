@@ -4,7 +4,9 @@ import { getCurrentUser } from '@/lib/auth-edge';
 
 export async function POST(req) {
     const user = await getCurrentUser();
-    if (!user?.isAdmin) {
+    // Allow admin + designated verify-unlink reviewers (user2=3, user3=4)
+    const VERIFY_REVIEWER_IDS = [2, 3];
+    if (!user?.isAdmin && !VERIFY_REVIEWER_IDS.includes(user?.id)) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
