@@ -39,9 +39,9 @@ export default async function TestReviewPage() {
         const res = await client.query(query);
         papers = res.rows;
     } else {
-        // Reviewer: See assigned papers
+        // Reviewer: See assigned papers that are NOT yet linked in question_links
         const query = `
-            SELECT 
+            SELECT
                 ps.paper_session_id,
                 ps.session_label,
                 ps.paper_date,
@@ -51,13 +51,18 @@ export default async function TestReviewPage() {
                 ps.status as pipeline_status,
                 ra.status as assignment_status,
                 (
-                    SELECT COUNT(*) 
+                    SELECT COUNT(*)
                     FROM question_version qv
                     WHERE qv.paper_session_id = ps.paper_session_id
                 ) as total_q
             FROM review_assignments ra
             JOIN paper_session ps ON ra.paper_session_id = ps.paper_session_id
             WHERE ra.reviewer_id = $1
+              AND NOT EXISTS (
+                  SELECT 1 FROM question_links ql
+                  WHERE ql.paper_session_id_english = ps.paper_session_id
+                     OR ql.paper_session_id_hindi = ps.paper_session_id
+              )
             ORDER BY ra.assigned_at DESC, ps.paper_date DESC
             LIMIT 50
         `;
@@ -103,7 +108,7 @@ export default async function TestReviewPage() {
             <div className="bg-white shadow rounded-lg border border-gray-200 overflow-hidden">
                 <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
                     <h2 className="text-lg font-bold text-gray-800">
-                        {user.isAdmin ? 'All Papers' : 'Your Assigned Papers (All Languages)'}
+                        {user.isAdmin ? 'All Papers' : 'Your Assigned Papers (Not Yet Linked)'}
                     </h2>
                 </div>
 
