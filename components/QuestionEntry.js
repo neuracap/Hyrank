@@ -6,7 +6,7 @@ import Latex from './Latex';
 const EMPTY_LANG = { text: '', options: { A: '', B: '', C: '', D: '' } };
 const OPTION_KEYS = ['A', 'B', 'C', 'D'];
 
-function LanguagePanel({ lang, label, color, data, onChange, correctAnswer, onCorrectChange, questionId, onImageUpload, uploading }) {
+function LanguagePanel({ lang, label, color, data, onChange, questionId, onImageUpload, uploading, onTranslate, translating }) {
     const badgeColor = color === 'blue' ? 'bg-blue-600' : 'bg-orange-600';
     const ringColor = color === 'blue' ? 'focus:ring-blue-500 focus:border-blue-500' : 'focus:ring-orange-500 focus:border-orange-500';
 
@@ -60,6 +60,16 @@ function LanguagePanel({ lang, label, color, data, onChange, correctAnswer, onCo
             <div className="flex items-center gap-2 mb-4">
                 <span className={`${badgeColor} text-white text-xs font-bold px-2 py-0.5 rounded`}>{lang.toUpperCase()}</span>
                 <h3 className="font-bold text-gray-700">{label}</h3>
+                {onTranslate && (
+                    <button
+                        type="button"
+                        onClick={onTranslate}
+                        disabled={translating}
+                        className="ml-auto px-3 py-1 text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 rounded hover:bg-indigo-100 transition-colors disabled:opacity-50"
+                    >
+                        {translating ? '...' : 'Translate'}
+                    </button>
+                )}
             </div>
 
             {/* Question Text */}
@@ -95,21 +105,9 @@ function LanguagePanel({ lang, label, color, data, onChange, correctAnswer, onCo
                 {OPTION_KEYS.map(key => (
                     <div key={key} className="p-2 border border-gray-100 rounded bg-gray-50/50">
                         <div className="flex gap-2 items-center mb-1">
-                            <label className="flex items-center gap-1 shrink-0 cursor-pointer" title={`Mark ${key} as correct`}>
-                                <input
-                                    type="radio"
-                                    name={`correct-${questionId}`}
-                                    checked={correctAnswer === key}
-                                    onChange={() => onCorrectChange(key)}
-                                    className="w-4 h-4 text-green-600 border-gray-300 focus:ring-green-500"
-                                />
-                                <span className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold shrink-0 ${correctAnswer === key
-                                    ? 'bg-green-100 text-green-700 border border-green-300'
-                                    : 'bg-white border border-gray-300 text-gray-500'
-                                    }`}>
-                                    {key}
-                                </span>
-                            </label>
+                            <div className="w-6 h-6 flex items-center justify-center rounded-full bg-white border border-gray-300 text-xs font-bold text-gray-500 shrink-0">
+                                {key}
+                            </div>
                             <input
                                 id={`qe-opt-${lang}-${key}-${questionId}`}
                                 className={`flex-1 text-xs p-1.5 border border-gray-300 rounded font-mono ${ringColor}`}
@@ -155,6 +153,8 @@ export default function QuestionEntry() {
     // UI state
     const [submitting, setSubmitting] = useState(false);
     const [uploading, setUploading] = useState(false);
+    const [translatingEng, setTranslatingEng] = useState(false);
+    const [translatingHin, setTranslatingHin] = useState(false);
     const [message, setMessage] = useState(null);
     const [savedCount, setSavedCount] = useState(0);
     const [questionId, setQuestionId] = useState(0); // for unique element IDs
@@ -189,6 +189,55 @@ export default function QuestionEntry() {
             setHindi(prev => ({ ...prev, text: value }));
         } else {
             setHindi(prev => ({ ...prev, options: { ...prev.options, [optKey]: value } }));
+        }
+    };
+
+    const handleTranslate = async (sourceLang) => {
+        const sourceData = sourceLang === 'en' ? english : hindi;
+        const targetLang = sourceLang === 'en' ? 'hi' : 'en';
+        const setTranslating = sourceLang === 'en' ? setTranslatingHin : setTranslatingEng;
+        const setTarget = sourceLang === 'en' ? setHindi : setEnglish;
+
+        if (!sourceData.text.trim()) {
+            setMessage({ type: 'error', text: 'Nothing to translate — enter text first' });
+            return;
+        }
+
+        setTranslating(true);
+        try {
+            // Translate question text
+            const textRes = await fetch('/api/translate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: sourceData.text, source: sourceLang, target: targetLang })
+            });
+            const textData = await textRes.json();
+
+            // Translate options
+            const translatedOpts = {};
+            for (const key of OPTION_KEYS) {
+                if (sourceData.options[key]?.trim()) {
+                    const optRes = await fetch('/api/translate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: sourceData.options[key], source: sourceLang, target: targetLang })
+                    });
+                    const optData = await optRes.json();
+                    translatedOpts[key] = optData.translatedText || '';
+                } else {
+                    translatedOpts[key] = sourceData.options[key] || '';
+                }
+            }
+
+            setTarget({
+                text: textData.translatedText || '',
+                options: translatedOpts
+            });
+        } catch (e) {
+            console.error(e);
+            setMessage({ type: 'error', text: 'Translation failed: ' + e.message });
+        } finally {
+            setTranslating(false);
         }
     };
 
@@ -247,11 +296,6 @@ export default function QuestionEntry() {
             return;
         }
 
-        if (!correctAnswer) {
-            setMessage({ type: 'error', text: 'Please select the correct answer' });
-            return;
-        }
-
         setSubmitting(true);
         setMessage(null);
 
@@ -263,7 +307,7 @@ export default function QuestionEntry() {
                     exam_section_id: selectedSectionId || null,
                     difficulty: difficulty || null,
                     source_question_no: sourceQNo || null,
-                    correct_answer: correctAnswer,
+                    correct_answer: correctAnswer || null,
                     english,
                     hindi
                 })
@@ -278,15 +322,16 @@ export default function QuestionEntry() {
                 // Reset form for next question (keep exam/section/difficulty selections)
                 setEnglish({ text: '', options: { A: '', B: '', C: '', D: '' } });
                 setHindi({ text: '', options: { A: '', B: '', C: '', D: '' } });
-                setSourceQNo('');
                 setCorrectAnswer('');
                 setQuestionId(prev => prev + 1);
 
-                // Auto-increment question number
+                // Auto-increment question number if one was set
                 if (sourceQNo) {
                     const num = parseInt(sourceQNo.replace(/\D/g, ''), 10);
                     if (!isNaN(num)) {
                         setSourceQNo(String(num + 1));
+                    } else {
+                        setSourceQNo('');
                     }
                 }
             } else {
@@ -372,7 +417,7 @@ export default function QuestionEntry() {
 
                     {/* Question Number */}
                     <div className="flex flex-col gap-1 min-w-[120px]">
-                        <label className="text-xs font-semibold text-gray-500 uppercase">Q. No.</label>
+                        <label className="text-xs font-semibold text-gray-500 uppercase">Q. No. <span className="normal-case text-gray-400">(optional)</span></label>
                         <input
                             type="text"
                             placeholder="e.g. 1"
@@ -384,13 +429,13 @@ export default function QuestionEntry() {
 
                     {/* Correct Answer */}
                     <div className="flex flex-col gap-1">
-                        <label className="text-xs font-semibold text-gray-500 uppercase">Correct Answer</label>
+                        <label className="text-xs font-semibold text-gray-500 uppercase">Correct Answer <span className="normal-case text-gray-400">(optional)</span></label>
                         <div className="flex gap-1">
                             {OPTION_KEYS.map(key => (
                                 <button
                                     key={key}
                                     type="button"
-                                    onClick={() => setCorrectAnswer(key)}
+                                    onClick={() => setCorrectAnswer(prev => prev === key ? '' : key)}
                                     className={`w-9 h-9 rounded-md text-sm font-bold transition-all ${correctAnswer === key
                                         ? 'bg-green-600 text-white shadow-sm'
                                         : 'bg-gray-100 text-gray-500 hover:bg-gray-200 border border-gray-300'
@@ -414,7 +459,7 @@ export default function QuestionEntry() {
                 </div>
             )}
 
-            {/* Copy Buttons */}
+            {/* Copy & Translate Buttons */}
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-5 py-3 mb-4 flex gap-3 flex-wrap items-center">
                 <span className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Quick Copy</span>
                 <button
@@ -451,11 +496,11 @@ export default function QuestionEntry() {
                             color="blue"
                             data={english}
                             onChange={handleEnglishChange}
-                            correctAnswer={correctAnswer}
-                            onCorrectChange={setCorrectAnswer}
                             questionId={questionId}
                             onImageUpload={handleImageUpload}
                             uploading={uploading}
+                            onTranslate={() => handleTranslate('hi')}
+                            translating={translatingEng}
                         />
                     </div>
 
@@ -467,11 +512,11 @@ export default function QuestionEntry() {
                             color="orange"
                             data={hindi}
                             onChange={handleHindiChange}
-                            correctAnswer={correctAnswer}
-                            onCorrectChange={setCorrectAnswer}
                             questionId={questionId}
                             onImageUpload={handleImageUpload}
                             uploading={uploading}
+                            onTranslate={() => handleTranslate('en')}
+                            translating={translatingHin}
                         />
                     </div>
                 </div>
