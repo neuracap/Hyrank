@@ -198,20 +198,21 @@ body {
   font-synthesis: none;
 }
 
-/* Fix faint = sign and thin horizontal rules in KaTeX */
-.latex-container .katex .mord,
+/* Fix faint strokes on = sign and other math symbols */
 .latex-container .katex .mrel,
-.latex-container .katex .mbin {
-  font-weight: 450;
+.latex-container .katex .mbin,
+.latex-container .katex .mord {
+  -webkit-text-stroke: 0.2px currentColor;
+  paint-order: stroke fill;
+}
+
+/* Boost visibility of fraction bars and other thin rules */
+.latex-container .katex .frac-line {
+  border-bottom-width: 0.06em;
 }
 
 .latex-container .katex .rule {
   min-height: 0.06em;
-}
-
-/* Boost visibility of fraction bars and other thin lines */
-.latex-container .katex .frac-line {
-  border-bottom-width: 0.06em;
 }
 
 .latex-container .katex .overline .overline-line,
