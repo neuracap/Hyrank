@@ -202,7 +202,7 @@ body {
 .latex-container .katex .mrel,
 .latex-container .katex .mbin,
 .latex-container .katex .mord {
-  -webkit-text-stroke: 0.2px currentColor;
+  -webkit-text-stroke: 0.35px currentColor;
   paint-order: stroke fill;
 }
 
