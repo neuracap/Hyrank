@@ -197,3 +197,28 @@ body {
   -moz-osx-font-smoothing: grayscale;
   font-synthesis: none;
 }
+
+/* Fix faint = sign and thin horizontal rules in KaTeX */
+.latex-container .katex .mord,
+.latex-container .katex .mrel,
+.latex-container .katex .mbin {
+  font-weight: 450;
+}
+
+.latex-container .katex .rule {
+  min-height: 0.06em;
+}
+
+/* Boost visibility of fraction bars and other thin lines */
+.latex-container .katex .frac-line {
+  border-bottom-width: 0.06em;
+}
+
+.latex-container .katex .overline .overline-line,
+.latex-container .katex .underline .underline-line {
+  border-bottom-width: 0.06em;
+}
+
+.latex-container .katex .sqrt > .sqrt-line {
+  border-bottom-width: 0.06em;
+}
