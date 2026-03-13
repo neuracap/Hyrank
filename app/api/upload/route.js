@@ -68,30 +68,30 @@ export async function POST(request) {
             return NextResponse.json({ error: 'Unsupported Content-Type' }, { status: 400 });
         }
 
-        if (!questionId || !language) {
-            return NextResponse.json({ error: 'Missing metadata' }, { status: 400 });
-        }
-
         // 1. Determine Cloudinary Folder Path
-        const pathRes = await client.query(`
-            SELECT ps.session_label, e.name as exam_name
-            FROM question_version qv
-            JOIN paper_session ps ON qv.paper_session_id = ps.paper_session_id
-            JOIN exam e ON ps.exam_id = e.exam_id
-            WHERE qv.question_id = $1 AND qv.language = $2
-            LIMIT 1
-        `, [questionId, language]);
+        let folderPath = 'assets/manual-entry'; // Default for questions without paper_session
 
-        let folderPath = 'assets/uploads'; // Fallback
+        if (questionId && language) {
+            const pathRes = await client.query(`
+                SELECT ps.session_label, e.name as exam_name
+                FROM question_version qv
+                JOIN paper_session ps ON qv.paper_session_id = ps.paper_session_id
+                JOIN exam e ON ps.exam_id = e.exam_id
+                WHERE qv.question_id = $1 AND qv.language = $2
+                LIMIT 1
+            `, [questionId, language]);
 
-        if (pathRes.rows.length > 0) {
-            const { session_label, exam_name } = pathRes.rows[0];
-            const sanitize = (str) => str.replace(/[<>:"/\\|?*]/g, '-').trim().replace(/\s+/g, '-').toLowerCase();
+            if (pathRes.rows.length > 0) {
+                const { session_label, exam_name } = pathRes.rows[0];
+                const sanitize = (str) => str.replace(/[<>:"/\\|?*]/g, '-').trim().replace(/\s+/g, '-').toLowerCase();
 
-            const examSlug = sanitize(exam_name);
-            const sessionSlug = sanitize(session_label);
+                const examSlug = sanitize(exam_name);
+                const sessionSlug = sanitize(session_label);
 
-            folderPath = `assets/${examSlug}/${sessionSlug}`;
+                folderPath = `assets/${examSlug}/${sessionSlug}`;
+            } else {
+                folderPath = 'assets/uploads';
+            }
         }
 
         // 2. Upload to Cloudinary
@@ -117,8 +117,8 @@ export async function POST(request) {
             VALUES ($1, $2, $3, $4, $5, NOW(), 'image')
         `, [assetId, originalName || 'upload.png', secureUrl, mimeType, fileBuffer.length]);
 
-        // 4. Insert into Map
-        if (role && optionKey && versionNo) {
+        // 4. Insert into Map (only if question already exists)
+        if (questionId && role && optionKey && versionNo) {
             await client.query(`
                 INSERT INTO question_asset_map (question_id, asset_id, role, option_key, version_no, language, created_at)
                 VALUES ($1, $2, $3, $4, $5, $6, NOW())

@@ -6,10 +6,22 @@ import Latex from './Latex';
 const EMPTY_LANG = { text: '', options: { A: '', B: '', C: '', D: '' } };
 const OPTION_KEYS = ['A', 'B', 'C', 'D'];
 
-function LanguagePanel({ lang, label, color, data, onChange, correctAnswer, onCorrectChange, questionId }) {
-    const bgLight = color === 'blue' ? 'bg-blue-50' : 'bg-orange-50';
+function LanguagePanel({ lang, label, color, data, onChange, correctAnswer, onCorrectChange, questionId, onImageUpload, uploading }) {
     const badgeColor = color === 'blue' ? 'bg-blue-600' : 'bg-orange-600';
     const ringColor = color === 'blue' ? 'focus:ring-blue-500 focus:border-blue-500' : 'focus:ring-orange-500 focus:border-orange-500';
+
+    const handlePaste = (e, optKey = null) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+        for (let item of items) {
+            if (item.type.startsWith('image/')) {
+                e.preventDefault();
+                const blob = item.getAsFile();
+                onImageUpload(blob, lang, optKey);
+                break;
+            }
+        }
+    };
 
     const handleUnderline = (textType, optKey = null) => {
         const textareaId = textType === 'question'
@@ -68,8 +80,10 @@ function LanguagePanel({ lang, label, color, data, onChange, correctAnswer, onCo
                     className={`w-full p-3 border border-gray-300 rounded font-mono text-sm min-h-[100px] mb-2 ${ringColor} resize-y`}
                     value={data.text}
                     onChange={(e) => onChange('text', e.target.value)}
-                    placeholder={lang === 'EN' ? 'Enter English question text...' : 'हिंदी प्रश्न यहाँ दर्ज करें...'}
+                    onPaste={(e) => handlePaste(e)}
+                    placeholder={lang === 'EN' ? 'Enter English question text... (paste images with Ctrl+V)' : 'हिंदी प्रश्न यहाँ दर्ज करें... (Ctrl+V से चित्र पेस्ट करें)'}
                 />
+                {uploading && <p className="text-xs text-blue-500 font-medium mb-1">Uploading image...</p>}
                 <div className="p-3 bg-gray-50 rounded border border-gray-200 text-sm">
                     <p className="text-xs font-bold text-gray-400 uppercase mb-1">Preview</p>
                     <Latex>{data.text || ''}</Latex>
@@ -101,6 +115,7 @@ function LanguagePanel({ lang, label, color, data, onChange, correctAnswer, onCo
                                 className={`flex-1 text-xs p-1.5 border border-gray-300 rounded font-mono ${ringColor}`}
                                 value={data.options[key] || ''}
                                 onChange={(e) => onChange('option', e.target.value, key)}
+                                onPaste={(e) => handlePaste(e, key)}
                                 placeholder={lang === 'EN' ? `Option ${key}...` : `विकल्प ${key}...`}
                             />
                             <button
@@ -139,6 +154,7 @@ export default function QuestionEntry() {
 
     // UI state
     const [submitting, setSubmitting] = useState(false);
+    const [uploading, setUploading] = useState(false);
     const [message, setMessage] = useState(null);
     const [savedCount, setSavedCount] = useState(0);
     const [questionId, setQuestionId] = useState(0); // for unique element IDs
@@ -173,6 +189,48 @@ export default function QuestionEntry() {
             setHindi(prev => ({ ...prev, text: value }));
         } else {
             setHindi(prev => ({ ...prev, options: { ...prev.options, [optKey]: value } }));
+        }
+    };
+
+    const handleImageUpload = async (blob, lang, optKey) => {
+        setUploading(true);
+        try {
+            const reader = new FileReader();
+            reader.readAsDataURL(blob);
+            reader.onloadend = async () => {
+                const base64data = reader.result;
+                const res = await fetch('/api/upload', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ data: base64data })
+                });
+                const data = await res.json();
+                if (data.latexPath) {
+                    const imageTag = `\\includegraphics{${data.latexPath}}`;
+                    const setter = lang === 'EN' ? setEnglish : setHindi;
+                    if (optKey) {
+                        setter(prev => ({
+                            ...prev,
+                            options: {
+                                ...prev.options,
+                                [optKey]: (prev.options[optKey] || '') + ` ${imageTag}`
+                            }
+                        }));
+                    } else {
+                        setter(prev => ({
+                            ...prev,
+                            text: prev.text + `\n\n${imageTag}`
+                        }));
+                    }
+                } else {
+                    alert('Upload failed: ' + (data.error || 'Unknown error'));
+                }
+                setUploading(false);
+            };
+        } catch (e) {
+            console.error(e);
+            alert('Upload failed');
+            setUploading(false);
         }
     };
 
@@ -396,6 +454,8 @@ export default function QuestionEntry() {
                             correctAnswer={correctAnswer}
                             onCorrectChange={setCorrectAnswer}
                             questionId={questionId}
+                            onImageUpload={handleImageUpload}
+                            uploading={uploading}
                         />
                     </div>
 
@@ -410,6 +470,8 @@ export default function QuestionEntry() {
                             correctAnswer={correctAnswer}
                             onCorrectChange={setCorrectAnswer}
                             questionId={questionId}
+                            onImageUpload={handleImageUpload}
+                            uploading={uploading}
                         />
                     </div>
                 </div>
