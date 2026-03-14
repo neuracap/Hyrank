@@ -150,6 +150,16 @@ export default function QuestionEntry() {
     const [english, setEnglish] = useState({ ...EMPTY_LANG, options: { ...EMPTY_LANG.options } });
     const [hindi, setHindi] = useState({ ...EMPTY_LANG, options: { ...EMPTY_LANG.options } });
 
+    // Group mode
+    const [groupMode, setGroupMode] = useState(false);
+    const [groupType, setGroupType] = useState('RC');
+    const [passageEn, setPassageEn] = useState('');
+    const [passageHi, setPassageHi] = useState('');
+    const [activeGroupId, setActiveGroupId] = useState(null);
+    const [groupQuestionCount, setGroupQuestionCount] = useState(0);
+    const [creatingGroup, setCreatingGroup] = useState(false);
+    const [translatingPassage, setTranslatingPassage] = useState(false);
+
     // UI state
     const [submitting, setSubmitting] = useState(false);
     const [uploading, setUploading] = useState(false);
@@ -157,7 +167,7 @@ export default function QuestionEntry() {
     const [translatingHin, setTranslatingHin] = useState(false);
     const [message, setMessage] = useState(null);
     const [savedCount, setSavedCount] = useState(0);
-    const [questionId, setQuestionId] = useState(0); // for unique element IDs
+    const [questionId, setQuestionId] = useState(0);
 
     // Fetch exams on mount
     useEffect(() => {
@@ -205,7 +215,6 @@ export default function QuestionEntry() {
 
         setTranslating(true);
         try {
-            // Translate question text
             const textRes = await fetch('/api/translate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -213,7 +222,6 @@ export default function QuestionEntry() {
             });
             const textData = await textRes.json();
 
-            // Translate options
             const translatedOpts = {};
             for (const key of OPTION_KEYS) {
                 if (sourceData.options[key]?.trim()) {
@@ -229,16 +237,75 @@ export default function QuestionEntry() {
                 }
             }
 
-            setTarget({
-                text: textData.translatedText || '',
-                options: translatedOpts
-            });
+            setTarget({ text: textData.translatedText || '', options: translatedOpts });
         } catch (e) {
             console.error(e);
             setMessage({ type: 'error', text: 'Translation failed: ' + e.message });
         } finally {
             setTranslating(false);
         }
+    };
+
+    const handleTranslatePassage = async () => {
+        if (!passageEn.trim()) {
+            setMessage({ type: 'error', text: 'Enter English passage first' });
+            return;
+        }
+        setTranslatingPassage(true);
+        try {
+            const res = await fetch('/api/translate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: passageEn, source: 'en', target: 'hi' })
+            });
+            const data = await res.json();
+            if (data.translatedText) setPassageHi(data.translatedText);
+        } catch (e) {
+            setMessage({ type: 'error', text: 'Passage translation failed' });
+        } finally {
+            setTranslatingPassage(false);
+        }
+    };
+
+    const handleStartGroup = async () => {
+        if (!passageEn.trim() && !passageHi.trim()) {
+            setMessage({ type: 'error', text: 'Enter passage text in at least one language' });
+            return;
+        }
+        setCreatingGroup(true);
+        try {
+            const res = await fetch('/api/question-group/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    group_type: groupType,
+                    passage_en: passageEn,
+                    passage_hi: passageHi,
+                    exam_section_id: selectedSectionId || null
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                setActiveGroupId(data.group_id);
+                setGroupQuestionCount(0);
+                setMessage({ type: 'success', text: `${groupType} group created! Now add questions below.` });
+            } else {
+                setMessage({ type: 'error', text: 'Failed to create group: ' + data.error });
+            }
+        } catch (e) {
+            setMessage({ type: 'error', text: 'Error: ' + e.message });
+        } finally {
+            setCreatingGroup(false);
+        }
+    };
+
+    const handleFinishGroup = () => {
+        setMessage({ type: 'success', text: `${groupType} group finished with ${groupQuestionCount} questions.` });
+        setActiveGroupId(null);
+        setGroupQuestionCount(0);
+        setGroupMode(false);
+        setPassageEn('');
+        setPassageHi('');
     };
 
     const handleImageUpload = async (blob, lang, optKey) => {
@@ -260,16 +327,10 @@ export default function QuestionEntry() {
                     if (optKey) {
                         setter(prev => ({
                             ...prev,
-                            options: {
-                                ...prev.options,
-                                [optKey]: (prev.options[optKey] || '') + ` ${imageTag}`
-                            }
+                            options: { ...prev.options, [optKey]: (prev.options[optKey] || '') + ` ${imageTag}` }
                         }));
                     } else {
-                        setter(prev => ({
-                            ...prev,
-                            text: prev.text + `\n\n${imageTag}`
-                        }));
+                        setter(prev => ({ ...prev, text: prev.text + `\n\n${imageTag}` }));
                     }
                 } else {
                     alert('Upload failed: ' + (data.error || 'Unknown error'));
@@ -300,6 +361,8 @@ export default function QuestionEntry() {
         setMessage(null);
 
         try {
+            const nextOrder = activeGroupId ? groupQuestionCount + 1 : null;
+
             const res = await fetch('/api/question-entry/save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -308,6 +371,8 @@ export default function QuestionEntry() {
                     difficulty: difficulty || null,
                     source_question_no: sourceQNo || null,
                     correct_answer: correctAnswer || null,
+                    group_id: activeGroupId || null,
+                    group_order: nextOrder,
                     english,
                     hindi
                 })
@@ -317,15 +382,21 @@ export default function QuestionEntry() {
 
             if (data.success) {
                 setSavedCount(prev => prev + 1);
-                setMessage({ type: 'success', text: `Question ${sourceQNo || '#' + (savedCount + 1)} saved successfully!` });
 
-                // Reset form for next question (keep exam/section/difficulty selections)
+                if (activeGroupId) {
+                    const newCount = groupQuestionCount + 1;
+                    setGroupQuestionCount(newCount);
+                    setMessage({ type: 'success', text: `${groupType} Q${newCount} saved!` });
+                } else {
+                    setMessage({ type: 'success', text: `Question ${sourceQNo || '#' + (savedCount + 1)} saved!` });
+                }
+
+                // Reset question form (keep selections)
                 setEnglish({ text: '', options: { A: '', B: '', C: '', D: '' } });
                 setHindi({ text: '', options: { A: '', B: '', C: '', D: '' } });
                 setCorrectAnswer('');
                 setQuestionId(prev => prev + 1);
 
-                // Auto-increment question number if one was set
                 if (sourceQNo) {
                     const num = parseInt(sourceQNo.replace(/\D/g, ''), 10);
                     if (!isNaN(num)) {
@@ -354,11 +425,25 @@ export default function QuestionEntry() {
             <div className="mb-6">
                 <div className="flex justify-between items-center mb-2">
                     <h1 className="text-2xl font-bold text-gray-900">Question Entry</h1>
-                    {savedCount > 0 && (
-                        <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-bold">
-                            {savedCount} question{savedCount !== 1 ? 's' : ''} saved this session
-                        </span>
-                    )}
+                    <div className="flex items-center gap-3">
+                        {savedCount > 0 && (
+                            <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-bold">
+                                {savedCount} saved
+                            </span>
+                        )}
+                        {!activeGroupId && (
+                            <button
+                                type="button"
+                                onClick={() => setGroupMode(!groupMode)}
+                                className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${groupMode
+                                    ? 'bg-purple-600 text-white shadow-sm'
+                                    : 'bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100'
+                                    }`}
+                            >
+                                {groupMode ? 'RC/Cloze Mode ON' : 'RC/Cloze Group'}
+                            </button>
+                        )}
+                    </div>
                 </div>
                 <p className="text-sm text-gray-500">Enter new bilingual questions directly into the database.</p>
             </div>
@@ -366,25 +451,17 @@ export default function QuestionEntry() {
             {/* Selection Bar */}
             <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm mb-6">
                 <div className="flex flex-wrap gap-4 items-end">
-                    {/* Exam */}
                     <div className="flex flex-col gap-1 min-w-[220px]">
                         <label className="text-xs font-semibold text-gray-500 uppercase">Exam</label>
                         <select
                             value={selectedExamId}
-                            onChange={(e) => {
-                                setSelectedExamId(e.target.value);
-                                setSelectedSectionId('');
-                            }}
+                            onChange={(e) => { setSelectedExamId(e.target.value); setSelectedSectionId(''); }}
                             className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         >
                             <option value="">-- Select Exam --</option>
-                            {exams.map(e => (
-                                <option key={e.exam_id} value={e.exam_id}>{e.name}</option>
-                            ))}
+                            {exams.map(e => <option key={e.exam_id} value={e.exam_id}>{e.name}</option>)}
                         </select>
                     </div>
-
-                    {/* Section */}
                     <div className="flex flex-col gap-1 min-w-[220px]">
                         <label className="text-xs font-semibold text-gray-500 uppercase">Section</label>
                         <select
@@ -394,13 +471,9 @@ export default function QuestionEntry() {
                             className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
                         >
                             <option value="">-- Select Section --</option>
-                            {sections.map(s => (
-                                <option key={s.section_id} value={s.section_id}>{s.name}</option>
-                            ))}
+                            {sections.map(s => <option key={s.section_id} value={s.section_id}>{s.name}</option>)}
                         </select>
                     </div>
-
-                    {/* Difficulty */}
                     <div className="flex flex-col gap-1 min-w-[140px]">
                         <label className="text-xs font-semibold text-gray-500 uppercase">Difficulty</label>
                         <select
@@ -414,8 +487,6 @@ export default function QuestionEntry() {
                             <option value="Hard">Hard</option>
                         </select>
                     </div>
-
-                    {/* Question Number */}
                     <div className="flex flex-col gap-1 min-w-[120px]">
                         <label className="text-xs font-semibold text-gray-500 uppercase">Q. No. <span className="normal-case text-gray-400">(optional)</span></label>
                         <input
@@ -426,8 +497,6 @@ export default function QuestionEntry() {
                             className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         />
                     </div>
-
-                    {/* Correct Answer */}
                     <div className="flex flex-col gap-1">
                         <label className="text-xs font-semibold text-gray-500 uppercase">Correct Answer <span className="normal-case text-gray-400">(optional)</span></label>
                         <div className="flex gap-1">
@@ -449,6 +518,113 @@ export default function QuestionEntry() {
                 </div>
             </div>
 
+            {/* ═══ GROUP MODE: Passage Panel ═══ */}
+            {groupMode && !activeGroupId && (
+                <div className="bg-purple-50 border-2 border-purple-300 rounded-xl p-5 shadow-sm mb-6">
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                            <h2 className="text-lg font-bold text-purple-900">Passage / Comprehension</h2>
+                            <div className="flex gap-1">
+                                {['RC', 'CLOZE'].map(t => (
+                                    <button
+                                        key={t}
+                                        type="button"
+                                        onClick={() => setGroupType(t)}
+                                        className={`px-3 py-1 text-xs font-bold rounded transition-all ${groupType === t
+                                            ? 'bg-purple-600 text-white'
+                                            : 'bg-white text-purple-600 border border-purple-300 hover:bg-purple-100'
+                                            }`}
+                                    >
+                                        {t}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => { setGroupMode(false); setPassageEn(''); setPassageHi(''); }}
+                            className="text-xs text-gray-500 hover:text-gray-700"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        {/* English Passage */}
+                        <div>
+                            <label className="text-xs font-semibold text-gray-500 uppercase mb-1 block">English Passage</label>
+                            <textarea
+                                className="w-full p-3 border border-purple-200 rounded font-mono text-sm min-h-[150px] resize-y focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                                value={passageEn}
+                                onChange={(e) => setPassageEn(e.target.value)}
+                                placeholder="Enter the reading comprehension passage in English..."
+                            />
+                            <div className="mt-2 p-3 bg-white rounded border border-gray-200 text-sm max-h-[200px] overflow-y-auto">
+                                <p className="text-xs font-bold text-gray-400 uppercase mb-1">Preview</p>
+                                <Latex>{passageEn || ''}</Latex>
+                            </div>
+                        </div>
+                        {/* Hindi Passage */}
+                        <div>
+                            <div className="flex justify-between items-center mb-1">
+                                <label className="text-xs font-semibold text-gray-500 uppercase">Hindi Passage</label>
+                                <button
+                                    type="button"
+                                    onClick={handleTranslatePassage}
+                                    disabled={translatingPassage}
+                                    className="px-3 py-1 text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 rounded hover:bg-indigo-100 disabled:opacity-50"
+                                >
+                                    {translatingPassage ? '...' : 'Translate EN → HI'}
+                                </button>
+                            </div>
+                            <textarea
+                                className="w-full p-3 border border-purple-200 rounded font-mono text-sm min-h-[150px] resize-y focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                                value={passageHi}
+                                onChange={(e) => setPassageHi(e.target.value)}
+                                placeholder="हिंदी अनुच्छेद यहाँ दर्ज करें..."
+                            />
+                            <div className="mt-2 p-3 bg-white rounded border border-gray-200 text-sm max-h-[200px] overflow-y-auto">
+                                <p className="text-xs font-bold text-gray-400 uppercase mb-1">Preview</p>
+                                <Latex>{passageHi || ''}</Latex>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={handleStartGroup}
+                        disabled={creatingGroup}
+                        className="px-6 py-2.5 bg-purple-600 text-white rounded-lg font-bold text-sm hover:bg-purple-700 transition-all shadow disabled:opacity-50"
+                    >
+                        {creatingGroup ? 'Creating...' : `Start ${groupType} Group — Begin Adding Questions`}
+                    </button>
+                </div>
+            )}
+
+            {/* ═══ ACTIVE GROUP BANNER ═══ */}
+            {activeGroupId && (
+                <div className="bg-purple-100 border-2 border-purple-400 rounded-xl px-5 py-4 mb-6 flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                        <span className="bg-purple-600 text-white text-xs font-bold px-2.5 py-1 rounded">{groupType}</span>
+                        <div>
+                            <p className="text-sm font-bold text-purple-900">
+                                Group active — {groupQuestionCount} question{groupQuestionCount !== 1 ? 's' : ''} added
+                            </p>
+                            <p className="text-xs text-purple-600 truncate max-w-md">
+                                {passageEn.substring(0, 80)}{passageEn.length > 80 ? '...' : ''}
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={handleFinishGroup}
+                        className="px-4 py-2 bg-purple-700 text-white rounded-lg text-sm font-bold hover:bg-purple-800 transition-colors"
+                    >
+                        Finish Group
+                    </button>
+                </div>
+            )}
+
             {/* Toast */}
             {message && (
                 <div className={`mb-4 px-4 py-3 rounded-lg text-sm font-medium ${message.type === 'success'
@@ -462,25 +638,16 @@ export default function QuestionEntry() {
             {/* Copy & Translate Buttons */}
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-5 py-3 mb-4 flex gap-3 flex-wrap items-center">
                 <span className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Quick Copy</span>
-                <button
-                    type="button"
-                    onClick={() => setHindi(prev => ({ ...prev, text: english.text }))}
-                    className="px-3 py-1 text-xs font-semibold bg-white border border-amber-300 text-amber-700 rounded hover:bg-amber-100 transition-colors"
-                >
+                <button type="button" onClick={() => setHindi(prev => ({ ...prev, text: english.text }))}
+                    className="px-3 py-1 text-xs font-semibold bg-white border border-amber-300 text-amber-700 rounded hover:bg-amber-100 transition-colors">
                     Copy Question to Hindi
                 </button>
-                <button
-                    type="button"
-                    onClick={() => setHindi(prev => ({ ...prev, options: { ...english.options } }))}
-                    className="px-3 py-1 text-xs font-semibold bg-white border border-amber-300 text-amber-700 rounded hover:bg-amber-100 transition-colors"
-                >
+                <button type="button" onClick={() => setHindi(prev => ({ ...prev, options: { ...english.options } }))}
+                    className="px-3 py-1 text-xs font-semibold bg-white border border-amber-300 text-amber-700 rounded hover:bg-amber-100 transition-colors">
                     Copy Options to Hindi
                 </button>
-                <button
-                    type="button"
-                    onClick={() => setHindi({ text: english.text, options: { ...english.options } })}
-                    className="px-3 py-1 text-xs font-semibold bg-amber-600 text-white rounded hover:bg-amber-700 transition-colors"
-                >
+                <button type="button" onClick={() => setHindi({ text: english.text, options: { ...english.options } })}
+                    className="px-3 py-1 text-xs font-semibold bg-amber-600 text-white rounded hover:bg-amber-700 transition-colors">
                     Copy All to Hindi
                 </button>
             </div>
@@ -488,35 +655,20 @@ export default function QuestionEntry() {
             {/* Bilingual Panels */}
             <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
                 <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-200">
-                    {/* English */}
                     <div className="p-5">
                         <LanguagePanel
-                            lang="EN"
-                            label="English"
-                            color="blue"
-                            data={english}
-                            onChange={handleEnglishChange}
-                            questionId={questionId}
-                            onImageUpload={handleImageUpload}
-                            uploading={uploading}
-                            onTranslate={() => handleTranslate('hi')}
-                            translating={translatingEng}
+                            lang="EN" label="English" color="blue"
+                            data={english} onChange={handleEnglishChange}
+                            questionId={questionId} onImageUpload={handleImageUpload} uploading={uploading}
+                            onTranslate={() => handleTranslate('hi')} translating={translatingEng}
                         />
                     </div>
-
-                    {/* Hindi */}
                     <div className="p-5">
                         <LanguagePanel
-                            lang="HI"
-                            label="Hindi"
-                            color="orange"
-                            data={hindi}
-                            onChange={handleHindiChange}
-                            questionId={questionId}
-                            onImageUpload={handleImageUpload}
-                            uploading={uploading}
-                            onTranslate={() => handleTranslate('en')}
-                            translating={translatingHin}
+                            lang="HI" label="Hindi" color="orange"
+                            data={hindi} onChange={handleHindiChange}
+                            questionId={questionId} onImageUpload={handleImageUpload} uploading={uploading}
+                            onTranslate={() => handleTranslate('en')} translating={translatingHin}
                         />
                     </div>
                 </div>
@@ -524,7 +676,8 @@ export default function QuestionEntry() {
                 {/* Save Bar */}
                 <div className="border-t border-gray-200 bg-gray-50 px-5 py-4 flex justify-between items-center">
                     <div className="text-xs text-gray-400">
-                        Ctrl+S to save &middot; Questions are linked automatically
+                        Ctrl+S to save
+                        {activeGroupId && <span className="ml-2 text-purple-600 font-semibold">Next: {groupType} Q{groupQuestionCount + 1}</span>}
                     </div>
                     <button
                         onClick={handleSave}
@@ -534,7 +687,7 @@ export default function QuestionEntry() {
                             : 'bg-blue-600 hover:bg-blue-700 text-white'
                             }`}
                     >
-                        {submitting ? 'Saving...' : 'Save Question'}
+                        {submitting ? 'Saving...' : activeGroupId ? `Save ${groupType} Q${groupQuestionCount + 1}` : 'Save Question'}
                     </button>
                 </div>
             </div>

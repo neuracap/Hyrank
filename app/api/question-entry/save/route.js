@@ -17,6 +17,8 @@ export async function POST(req) {
             difficulty,
             source_question_no,
             correct_answer,
+            group_id,
+            group_order,
             english,
             hindi
         } = await req.json();
@@ -30,6 +32,8 @@ export async function POST(req) {
         const qNo = source_question_no || null;
         const sectionId = exam_section_id || null;
         const diff = difficulty || null;
+        const gId = group_id || null;
+        const gOrder = group_order || null;
 
         // --- English Question ---
         const engQuestionId = crypto.randomUUID();
@@ -42,16 +46,18 @@ export async function POST(req) {
             INSERT INTO question_version
             (question_id, version_no, language, status, paper_session_id, exam_section_id,
              body_json, question_type, has_image, source_question_no, difficulty,
-             meta_json, created_at, updated_at)
+             meta_json, group_id, group_order, created_at, updated_at)
             VALUES ($1, 1, 'EN', 'MANUALLY_CORRECTED', NULL, $2, $3, 'MCQ', false, $4, $5,
-                    $6, NOW(), NOW())
+                    $6, $7, $8, NOW(), NOW())
         `, [
             engQuestionId,
             sectionId,
             { text: english.text || '' },
             qNo,
             diff,
-            { source: 'manual', created_by: user.id }
+            { source: 'manual', created_by: user.id },
+            gId,
+            gOrder
         ]);
 
         // Insert English options
@@ -79,16 +85,18 @@ export async function POST(req) {
             INSERT INTO question_version
             (question_id, version_no, language, status, paper_session_id, exam_section_id,
              body_json, question_type, has_image, source_question_no, difficulty,
-             meta_json, created_at, updated_at)
+             meta_json, group_id, group_order, created_at, updated_at)
             VALUES ($1, 1, 'HI', 'MANUALLY_CORRECTED', NULL, $2, $3, 'MCQ', false, $4, $5,
-                    $6, NOW(), NOW())
+                    $6, $7, $8, NOW(), NOW())
         `, [
             hinQuestionId,
             sectionId,
             { text: hindi.text || '' },
             qNo,
             diff,
-            { source: 'manual', created_by: user.id }
+            { source: 'manual', created_by: user.id },
+            gId,
+            gOrder
         ]);
 
         // Insert Hindi options
