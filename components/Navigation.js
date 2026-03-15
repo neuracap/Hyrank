@@ -69,6 +69,7 @@ export default function Navigation({ user }) {
     reviewItems.push({ href: '/flagged', label: 'Flagged' });
     if (user?.isAdmin) {
         reviewItems.push({ href: '/test', label: 'Test Page' });
+        reviewItems.push({ href: '/analytics', label: 'Analytics' });
     }
 
     return (
@@ -104,18 +105,6 @@ export default function Navigation({ user }) {
 
                             {user?.isAdmin && (
                                 <Link
-                                    href="/analytics"
-                                    className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${isActive('/analytics')
-                                        ? 'border-purple-500 text-gray-900'
-                                        : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                                        }`}
-                                >
-                                    Analytics
-                                </Link>
-                            )}
-
-                            {user?.isAdmin && (
-                                <Link
                                     href="/solution-review"
                                     className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${isActive('/solution-review')
                                         ? 'border-indigo-500 text-gray-900'
@@ -141,6 +130,18 @@ export default function Navigation({ user }) {
                                         }`}
                                 >
                                     Question Entry
+                                </Link>
+                            )}
+
+                            {user?.isAdmin && (
+                                <Link
+                                    href="/admin/daily-quiz"
+                                    className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${isActive('/admin/daily-quiz')
+                                        ? 'border-amber-500 text-gray-900'
+                                        : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                                        }`}
+                                >
+                                    GK Approval
                                 </Link>
                             )}
                         </div>
