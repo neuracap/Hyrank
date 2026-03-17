@@ -62,7 +62,9 @@ async function fetchUnverifiedQuestions(page = 1, limit = 100, userSlot = null) 
                   SELECT hindi_question_id FROM question_links WHERE status = 'FLAGGED' AND hindi_question_id IS NOT NULL
               )
               ${splitFilter}
-            ORDER BY ps.paper_date DESC NULLS LAST,
+            ORDER BY e.name ASC NULLS LAST,
+                     ps.session_label ASC NULLS LAST,
+                     ps.paper_date DESC NULLS LAST,
                      CAST(SUBSTRING(qv.source_question_no FROM '[0-9]+') AS INTEGER) ASC NULLS LAST,
                      qv.question_id ASC
             LIMIT $1 OFFSET $2
