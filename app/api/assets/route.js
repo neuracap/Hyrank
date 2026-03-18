@@ -2,6 +2,13 @@ import db from '@/lib/db';
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import { v2 as cloudinary } from 'cloudinary';
+
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 export const dynamic = 'force-dynamic';
 
@@ -38,7 +45,27 @@ export async function GET(request) {
             `, [name]);
 
             if (res.rows.length === 0) {
-                return NextResponse.json({ error: 'Asset not found in database', name }, { status: 404 });
+                // Fallback: search Cloudinary directly by filename
+                try {
+                    const nameWithoutExt = name.replace(/\.[^.]+$/, '');
+                    const searchResult = await cloudinary.search
+                        .expression(`public_id:*${nameWithoutExt}*`)
+                        .max_results(1)
+                        .execute();
+
+                    if (searchResult.resources && searchResult.resources.length > 0) {
+                        const cloudUrl = searchResult.resources[0].secure_url;
+                        assetUrlCache.set(name, cloudUrl);
+                        return NextResponse.redirect(cloudUrl, {
+                            status: 302,
+                            headers: { 'Cache-Control': 'public, max-age=31536000, s-maxage=31536000, immutable' }
+                        });
+                    }
+                } catch (cloudErr) {
+                    console.error('Cloudinary search fallback error:', cloudErr);
+                }
+
+                return NextResponse.json({ error: 'Asset not found in database or Cloudinary', name }, { status: 404 });
             }
 
             const { local_path, mime_type } = res.rows[0];
