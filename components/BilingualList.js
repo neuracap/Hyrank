@@ -673,12 +673,22 @@ Are you sure you want to proceed?`;
                         <div className="flex items-center gap-2">
                             <span className="font-bold text-gray-400 uppercase text-[10px]">English:</span>
                             {renderDocLink(engDocInfo?.source_pdf_path, "Source PDF", "text-blue-600")}
+                            {engDocInfo?.mmd_doc_id && (
+                                <a href={`/api/mmd?id=${engDocInfo.mmd_doc_id}`} target="_blank" rel="noopener noreferrer" className="text-amber-600 hover:underline flex items-center gap-1 bg-white border border-gray-200 px-2 py-1 rounded shadow-sm">
+                                    <span className="truncate max-w-[150px]">Source MMD</span>
+                                </a>
+                            )}
                         </div>
 
-                        {(hinDocInfo?.source_pdf_path) && (
+                        {(hinDocInfo?.source_pdf_path || hinDocInfo?.mmd_doc_id) && (
                             <div className="flex items-center gap-2 border-l pl-4 ml-2 border-gray-300">
                                 <span className="font-bold text-gray-400 uppercase text-[10px]">Hindi:</span>
                                 {renderDocLink(hinDocInfo?.source_pdf_path, "Source PDF", "text-orange-600")}
+                                {hinDocInfo?.mmd_doc_id && (
+                                    <a href={`/api/mmd?id=${hinDocInfo.mmd_doc_id}`} target="_blank" rel="noopener noreferrer" className="text-amber-600 hover:underline flex items-center gap-1 bg-white border border-gray-200 px-2 py-1 rounded shadow-sm">
+                                        <span className="truncate max-w-[150px]">Source MMD</span>
+                                    </a>
+                                )}
                             </div>
                         )}
                     </div>
@@ -877,10 +887,20 @@ Are you sure you want to proceed?`;
                                         <div className="flex items-center gap-2">
                                             <span className="font-bold text-gray-500 uppercase">English PDF:</span>
                                             {renderDocLink(q.engDocInfo?.source_pdf_path, "Source PDF", "text-blue-600")}
+                                            {q.engDocInfo?.mmd_doc_id && (
+                                                <a href={`/api/mmd?id=${q.engDocInfo.mmd_doc_id}`} target="_blank" rel="noopener noreferrer" className="text-amber-600 hover:underline flex items-center gap-1 bg-white border border-gray-200 px-2 py-1 rounded shadow-sm">
+                                                    <span>MMD</span>
+                                                </a>
+                                            )}
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <span className="font-bold text-gray-500 uppercase">Hindi PDF:</span>
                                             {renderDocLink(q.hinDocInfo?.source_pdf_path, "Source PDF", "text-orange-600")}
+                                            {q.hinDocInfo?.mmd_doc_id && (
+                                                <a href={`/api/mmd?id=${q.hinDocInfo.mmd_doc_id}`} target="_blank" rel="noopener noreferrer" className="text-amber-600 hover:underline flex items-center gap-1 bg-white border border-gray-200 px-2 py-1 rounded shadow-sm">
+                                                    <span>MMD</span>
+                                                </a>
+                                            )}
                                         </div>
                                     </div>
                                     <div className="text-gray-400 flex gap-4 font-mono text-[10px] uppercase">

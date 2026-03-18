@@ -44,9 +44,11 @@ export async function GET(request) {
                 qh.source_question_no as hin_source_no,
                 qh.exam_section_id as hin_section_id,
                 
-                -- PDFs
+                -- PDFs & MMD
                 pe_ij.source_pdf_path as eng_source_pdf,
                 ph_ij.source_pdf_path as hin_source_pdf,
+                pe_doc.raw_mmd_doc_id as eng_mmd_doc_id,
+                ph_doc.raw_mmd_doc_id as hin_mmd_doc_id,
                 
                 ql.translated_debug
             FROM question_links ql

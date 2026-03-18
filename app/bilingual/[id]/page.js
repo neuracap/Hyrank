@@ -140,6 +140,7 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortB
                 j.source_pdf_path, 
                 j.notes, 
                 d.file_path as mmd_path,
+                d.raw_mmd_doc_id as mmd_doc_id,
                 e.name as exam_name
             FROM paper_session ps 
             LEFT JOIN exam e ON ps.exam_id = e.exam_id

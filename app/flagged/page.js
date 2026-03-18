@@ -37,9 +37,11 @@ async function fetchFlaggedQuestions(page = 1, limit = 100) {
                 qh.source_question_no as hin_source_no,
                 qh.exam_section_id as hin_section_id,
                 
-                -- PDFs
+                -- PDFs & MMD
                 pe_ij.source_pdf_path as eng_source_pdf,
                 ph_ij.source_pdf_path as hin_source_pdf,
+                pe_doc.raw_mmd_doc_id as eng_mmd_doc_id,
+                ph_doc.raw_mmd_doc_id as hin_mmd_doc_id,
                 
                 -- Exam Details
                 e.name as exam_name,
@@ -107,8 +109,8 @@ async function fetchFlaggedQuestions(page = 1, limit = 100) {
         // Attach options
         const questions = links.map(link => ({
             ...link,
-            engDocInfo: { source_pdf_path: link.eng_source_pdf },
-            hinDocInfo: { source_pdf_path: link.hin_source_pdf },
+            engDocInfo: { source_pdf_path: link.eng_source_pdf, mmd_doc_id: link.eng_mmd_doc_id },
+            hinDocInfo: { source_pdf_path: link.hin_source_pdf, mmd_doc_id: link.hin_mmd_doc_id },
             eng_options: allOptions.filter(o => o.question_id === link.eng_id && o.version_no === link.eng_version && o.language === 'EN'),
             hin_options: allOptions.filter(o => o.question_id === link.hin_id && o.version_no === link.hin_version && o.language === 'HI')
         }));
