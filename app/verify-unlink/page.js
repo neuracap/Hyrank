@@ -19,13 +19,20 @@ async function fetchUnverifiedQuestions(page = 1, limit = 100, userSlot = null) 
     try {
         client = await db.connect();
 
-        // Paper sessions that have bilingual links in question_links
+        // Paper sessions where 90%+ of linked questions are MANUALLY_CORRECTED
         const qualifiedSessionsQuery = `
-            SELECT DISTINCT paper_session_id FROM (
-                SELECT paper_session_id_english AS paper_session_id FROM question_links WHERE paper_session_id_english IS NOT NULL
-                UNION
-                SELECT paper_session_id_hindi AS paper_session_id FROM question_links WHERE paper_session_id_hindi IS NOT NULL
-            ) linked_sessions
+            SELECT paper_session_id FROM (
+                SELECT paper_session_id,
+                       COUNT(*) AS total_links,
+                       COUNT(*) FILTER (WHERE status = 'MANUALLY_CORRECTED') AS corrected_links
+                FROM (
+                    SELECT paper_session_id_english AS paper_session_id, status FROM question_links WHERE paper_session_id_english IS NOT NULL
+                    UNION ALL
+                    SELECT paper_session_id_hindi AS paper_session_id, status FROM question_links WHERE paper_session_id_hindi IS NOT NULL
+                ) all_links
+                GROUP BY paper_session_id
+                HAVING COUNT(*) FILTER (WHERE status = 'MANUALLY_CORRECTED') >= 0.9 * COUNT(*)
+            ) reviewed_sessions
         `;
 
         // Split filter: for reviewers, only show their portion
