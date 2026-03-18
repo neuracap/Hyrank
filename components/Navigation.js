@@ -103,6 +103,16 @@ export default function Navigation({ user }) {
                                 Test Review
                             </Link>
 
+                            <Link
+                                href="/my-reviews"
+                                className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${isActive('/my-reviews')
+                                    ? 'border-green-500 text-gray-900'
+                                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                                    }`}
+                            >
+                                My Reviews
+                            </Link>
+
                             {user?.isAdmin && (
                                 <Link
                                     href="/solution-review"
