@@ -38,9 +38,9 @@ export default async function AnalyticsPage() {
         LEFT JOIN (
             SELECT 
                 reviewer_id,
-                COUNT(link_id) as total_q,
-                COUNT(CASE WHEN status = 'MANUALLY_CORRECTED' THEN 1 END) as corrected_q,
-                COUNT(CASE WHEN status = 'FLAGGED' THEN 1 END) as flagged_q
+                COUNT(link_id) * 2 as total_q,
+                COUNT(CASE WHEN status = 'MANUALLY_CORRECTED' THEN 1 END) * 2 as corrected_q,
+                COUNT(CASE WHEN status = 'FLAGGED' THEN 1 END) * 2 as flagged_q
             FROM reviewer_links
             GROUP BY reviewer_id
         ) rl_stats ON u.id = rl_stats.reviewer_id
@@ -60,15 +60,15 @@ export default async function AnalyticsPage() {
             ra.status as assignment_status,
             ra.assigned_at,
             (
-                SELECT COUNT(*) 
-                FROM question_links ql 
-                WHERE ql.paper_session_id_english = ps.paper_session_id 
+                SELECT COUNT(*) * 2
+                FROM question_links ql
+                WHERE ql.paper_session_id_english = ps.paper_session_id
                    OR ql.paper_session_id_hindi = ps.paper_session_id
             ) as paper_total_q,
             (
-                SELECT COUNT(*) 
-                FROM question_links ql 
-                WHERE (ql.paper_session_id_english = ps.paper_session_id 
+                SELECT COUNT(*) * 2
+                FROM question_links ql
+                WHERE (ql.paper_session_id_english = ps.paper_session_id
                    OR ql.paper_session_id_hindi = ps.paper_session_id)
                    AND ql.status = 'MANUALLY_CORRECTED'
             ) as paper_corrected_q
