@@ -2,24 +2,46 @@ import db from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-edge';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import TestReviewFilters from '@/components/TestReviewFilters';
 
 export const dynamic = 'force-dynamic';
 
-export default async function TestReviewPage() {
+export default async function TestReviewPage({ searchParams }) {
     // 1. Authenticate
     const user = await getCurrentUser();
     if (!user) {
         redirect('/login');
     }
 
+    const { exam = 'ALL', qcount = 'ALL' } = await searchParams || {};
+
     const client = await db.connect();
+
+    // Fetch distinct exam names for the filter dropdown
+    const examsRes = await client.query(`
+        SELECT DISTINCT e.name FROM exam e
+        WHERE e.name IS NOT NULL
+        ORDER BY e.name ASC
+    `);
+    const availableExams = examsRes.rows.map(r => r.name);
 
     // 2. Fetch Papers based on Role
     let papers = [];
     if (user.isAdmin) {
-        // Admin: See recent papers
+        const whereConditions = [];
+        const queryParams = [];
+        let paramIndex = 1;
+
+        if (exam !== 'ALL') {
+            whereConditions.push(`e.name = $${paramIndex}`);
+            queryParams.push(exam);
+            paramIndex++;
+        }
+
+        const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+
         const query = `
-            SELECT 
+            SELECT
                 ps.paper_session_id,
                 ps.session_label,
                 ps.paper_date,
@@ -27,19 +49,39 @@ export default async function TestReviewPage() {
                 ps.subject,
                 ps.language,
                 ps.status as pipeline_status,
+                e.name as exam_name,
                 (
-                    SELECT COUNT(*) 
+                    SELECT COUNT(*)
                     FROM question_version qv
                     WHERE qv.paper_session_id = ps.paper_session_id
                 ) as total_q
             FROM paper_session ps
-            ORDER BY ps.paper_date DESC 
-            LIMIT 100
+            LEFT JOIN exam e ON ps.exam_id = e.exam_id
+            ${whereClause}
+            ORDER BY ps.paper_date DESC
+            LIMIT 200
         `;
-        const res = await client.query(query);
+        const res = await client.query(query, queryParams);
         papers = res.rows;
     } else {
-        // Reviewer: See assigned papers that are NOT yet linked in question_links
+        const whereConditions = [`ra.reviewer_id = $1`];
+        const queryParams = [user.id];
+        let paramIndex = 2;
+
+        whereConditions.push(`NOT EXISTS (
+            SELECT 1 FROM question_links ql
+            WHERE ql.paper_session_id_english = ps.paper_session_id
+               OR ql.paper_session_id_hindi = ps.paper_session_id
+        )`);
+
+        if (exam !== 'ALL') {
+            whereConditions.push(`e.name = $${paramIndex}`);
+            queryParams.push(exam);
+            paramIndex++;
+        }
+
+        const whereClause = `WHERE ${whereConditions.join(' AND ')}`;
+
         const query = `
             SELECT
                 ps.paper_session_id,
@@ -50,6 +92,7 @@ export default async function TestReviewPage() {
                 ps.language,
                 ps.status as pipeline_status,
                 ra.status as assignment_status,
+                e.name as exam_name,
                 (
                     SELECT COUNT(*)
                     FROM question_version qv
@@ -57,20 +100,23 @@ export default async function TestReviewPage() {
                 ) as total_q
             FROM review_assignments ra
             JOIN paper_session ps ON ra.paper_session_id = ps.paper_session_id
-            WHERE ra.reviewer_id = $1
-              AND NOT EXISTS (
-                  SELECT 1 FROM question_links ql
-                  WHERE ql.paper_session_id_english = ps.paper_session_id
-                     OR ql.paper_session_id_hindi = ps.paper_session_id
-              )
+            LEFT JOIN exam e ON ps.exam_id = e.exam_id
+            ${whereClause}
             ORDER BY ra.assigned_at DESC, ps.paper_date DESC
-            LIMIT 50
+            LIMIT 100
         `;
-        const res = await client.query(query, [user.id]);
+        const res = await client.query(query, queryParams);
         papers = res.rows;
     }
 
     client.release();
+
+    // Apply question count filter in JS (since it's on a subquery count)
+    if (qcount === 'lt100') {
+        papers = papers.filter(p => parseInt(p.total_q || 0) < 100);
+    } else if (qcount === 'gte100') {
+        papers = papers.filter(p => parseInt(p.total_q || 0) >= 100);
+    }
 
     // Helper to render the status pill
     const getStatusPill = (statusStr) => {
@@ -106,15 +152,18 @@ export default async function TestReviewPage() {
             </header>
 
             <div className="bg-white shadow rounded-lg border border-gray-200 overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+                <TestReviewFilters exams={availableExams} />
+
+                <div className="px-6 py-4 border-b border-gray-200 bg-white">
                     <h2 className="text-lg font-bold text-gray-800">
                         {user.isAdmin ? 'All Papers' : 'Your Assigned Papers (Not Yet Linked)'}
+                        <span className="ml-2 bg-gray-100 text-gray-600 text-sm font-semibold px-2.5 py-0.5 rounded-full">{papers.length} papers</span>
                     </h2>
                 </div>
 
                 {papers.length === 0 ? (
                     <div className="p-8 text-center text-gray-500">
-                        No papers found.
+                        No papers found matching the current filters.
                     </div>
                 ) : (
                     <div className="overflow-x-auto">
@@ -122,6 +171,7 @@ export default async function TestReviewPage() {
                             <thead className="text-xs text-gray-700 uppercase bg-gray-50">
                                 <tr>
                                     <th className="px-6 py-3">Date</th>
+                                    <th className="px-6 py-3">Exam</th>
                                     <th className="px-6 py-3">Paper Name</th>
                                     <th className="px-6 py-3">Lang</th>
                                     <th className="px-6 py-3">Questions</th>
@@ -131,10 +181,20 @@ export default async function TestReviewPage() {
                             </thead>
                             <tbody>
                                 {papers.map((paper) => {
+                                    const totalQ = parseInt(paper.total_q || 0);
                                     return (
                                         <tr key={paper.paper_session_id} className="bg-white border-b hover:bg-gray-50">
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 {paper.paper_date ? new Date(paper.paper_date).toLocaleDateString() : 'N/A'}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                {paper.exam_name ? (
+                                                    <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-2 py-1 rounded">
+                                                        {paper.exam_name}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-gray-400 text-xs">—</span>
+                                                )}
                                             </td>
                                             <td className="px-6 py-4 font-medium text-gray-900">
                                                 {paper.session_label}
@@ -147,8 +207,8 @@ export default async function TestReviewPage() {
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <span className="font-bold text-gray-900">
-                                                    {parseInt(paper.total_q || 0)}
+                                                <span className={`font-bold px-2 py-1 rounded ${totalQ < 100 ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+                                                    {totalQ}
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4">
