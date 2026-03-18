@@ -343,18 +343,9 @@ function QuestionCard({ q, idx, selectedOption, onSelectOption, reviewerNote, on
                 </div>
             </div>
 
-            {/* 2. Question body — full width */}
+            {/* 2. Question body — full width (Latex renders \includegraphics inline, no separate img tags) */}
             <div className="px-5 py-4 border-b border-gray-100">
-                {/* Inline images from question text */}
-                {images.length > 0 && (
-                    <div className="flex flex-wrap gap-3 mb-3">
-                        {images.map((url, i) => (
-                            <img key={i} src={url} alt={`Q.${q.source_q_no || idx + 1} figure ${i + 1}`}
-                                className="max-h-48 rounded border border-gray-200 bg-white object-contain" />
-                        ))}
-                    </div>
-                )}
-                {/* Asset images */}
+                {/* Show asset images only if question text has no embedded \includegraphics */}
                 {images.length === 0 && q.assets?.length > 0 && (
                     <div className="flex flex-wrap gap-3 mb-3">
                         {q.assets.filter(a => a.role === 'question' || !a.option_key).map((asset, i) => (
@@ -373,8 +364,10 @@ function QuestionCard({ q, idx, selectedOption, onSelectOption, reviewerNote, on
                 <div className="grid grid-cols-4 gap-3">
                     {(q.options || []).map(opt => {
                         const isSelected = selectedOption === opt.opt_label;
-                        // Check if this option has an image asset
                         const optAsset = q.assets?.find(a => a.option_key === opt.opt_label);
+                        // Check if opt_text is purely an \includegraphics command (no meaningful text besides it)
+                        const textWithoutImages = (opt.opt_text || '').replace(/\\includegraphics\{[^}]+\}/g, '').trim();
+                        const hasOnlyImage = opt.opt_text && !textWithoutImages;
                         return (
                             <button
                                 key={opt.opt_label}
@@ -390,13 +383,18 @@ function QuestionCard({ q, idx, selectedOption, onSelectOption, reviewerNote, on
                                 }`}>
                                     {opt.opt_label}
                                 </span>
-                                {optAsset && (
+                                {optAsset ? (
                                     <img src={optAsset.image_url} alt={`Option ${opt.opt_label}`}
-                                        className="max-h-20 object-contain mb-1" />
-                                )}
-                                {opt.opt_text && (
+                                        className="max-h-24 object-contain mb-1" />
+                                ) : opt.opt_text ? (
                                     <div className="text-xs text-gray-700 break-words w-full">
                                         <Latex>{opt.opt_text}</Latex>
+                                    </div>
+                                ) : null}
+                                {/* Show remaining text alongside asset image if opt_text has text beyond the image */}
+                                {optAsset && textWithoutImages && !hasOnlyImage && (
+                                    <div className="text-xs text-gray-700 break-words w-full mt-1">
+                                        <Latex>{textWithoutImages}</Latex>
                                     </div>
                                 )}
                             </button>
