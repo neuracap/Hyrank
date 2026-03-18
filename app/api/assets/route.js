@@ -82,9 +82,35 @@ export async function GET(request) {
             let matchType = 'none';
 
             if (local_path && local_path.toLowerCase().startsWith(localPrefix.toLowerCase())) {
+                // Try the folder-based path first
                 const relativePath = local_path.substring(localPrefix.length).replace(/\\/g, '/');
-                finalUrl = `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/assets/${relativePath}`;
-                matchType = 'path_replacement';
+                const folderUrl = `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/assets/${relativePath}`;
+
+                // Verify it exists in assets/ folder via Admin API prefix lookup
+                try {
+                    const expectedPublicId = `assets/${relativePath.replace(/\.[^.]+$/, '')}`;
+                    const check = await cloudinary.api.resources({ type: 'upload', prefix: expectedPublicId, max_results: 1 });
+                    if (check.resources && check.resources.length > 0) {
+                        finalUrl = check.resources[0].secure_url;
+                        matchType = 'path_replacement';
+                    }
+                } catch (checkErr) {
+                    // Folder path doesn't exist, will fall through to filename search
+                }
+
+                // If not in assets/ folder, search by filename at root level
+                if (!finalUrl) {
+                    try {
+                        const nameWithoutExt = name.replace(/\.[^.]+$/, '');
+                        const fallback = await cloudinary.api.resources({ type: 'upload', prefix: nameWithoutExt, max_results: 1 });
+                        if (fallback.resources && fallback.resources.length > 0) {
+                            finalUrl = fallback.resources[0].secure_url;
+                            matchType = 'cloudinary_filename_search';
+                        }
+                    } catch (fbErr) {
+                        console.error('Cloudinary filename search error:', fbErr);
+                    }
+                }
             } else if (local_path && (local_path.startsWith('http://') || local_path.startsWith('https://'))) {
                 finalUrl = local_path;
                 matchType = 'direct_url';
