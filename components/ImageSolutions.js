@@ -264,9 +264,9 @@ export default function ImageSolutions({ papers }) {
                                 <div className="flex items-center gap-2">
                                     <h2 className="text-base font-bold text-gray-900 truncate">{selectedPaper.session_label}</h2>
                                     {selectedPaper.source_pdf_path && (
-                                        <a href={selectedPaper.source_pdf_path} target="_blank" rel="noopener noreferrer"
-                                            className="text-xs text-blue-600 hover:text-blue-800 font-medium flex-shrink-0">
-                                            Source PDF
+                                        <a href={`/api/pdf?path=${encodeURIComponent(selectedPaper.source_pdf_path)}`} target="_blank" rel="noopener noreferrer"
+                                            className="text-blue-600 hover:underline flex items-center gap-1 bg-white border border-gray-200 px-2 py-1 rounded shadow-sm text-xs flex-shrink-0">
+                                            <span className="truncate max-w-[150px]">{selectedPaper.source_pdf_path.split(/[/\\]/).pop()}</span>
                                         </a>
                                     )}
                                 </div>
