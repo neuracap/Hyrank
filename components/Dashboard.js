@@ -77,7 +77,7 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
     };
 
     // Unified Direct Upload Logic
-    const performUpload = async (blob, q) => {
+    const performUpload = async (blob, q, onInsert) => {
         const reader = new FileReader();
         reader.readAsDataURL(blob);
         reader.onloadend = async () => {
@@ -97,9 +97,10 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                 });
                 const data = await res.json();
                 if (data.latexPath) {
-                    const imageTag = ` ![Figure](${data.latexPath}) `;
-                    await navigator.clipboard.writeText(imageTag);
-                    alert("Image uploaded! Markdown link copied to clipboard.\n\n" + imageTag + "\n\nPaste it into the text area.");
+                    const imageTag = `\\includegraphics{${data.latexPath}}`;
+                    if (onInsert) {
+                        onInsert(imageTag);
+                    }
                 } else {
                     console.error("Upload failed response:", data);
                     alert('Upload failed: ' + (data.error || 'Server returned success but no path'));
@@ -111,9 +112,9 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
         };
     };
 
-    const handleImagePaste = (blob, targetQuestion) => {
-        // Bypass Editor: Direct Upload
-        performUpload(blob, targetQuestion);
+    const handleImagePaste = (blob, targetQuestion, optIndex, onInsert) => {
+        // Bypass Editor: Direct Upload, auto-insert via callback
+        performUpload(blob, targetQuestion, onInsert);
     };
 
     const handleAddImage = (targetQuestion) => {
@@ -700,7 +701,7 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                                 >
                                     <QuestionCard
                                         question={q}
-                                        onImagePaste={(blob, targetQ) => handleImagePaste(blob, targetQ)}
+                                        onImagePaste={(blob, targetQ, optIndex, onInsert) => handleImagePaste(blob, targetQ, optIndex, onInsert)}
                                         onAddImage={(targetQ) => handleAddImage(targetQ)}
                                         onSave={async (updatedQ) => {
                                             // Check if it is a delete action

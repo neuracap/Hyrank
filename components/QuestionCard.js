@@ -55,7 +55,16 @@ export default function QuestionCard({ question, onSave, onImagePaste, onAddImag
             if (item.type.startsWith('image/')) {
                 e.preventDefault();
                 const blob = item.getAsFile();
-                if (onImagePaste) onImagePaste(blob, question);
+                if (onImagePaste) {
+                    onImagePaste(blob, question, optIndex, (imageTag) => {
+                        // Auto-insert the image tag into the correct field
+                        if (optIndex !== null) {
+                            handleOptionChange(optIndex, (q.options[optIndex]?.opt_text || '') + ` ${imageTag}`);
+                        } else {
+                            handleTextChange((q.question_text || '') + `\n\n${imageTag}`);
+                        }
+                    });
+                }
                 break;
             }
         }
