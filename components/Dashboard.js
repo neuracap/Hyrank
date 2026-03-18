@@ -766,7 +766,9 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                                                                         ? 'bg-red-900 text-white border-red-950 hover:bg-red-800'
                                                                         : hasError
                                                                             ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
-                                                                            : 'text-gray-600 bg-gray-50 hover:bg-blue-100 hover:text-blue-600 border-gray-200'
+                                                                            : !q.is_manually_corrected
+                                                                                ? 'bg-pink-100 text-pink-700 border-pink-300 hover:bg-pink-200'
+                                                                                : 'text-gray-600 bg-gray-50 hover:bg-blue-100 hover:text-blue-600 border-gray-200'
                                                                     }`}
                                                                 title={duplicateQuestionIds.has(q.id) ? 'Duplicate Q.No — needs reclassification' : q.is_unlinked ? 'Unlinked (No Bilingual Match)' : (hasError ? 'Less than 4 options' : '')}
                                                             >

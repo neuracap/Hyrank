@@ -155,8 +155,8 @@ export default function QuestionCard({ question, onSave, onImagePaste, onAddImag
         borderClass = 'border-pink-400 ring-2 ring-pink-100';
         bgClass = 'bg-pink-50';
     } else if (!isCorrected) {
-        borderClass = 'border-amber-300 ring-1 ring-amber-100';
-        bgClass = 'bg-amber-50/30';
+        borderClass = 'border-pink-300 ring-1 ring-pink-100';
+        bgClass = 'bg-pink-50/30';
     }
 
     return (
@@ -195,7 +195,7 @@ export default function QuestionCard({ question, onSave, onImagePaste, onAddImag
                     <span className={`px-2 py-0.5 rounded text-xs font-bold ${
                         isCorrected ? 'bg-green-100 text-green-700' :
                         isFlagged ? 'bg-orange-100 text-orange-700' :
-                        'bg-amber-100 text-amber-700'
+                        'bg-pink-100 text-pink-700'
                     }`}>
                         {isCorrected ? 'MANUALLY_CORRECTED' : isFlagged ? 'FLAGGED' : 'Unreviewed'}
                     </span>
