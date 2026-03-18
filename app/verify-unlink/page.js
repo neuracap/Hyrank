@@ -19,13 +19,13 @@ async function fetchUnverifiedQuestions(page = 1, limit = 100, userSlot = null) 
     try {
         client = await db.connect();
 
-        // Paper sessions that have >90 verified questions
+        // Paper sessions that have bilingual links in question_links
         const qualifiedSessionsQuery = `
-            SELECT paper_session_id
-            FROM question_version
-            WHERE is_verified = TRUE
-            GROUP BY paper_session_id
-            HAVING COUNT(*) > 90
+            SELECT DISTINCT paper_session_id FROM (
+                SELECT paper_session_id_english AS paper_session_id FROM question_links WHERE paper_session_id_english IS NOT NULL
+                UNION
+                SELECT paper_session_id_hindi AS paper_session_id FROM question_links WHERE paper_session_id_hindi IS NOT NULL
+            ) linked_sessions
         `;
 
         // Split filter: for reviewers, only show their portion
