@@ -261,7 +261,15 @@ export default function ImageSolutions({ papers }) {
                         {/* Sticky top bar */}
                         <div className="sticky top-0 z-10 bg-white border-b border-gray-200 shadow-sm px-6 py-3 flex items-center justify-between gap-4">
                             <div className="flex-1 min-w-0">
-                                <h2 className="text-base font-bold text-gray-900 truncate">{selectedPaper.session_label}</h2>
+                                <div className="flex items-center gap-2">
+                                    <h2 className="text-base font-bold text-gray-900 truncate">{selectedPaper.session_label}</h2>
+                                    {selectedPaper.source_pdf_path && (
+                                        <a href={selectedPaper.source_pdf_path} target="_blank" rel="noopener noreferrer"
+                                            className="text-xs text-blue-600 hover:text-blue-800 font-medium flex-shrink-0">
+                                            Source PDF
+                                        </a>
+                                    )}
+                                </div>
                                 <p className="text-xs text-gray-500">
                                     {selectedPaper.subject} &middot; {formatDate(selectedPaper.paper_date)} &middot; {filteredQuestions.length} showing
                                 </p>

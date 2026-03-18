@@ -37,6 +37,7 @@ export async function GET(request) {
             WHERE qv.paper_session_id = $1
               AND qv.language = 'EN'
               AND qv.has_image = true
+              AND qv.status = 'MANUALLY_CORRECTED'
             ORDER BY qv.source_question_no ASC NULLS LAST
         `, [paperId]);
 
