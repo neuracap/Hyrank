@@ -49,7 +49,7 @@ export async function GET(request) {
                 try {
                     const nameWithoutExt = name.replace(/\.[^.]+$/, '');
                     const searchResult = await cloudinary.search
-                        .expression(`public_id:*${nameWithoutExt}*`)
+                        .expression(nameWithoutExt)
                         .max_results(1)
                         .execute();
 
