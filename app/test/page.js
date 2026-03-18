@@ -133,7 +133,7 @@ async function fetchData(testId, page = 1, limit = 200) {
         let docInfo = {};
         if (computedTestId) {
             const docQuery = `
-                SELECT j.source_pdf_path, j.notes, d.file_path as mmd_path, ps.status, e.num_questions
+                SELECT j.source_pdf_path, j.notes, d.file_path as mmd_path, ps.status, e.num_questions, e.name as exam_name, e.code as exam_code
                 FROM paper_session ps 
                 LEFT JOIN raw_mmd_doc d ON ps.raw_mmd_doc_id = d.raw_mmd_doc_id
                 LEFT JOIN import_job j ON d.import_job_id = j.import_job_id

@@ -334,6 +334,61 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
     const hasImbalance = sectionStats.some(s => s.isOversized || s.isUndersized)
         || (sections.length > 0 && sectionStats.length < sections.length);
 
+    // Determine max questions per section based on exam type
+    const examName = (docInfo?.exam_name || '').toUpperCase();
+    const examCode = (docInfo?.exam_code || '').toUpperCase();
+    const isGD = examCode.includes('GD') || examName.includes('GD') || examName.includes('CONSTABLE');
+    const maxPerSection = isGD ? 20 : 25;
+
+    // Detect oversized sections
+    const oversizedSections = Object.entries(groupedQuestions)
+        .filter(([, qs]) => qs.length > maxPerSection)
+        .map(([subject, qs]) => ({ subject, count: qs.length, extra: qs.length - maxPerSection }));
+
+    // Detect duplicate Q.Nos within each section (extras to reclassify)
+    const duplicateQNos = [];
+    Object.entries(groupedQuestions).forEach(([subject, qs]) => {
+        const qnoMap = {};
+        qs.forEach(q => {
+            const qno = q.source_q_no ? q.source_q_no.replace(/Q\.\s*/, '').trim() : null;
+            if (qno) {
+                if (!qnoMap[qno]) qnoMap[qno] = [];
+                qnoMap[qno].push(q.id);
+            }
+        });
+        Object.entries(qnoMap).forEach(([qno, ids]) => {
+            if (ids.length > 1) {
+                duplicateQNos.push({ subject, qno, ids });
+            }
+        });
+    });
+
+    // Build set of duplicate question IDs for highlighting
+    const duplicateQuestionIds = new Set();
+    duplicateQNos.forEach(d => d.ids.slice(1).forEach(id => duplicateQuestionIds.add(id)));
+
+    // Detect missing Q.Nos per section
+    const missingQNos = [];
+    Object.entries(groupedQuestions).forEach(([subject, qs]) => {
+        const nums = qs
+            .map(q => {
+                const match = (q.source_q_no || '').match(/(\d+)/);
+                return match ? parseInt(match[1]) : null;
+            })
+            .filter(n => n !== null)
+            .sort((a, b) => a - b);
+        if (nums.length === 0) return;
+        const min = nums[0];
+        const max = Math.min(nums[nums.length - 1], min + maxPerSection - 1);
+        const missing = [];
+        for (let i = min; i <= max; i++) {
+            if (!nums.includes(i)) missing.push(i);
+        }
+        if (missing.length > 0) {
+            missingQNos.push({ subject, missing });
+        }
+    });
+
     const paramsMissingQuestions = questions.filter(q => {
         const missingOptions = !q.options || q.options.length < 4;
         const hasErroneousText = (q.question_text && q.question_text.includes("Question ID :")) ||
@@ -548,6 +603,35 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                         )}
                     </div>
                 )}
+
+                {/* Diagnostic Messages */}
+                {activeTab === 'test-paper' && (oversizedSections.length > 0 || missingQNos.length > 0) && (
+                    <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm space-y-2 text-sm">
+                        {oversizedSections.map(s => (
+                            <div key={s.subject} className="flex items-start gap-2 text-red-700">
+                                <span className="font-bold shrink-0">Oversized:</span>
+                                <span><strong>{s.subject}</strong> has {s.count} questions (max {maxPerSection}). {s.extra} extra question{s.extra > 1 ? 's' : ''} need to be reclassified. Look for duplicate Q.Nos.</span>
+                            </div>
+                        ))}
+                        {duplicateQNos.length > 0 && (
+                            <div className="flex items-start gap-2 text-red-700">
+                                <span className="font-bold shrink-0">Duplicates:</span>
+                                <span>
+                                    {duplicateQNos.map((d, i) => (
+                                        <span key={i}>{i > 0 && ', '}<strong>{d.subject}</strong> Q.{d.qno} ({d.ids.length}x)</span>
+                                    ))}
+                                    {' '}— extra copies highlighted in dark red in sidebar
+                                </span>
+                            </div>
+                        )}
+                        {missingQNos.map(s => (
+                            <div key={s.subject} className="flex items-start gap-2 text-amber-700">
+                                <span className="font-bold shrink-0">Missing:</span>
+                                <span><strong>{s.subject}</strong> — Q.No {s.missing.join(', ')}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </header>
 
             <div className="tab-content relative">
@@ -557,7 +641,7 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                         <aside className="hidden lg:block w-64 sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto bg-white rounded-lg border border-gray-200 shadow-sm p-4 shrink-0 scrollbar-thin scrollbar-thumb-gray-300">
                             <div className="flex justify-between items-center mb-4 border-b border-gray-100 pb-2">
                                 <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">
-                                    Navigation
+                                    Reclassify
                                 </h3>
                                 <button
                                     onClick={() => {
@@ -668,13 +752,15 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                                                                     const el = document.getElementById(`q-${q.id}`);
                                                                     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                                                                 }}
-                                                                className={`flex items-center justify-center w-full aspect-square text-xs font-medium rounded border transition-colors ${q.is_unlinked
-                                                                    ? 'bg-red-900 text-white border-red-950 hover:bg-red-800'
-                                                                    : hasError
-                                                                        ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
-                                                                        : 'text-gray-600 bg-gray-50 hover:bg-blue-100 hover:text-blue-600 border-gray-200'
+                                                                className={`flex items-center justify-center w-full aspect-square text-xs font-medium rounded border transition-colors ${duplicateQuestionIds.has(q.id)
+                                                                    ? 'bg-red-800 text-white border-red-900 hover:bg-red-700 ring-2 ring-red-400'
+                                                                    : q.is_unlinked
+                                                                        ? 'bg-red-900 text-white border-red-950 hover:bg-red-800'
+                                                                        : hasError
+                                                                            ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
+                                                                            : 'text-gray-600 bg-gray-50 hover:bg-blue-100 hover:text-blue-600 border-gray-200'
                                                                     }`}
-                                                                title={q.is_unlinked ? 'Unlinked (No Bilingual Match)' : (hasError ? 'Less than 4 options' : '')}
+                                                                title={duplicateQuestionIds.has(q.id) ? 'Duplicate Q.No — needs reclassification' : q.is_unlinked ? 'Unlinked (No Bilingual Match)' : (hasError ? 'Less than 4 options' : '')}
                                                             >
                                                                 {q.source_q_no ? q.source_q_no.replace(/Q\.\s*/, '').trim() : q.q_no}
                                                             </a>
