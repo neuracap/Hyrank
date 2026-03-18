@@ -15,52 +15,109 @@ export async function POST(request) {
         return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
     }
 
-    const { question_id, version_no, answer_label, solution_text } = body;
+    const { question_id, version_no, language } = body;
     if (!question_id || version_no == null) {
         return NextResponse.json({ error: 'question_id and version_no are required' }, { status: 400 });
     }
-    if (!answer_label) {
-        return NextResponse.json({ error: 'answer_label is required' }, { status: 400 });
-    }
+
+    // Support both new rich format (parsed) and old format (answer_label + solution_text)
+    const isRichFormat = !!body.parsed;
 
     let client;
     try {
         client = await db.connect();
         await client.query('BEGIN');
 
-        // Build solution_json
-        const solutionJson = JSON.stringify({
-            answer_label,
-            solution_text: solution_text || null,
-            updated_at: new Date().toISOString(),
-            reviewed_by: user.id,
-        });
+        if (isRichFormat) {
+            const { parsed } = body;
+            const fullJson = parsed.full_json || {};
+            const answerLabel = parsed.correct_option_label || fullJson.correct_option_label;
 
-        // Update question_version solution_json
-        await client.query(`
-            UPDATE question_version
-            SET
-                solution_json = $1::jsonb,
-                updated_at = NOW()
-            WHERE question_id = $2
-              AND version_no = $3
-        `, [solutionJson, question_id, version_no]);
+            if (!answerLabel) {
+                await client.query('ROLLBACK');
+                return NextResponse.json({ error: 'correct_option_label is required' }, { status: 400 });
+            }
 
-        // Mark correct option in EN
-        await client.query(`
-            UPDATE question_option
-            SET is_correct = (option_key = $1)
-            WHERE question_id = $2
-              AND language = 'EN'
-        `, [answer_label, question_id]);
+            const solutionJson = JSON.stringify({
+                ...fullJson,
+                reviewed_by: user.id,
+                saved_at: new Date().toISOString(),
+            });
 
-        // Also mark correct option in HI (same question_id)
-        await client.query(`
-            UPDATE question_option
-            SET is_correct = (option_key = $1)
-            WHERE question_id = $2
-              AND language = 'HI'
-        `, [answer_label, question_id]);
+            await client.query(`
+                UPDATE question_version SET
+                    solution_json = $1::jsonb,
+                    subtype = NULLIF($2, ''),
+                    correct_option_label = NULLIF($3, ''),
+                    final_answer_text = NULLIF($4, ''),
+                    recheck_options = $5,
+                    solution_status = 'DONE',
+                    solution_generated_at = NOW(),
+                    solution_figure_helpful = $6,
+                    solution_figure_prompt = NULLIF($7, ''),
+                    difficulty = $8,
+                    updated_at = NOW()
+                WHERE question_id = $9 AND version_no = $10 AND language = $11
+            `, [
+                solutionJson,
+                parsed.subtype || '',
+                answerLabel,
+                parsed.final_answer_text || '',
+                parsed.recheck_options || false,
+                parsed.figure_helpful || false,
+                parsed.figure_prompt || '',
+                parsed.difficulty || null,
+                question_id,
+                version_no,
+                language || 'EN',
+            ]);
+
+            // Mark correct option in EN and HI
+            await client.query(`
+                UPDATE question_option
+                SET is_correct = (option_key = $1)
+                WHERE question_id = $2 AND language = 'EN'
+            `, [answerLabel, question_id]);
+
+            await client.query(`
+                UPDATE question_option
+                SET is_correct = (option_key = $1)
+                WHERE question_id = $2 AND language = 'HI'
+            `, [answerLabel, question_id]);
+
+        } else {
+            // Legacy format: answer_label + solution_text
+            const { answer_label, solution_text } = body;
+            if (!answer_label) {
+                await client.query('ROLLBACK');
+                return NextResponse.json({ error: 'answer_label is required' }, { status: 400 });
+            }
+
+            const solutionJson = JSON.stringify({
+                answer_label,
+                solution_text: solution_text || null,
+                updated_at: new Date().toISOString(),
+                reviewed_by: user.id,
+            });
+
+            await client.query(`
+                UPDATE question_version
+                SET solution_json = $1::jsonb, updated_at = NOW()
+                WHERE question_id = $2 AND version_no = $3
+            `, [solutionJson, question_id, version_no]);
+
+            await client.query(`
+                UPDATE question_option
+                SET is_correct = (option_key = $1)
+                WHERE question_id = $2 AND language = 'EN'
+            `, [answer_label, question_id]);
+
+            await client.query(`
+                UPDATE question_option
+                SET is_correct = (option_key = $1)
+                WHERE question_id = $2 AND language = 'HI'
+            `, [answer_label, question_id]);
+        }
 
         await client.query('COMMIT');
         return NextResponse.json({ success: true });

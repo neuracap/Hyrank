@@ -18,19 +18,22 @@ export async function GET(request) {
     try {
         client = await db.connect();
 
-        // Fetch EN questions that have images and need solutions
         const questionsRes = await client.query(`
             SELECT
                 qv.question_id,
                 qv.version_no,
+                qv.language,
                 qv.source_question_no AS source_q_no,
                 qv.body_json->>'text' AS question_text,
                 qv.has_image,
                 qv.difficulty,
+                qv.solution_json,
                 qv.solution_json->>'answer_label' AS answer_label,
-                qv.solution_json->>'solution_text' AS solution_text,
-                qv.solution_json->>'tags' AS tags
+                qv.correct_option_label,
+                qv.solution_status,
+                es.code AS section_code
             FROM question_version qv
+            LEFT JOIN exam_section es ON es.section_id = qv.exam_section_id
             WHERE qv.paper_session_id = $1
               AND qv.language = 'EN'
               AND qv.has_image = true
@@ -40,6 +43,17 @@ export async function GET(request) {
         const questions = questionsRes.rows;
         if (questions.length === 0) {
             return NextResponse.json({ questions: [] });
+        }
+
+        // Derive answer_label from correct_option_label or solution_json
+        for (const q of questions) {
+            if (!q.answer_label && q.correct_option_label) {
+                q.answer_label = q.correct_option_label;
+            }
+            // Parse solution_json if it's a string
+            if (typeof q.solution_json === 'string') {
+                try { q.solution_json = JSON.parse(q.solution_json); } catch { q.solution_json = null; }
+            }
         }
 
         const questionIds = questions.map(q => q.question_id);
