@@ -31,7 +31,8 @@ async function fetchUnverifiedQuestions(page = 1, limit = 100, userSlot = null) 
                     SELECT paper_session_id_hindi AS paper_session_id, status FROM question_links WHERE paper_session_id_hindi IS NOT NULL
                 ) all_links
                 GROUP BY paper_session_id
-                HAVING COUNT(*) FILTER (WHERE status = 'MANUALLY_CORRECTED') >= 0.9 * COUNT(*)
+                HAVING COUNT(*) >= 50
+                   AND COUNT(*) FILTER (WHERE status = 'MANUALLY_CORRECTED') >= 0.9 * COUNT(*)
             ) reviewed_sessions
         `;
 
