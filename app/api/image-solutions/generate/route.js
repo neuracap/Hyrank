@@ -34,7 +34,7 @@ Return ONLY a valid JSON object (no markdown fences, no extra text) with these e
   "correct_option_label": "A|B|C|D",
   "final_answer_text": "Brief statement of the correct answer",
   "difficulty": "easy|medium|hard",
-  "subtype": "factual|conceptual|calculation|application|analysis|comprehension|vocabulary|grammar|reasoning|data_interpretation",
+  "subtype": "Paper Folding and Cutting|Mirror Images|Water Images|Embedded Figures|Completion of Incomplete Patterns|Figural Series|Figural Classification (Odd One Out)|Figural Analogy|Counting of Figures (Triangles, Squares, Rectangles)|Dice and Cubes|Rule Detection|Grouping of Identical Figures|Other",
   "recheck_options": true/false,
   "figure_helpful": true/false,
   "figure_prompt": "If figure_helpful is true, describe what figure/diagram would help explain this",

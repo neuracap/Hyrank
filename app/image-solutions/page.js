@@ -23,7 +23,6 @@ export default async function ImageSolutionsPage() {
                 ps.subject,
                 ps.status,
                 e.name AS exam_name,
-                j.source_pdf_path,
                 COUNT(qv.question_id) AS image_question_count,
                 COUNT(qv.question_id) FILTER (
                     WHERE qv.solution_status = 'DONE'
@@ -32,14 +31,12 @@ export default async function ImageSolutionsPage() {
                 ) AS solved_count
             FROM paper_session ps
             LEFT JOIN exam e ON ps.exam_id = e.exam_id
-            LEFT JOIN raw_mmd_doc d ON ps.raw_mmd_doc_id = d.raw_mmd_doc_id
-            LEFT JOIN import_job j ON d.import_job_id = j.import_job_id
             INNER JOIN question_version qv
                 ON qv.paper_session_id = ps.paper_session_id
                 AND qv.language = 'EN'
                 AND qv.has_image = true
                 AND qv.status = 'MANUALLY_CORRECTED'
-            GROUP BY ps.paper_session_id, ps.session_label, ps.paper_date, ps.subject, ps.status, e.name, j.source_pdf_path
+            GROUP BY ps.paper_session_id, ps.session_label, ps.paper_date, ps.subject, ps.status, e.name
             ORDER BY ps.paper_date DESC NULLS LAST
         `);
         papers = res.rows;

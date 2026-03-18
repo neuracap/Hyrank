@@ -101,13 +101,23 @@ export async function GET(request) {
             assetsByQuestion[asset.question_id].push(asset);
         }
 
+        // Fetch source PDF path for this paper
+        const docRes = await client.query(`
+            SELECT j.source_pdf_path
+            FROM paper_session ps
+            LEFT JOIN raw_mmd_doc d ON ps.raw_mmd_doc_id = d.raw_mmd_doc_id
+            LEFT JOIN import_job j ON d.import_job_id = j.import_job_id
+            WHERE ps.paper_session_id = $1
+        `, [paperId]);
+        const source_pdf_path = docRes.rows[0]?.source_pdf_path || null;
+
         const questionsWithData = questions.map(q => ({
             ...q,
             options: optionsByQuestion[q.question_id] || [],
             assets: assetsByQuestion[q.question_id] || [],
         }));
 
-        return NextResponse.json({ questions: questionsWithData });
+        return NextResponse.json({ questions: questionsWithData, source_pdf_path });
 
     } catch (error) {
         console.error('image-solutions/questions error:', error);

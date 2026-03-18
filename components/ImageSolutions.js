@@ -39,9 +39,11 @@ export default function ImageSolutions({ papers }) {
     const [loadingQuestions, setLoadingQuestions] = useState(false);
     const [feedback, setFeedback] = useState(null);
     const [filter, setFilter] = useState('unsolved');
+    const [sourcePdfPath, setSourcePdfPath] = useState(null);
 
     const handlePaperClick = async (paper) => {
         setSelectedPaper(paper);
+        setSourcePdfPath(null);
         setQuestions([]);
         setSelectedOptions({});
         setReviewerNotes({});
@@ -54,6 +56,7 @@ export default function ImageSolutions({ papers }) {
             const data = await res.json();
             if (res.ok && data.questions) {
                 setQuestions(data.questions);
+                if (data.source_pdf_path) setSourcePdfPath(data.source_pdf_path);
                 // Pre-populate selected options from saved data
                 const opts = {};
                 const results = {};
@@ -263,10 +266,15 @@ export default function ImageSolutions({ papers }) {
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2">
                                     <h2 className="text-base font-bold text-gray-900 truncate">{selectedPaper.session_label}</h2>
-                                    {selectedPaper.source_pdf_path && (
-                                        <a href={`/api/pdf?path=${encodeURIComponent(selectedPaper.source_pdf_path)}`} target="_blank" rel="noopener noreferrer"
-                                            className="text-blue-600 hover:underline flex items-center gap-1 bg-white border border-gray-200 px-2 py-1 rounded shadow-sm text-xs flex-shrink-0">
-                                            <span className="truncate max-w-[150px]">{selectedPaper.source_pdf_path.split(/[/\\]/).pop()}</span>
+                                    {sourcePdfPath && (
+                                        <a href={`/api/pdf?path=${encodeURIComponent(sourcePdfPath)}`} target="_blank" rel="noopener noreferrer"
+                                            className="text-blue-600 hover:underline flex items-center gap-1 bg-white border border-gray-200 px-2 py-1 rounded shadow-sm text-xs flex-shrink-0"
+                                            title={sourcePdfPath}>
+                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-gray-500">
+                                                <path d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5H5.625Z" />
+                                                <path d="M12.971 1.816A5.23 5.23 0 0 1 14.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 0 1 3.434 1.279 9.768 9.768 0 0 0-6.963-6.963Z" />
+                                            </svg>
+                                            <span className="truncate max-w-[150px]">Source PDF</span>
                                         </a>
                                     )}
                                 </div>
