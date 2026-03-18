@@ -78,10 +78,27 @@ export default async function AnalyticsPage() {
         ORDER BY u.email, ra.status, ps.language
     `);
 
+    // 4. Exam-Year-Language breakdown
+    const examYearRes = await client.query(`
+        SELECT
+            e.name AS exam_name,
+            EXTRACT(YEAR FROM ps.paper_date)::INTEGER AS paper_year,
+            qv.language,
+            COUNT(*) AS total_questions,
+            COUNT(*) FILTER (WHERE qv.status = 'MANUALLY_CORRECTED') AS corrected_questions
+        FROM question_version qv
+        JOIN paper_session ps ON qv.paper_session_id = ps.paper_session_id
+        LEFT JOIN exam e ON ps.exam_id = e.exam_id
+        WHERE e.name IS NOT NULL AND ps.paper_date IS NOT NULL
+        GROUP BY e.name, paper_year, qv.language
+        ORDER BY e.name ASC, paper_year DESC, qv.language ASC
+    `);
+
     client.release();
 
     const stats = statsRes.rows;
     const details = detailedRes.rows;
+    const examYearData = examYearRes.rows;
 
     return (
         <div className="container mx-auto px-4 py-8">
@@ -162,6 +179,68 @@ export default async function AnalyticsPage() {
                                                 ></div>
                                             </div>
                                             <span className="text-xs text-gray-500 mt-1 block">{corrected}/{total} ({percentage}%)</span>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {/* Exam-Year-Language Breakdown */}
+            <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden mb-12">
+                <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+                    <h2 className="text-lg font-bold text-gray-800">Questions by Exam, Year & Language</h2>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left text-gray-500">
+                        <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+                            <tr>
+                                <th className="px-6 py-3">Exam</th>
+                                <th className="px-6 py-3">Year</th>
+                                <th className="px-6 py-3">Language</th>
+                                <th className="px-6 py-3">Total Questions</th>
+                                <th className="px-6 py-3">Corrected</th>
+                                <th className="px-6 py-3">Pending</th>
+                                <th className="px-6 py-3">Progress</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {examYearData.map((row, idx) => {
+                                const total = parseInt(row.total_questions);
+                                const corrected = parseInt(row.corrected_questions);
+                                const pending = total - corrected;
+                                const pct = total > 0 ? Math.round((corrected / total) * 100) : 0;
+
+                                return (
+                                    <tr key={idx} className="bg-white border-b hover:bg-gray-50">
+                                        <td className="px-6 py-3 font-medium text-gray-900">{row.exam_name}</td>
+                                        <td className="px-6 py-3">{row.paper_year || '—'}</td>
+                                        <td className="px-6 py-3">
+                                            <span className={`px-2 py-0.5 rounded text-xs font-bold ${row.language === 'EN' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'}`}>
+                                                {row.language}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-3 font-bold">{total}</td>
+                                        <td className="px-6 py-3 text-green-600 font-bold">{corrected}</td>
+                                        <td className="px-6 py-3">
+                                            {pending > 0 ? (
+                                                <span className="text-red-600 font-bold">{pending}</span>
+                                            ) : (
+                                                <span className="text-green-500 font-bold">0</span>
+                                            )}
+                                        </td>
+                                        <td className="px-6 py-3">
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-24 bg-gray-200 rounded-full h-2">
+                                                    <div
+                                                        className={`h-2 rounded-full ${pct === 100 ? 'bg-green-500' : 'bg-blue-500'}`}
+                                                        style={{ width: `${pct}%` }}
+                                                    ></div>
+                                                </div>
+                                                <span className="text-xs text-gray-500">{pct}%</span>
+                                            </div>
                                         </td>
                                     </tr>
                                 );
