@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Latex from './Latex';
 
@@ -340,6 +340,11 @@ function VerifyCard({ question, onVerified }) {
 export default function VerifyUnlink({ initialQuestions, total, currentPage, totalPages }) {
     const [questions, setQuestions] = useState(initialQuestions);
     const [remaining, setRemaining] = useState(total);
+
+    useEffect(() => {
+        setQuestions(initialQuestions);
+        setRemaining(total);
+    }, [initialQuestions, total]);
 
     const handleVerified = (questionId) => {
         setQuestions(prev => prev.filter(q => q.id !== questionId));
