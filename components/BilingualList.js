@@ -810,6 +810,9 @@ Are you sure you want to proceed?`;
                         bgClass = 'bg-pink-50';
                     } else if (isLowScore && !isCorrected) {
                         borderClass = 'border-red-500 bg-red-50 ring-2 ring-red-200';
+                    } else if (!isCorrected) {
+                        borderClass = 'border-pink-300 ring-1 ring-pink-100';
+                        bgClass = 'bg-pink-50/30';
                     }
 
                     return (
