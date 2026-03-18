@@ -57,9 +57,9 @@ async function fetchUnverifiedQuestions(page = 1, limit = 100, userSlot = null) 
             LEFT JOIN import_job j      ON d.import_job_id = j.import_job_id
             WHERE (qv.is_verified = FALSE OR qv.is_verified IS NULL)
               AND qv.question_id NOT IN (
-                  SELECT english_question_id FROM question_links WHERE status = 'FLAGGED'
+                  SELECT english_question_id FROM question_links
                   UNION
-                  SELECT hindi_question_id FROM question_links WHERE status = 'FLAGGED' AND hindi_question_id IS NOT NULL
+                  SELECT hindi_question_id FROM question_links WHERE hindi_question_id IS NOT NULL
               )
               ${splitFilter}
             ORDER BY e.name ASC NULLS LAST,
@@ -80,9 +80,9 @@ async function fetchUnverifiedQuestions(page = 1, limit = 100, userSlot = null) 
             JOIN qualified_sessions qs ON qv.paper_session_id = qs.paper_session_id
             WHERE (qv.is_verified = FALSE OR qv.is_verified IS NULL)
               AND qv.question_id NOT IN (
-                  SELECT english_question_id FROM question_links WHERE status = 'FLAGGED'
+                  SELECT english_question_id FROM question_links
                   UNION
-                  SELECT hindi_question_id FROM question_links WHERE status = 'FLAGGED' AND hindi_question_id IS NOT NULL
+                  SELECT hindi_question_id FROM question_links WHERE hindi_question_id IS NOT NULL
               )
               ${splitFilter}
         `);
