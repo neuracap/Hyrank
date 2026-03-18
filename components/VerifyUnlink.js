@@ -104,6 +104,63 @@ function VerifyCard({ question, onVerified }) {
         }
     };
 
+    // Image paste upload (same pattern as BilingualList)
+    const performUpload = async (fileBlob, optIndex = null) => {
+        const role = optIndex !== null ? 'option' : 'stem';
+        const optionKey = optIndex !== null ? ['A', 'B', 'C', 'D'][optIndex] : '__STEM__';
+
+        const reader = new FileReader();
+        reader.readAsDataURL(fileBlob);
+        reader.onloadend = async () => {
+            const base64data = reader.result;
+            try {
+                const res = await fetch('/api/upload', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        data: base64data,
+                        question_id: question.id,
+                        language: question.language,
+                        version_no: question.version_no,
+                        role: role,
+                        option_key: optionKey
+                    })
+                });
+                const data = await res.json();
+                if (data.latexPath) {
+                    insertImageTag(data.latexPath, optIndex);
+                } else {
+                    alert('Upload failed: ' + (data.error || 'Unknown error'));
+                }
+            } catch (e) {
+                console.error('Image upload error:', e);
+                alert('Upload failed');
+            }
+        };
+    };
+
+    const handlePaste = (e, optIndex = null) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+
+        for (let item of items) {
+            if (item.type.startsWith('image/')) {
+                e.preventDefault();
+                performUpload(item.getAsFile(), optIndex);
+                break;
+            }
+        }
+    };
+
+    const insertImageTag = (path, optIndex = null) => {
+        const imageTag = `\\includegraphics{${path}}`;
+        if (optIndex !== null) {
+            handleOptionChange(optIndex, (options[optIndex].opt_text || '') + ` ${imageTag}`);
+        } else {
+            setQuestionText(prev => prev + `\n\n${imageTag}`);
+        }
+    };
+
     if (verified) return null;
 
     // Heuristic warnings
@@ -235,6 +292,7 @@ function VerifyCard({ question, onVerified }) {
                         value={questionText}
                         onChange={(e) => setQuestionText(e.target.value)}
                         onKeyDown={handleKeyDown}
+                        onPaste={(e) => handlePaste(e)}
                         placeholder="Enter question text..."
                     />
                     <div className="p-3 bg-gray-50 rounded border border-gray-200 text-sm">
@@ -257,6 +315,7 @@ function VerifyCard({ question, onVerified }) {
                                     value={opt.opt_text || ''}
                                     onChange={(e) => handleOptionChange(optIdx, e.target.value)}
                                     onKeyDown={handleKeyDown}
+                                    onPaste={(e) => handlePaste(e, optIdx)}
                                     placeholder={`Option ${opt.opt_label}...`}
                                 />
                                 <button
