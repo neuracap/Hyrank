@@ -4,20 +4,29 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-const SUBTYPES = [
-    'visual_series', 'coding_decoding', 'venn_diagram', 'embedded_figure',
-    'mirror_image', 'paper_folding', 'count_polygons', 'cube_dice', 'other'
-];
-
-function buildPrompt({ question_text, options, correct_option_label, reviewer_solution_en, reviewer_solution_hi, subtype, exam_name, section }) {
+function buildPrompt({ question_id, language, question_text, options, correct_option, subtype, difficulty, exam_craft }) {
     const optionsStr = (options || [])
         .map(o => `${o.opt_label}) ${o.opt_text || '(image-based)'}`)
         .join('\n');
 
-    return `You are an expert competitive-exam tutor for Indian government exams (UPSC, SSC, Banking, Railways).
+    const langInstruction = language === 'HI'
+        ? 'Respond in Hindi (Devanagari script). Use English only for technical terms, formulas, or proper nouns.'
+        : 'Respond in English.';
 
-A reviewer has already solved this question. Your job is to structure their answer into a rich JSON format.
-**DO NOT change the correct answer or the reviewer's explanation.** Use them as-is.
+    return `You are an expert competitive-exam tutor for Indian government exams (SSC, Banking, Railways, UPSC).
+
+A reviewer has already solved this question. Structure their answer into the JSON schema below.
+**DO NOT change the correct_option, subtype, or difficulty.** Use the reviewer's exam_craft explanation verbatim in display_sections.
+
+${langInstruction}
+
+## Input
+question_id: ${question_id}
+language: ${language}
+subtype: ${subtype || 'other'}
+difficulty: ${difficulty || 'medium'}
+correct_option: ${correct_option}
+exam_craft: ${exam_craft || '(none provided)'}
 
 ## Question
 ${question_text || '(image-based question)'}
@@ -25,73 +34,54 @@ ${question_text || '(image-based question)'}
 ## Options
 ${optionsStr}
 
-## Reviewer's Answer
-- **Correct Option:** ${correct_option_label}
-- **Subtype:** ${subtype || 'other'}
-- **Exam:** ${exam_name || 'SSC'}
-- **Section:** ${section || 'General Intelligence and Reasoning'}
-
-## Reviewer's Explanation (English)
-${reviewer_solution_en || '(none provided)'}
-
-## Reviewer's Explanation (Hindi)
-${reviewer_solution_hi || '(none provided)'}
-
 ## Instructions
-Return ONLY a valid JSON object (no markdown fences) with these exact keys.
-The exam_craft.approach MUST use the reviewer's explanation verbatim. Do not rewrite it.
+Return ONLY a valid JSON object (no markdown fences, no extra text). Use this exact schema:
 
 {
-  "correct_option_label": "${correct_option_label}",
-  "final_answer_text": "Brief one-line answer",
-  "difficulty": "easy|medium|hard",
-  "subtype": "${subtype || 'other'}",
-  "recheck_options": false,
-  "figure_helpful": true,
-  "figure_prompt": null,
-  "display_sections": {
-    "exam_craft": {
-      "title": "Solution",
-      "approach": "(USE REVIEWER'S ENGLISH EXPLANATION HERE VERBATIM)",
-      "approach_hi": "(USE REVIEWER'S HINDI EXPLANATION HERE VERBATIM)",
-      "key_concept": "The core concept being tested",
-      "shortcut": null,
-      "time_estimate_seconds": 30
-    },
-    "diagnostic_signals": {
-      "title": "Diagnostic Signals",
-      "topic_chain": ["Reasoning", "${subtype || 'Visual Reasoning'}", "specific concept"],
-      "bloom_level": "apply",
-      "skill_tested": "What skill this tests"
-    },
-    "learning_signals": {
-      "title": "Learning Signals",
-      "prerequisite_concepts": ["concept1"],
-      "related_questions_hint": "Related question types",
-      "mnemonic": null
-    },
-    "student_errors": {
-      "title": "Common Student Errors",
-      "common_mistakes": ["mistake1"],
-      "option_error_map": {
-        "A": "Why students pick A (null if correct)",
-        "B": "Why students pick B",
-        "C": "Why students pick C",
-        "D": "Why students pick D"
-      }
-    },
-    "quality_check": {
-      "title": "Quality Check",
-      "issue_flag": false,
-      "issues": [],
-      "suggested_fix": null
+  "question_identity": {
+    "question_id": "${question_id}",
+    "section": "reasoning",
+    "subtype": "${subtype || 'other'}",
+    "difficulty": "${difficulty || 'medium'}"
+  },
+  "answer_outcome": {
+    "correct_option": "${correct_option}",
+    "final_answer_text": "Brief one-line statement of the answer",
+    "core_answer_basis": "The fundamental reason this is correct",
+    "recheck_options": false,
+    "figure_helpful": true,
+    "figure_prompt": "Description of helpful figure, or null"
+  },
+  "display_sections": [
+    { "key": "exam_craft", "content": "(USE THE REVIEWER'S exam_craft EXPLANATION VERBATIM HERE)" }
+  ],
+  "diagnostic_signals": {
+    "mistake_patterns": ["pattern1", "pattern2"],
+    "exam_skills_tested": ["skill1", "skill2"],
+    "trap_type": ["trap description if any"]
+  },
+  "learning_signals": {
+    "concepts": ["concept1", "concept2"],
+    "takeaways": ["key takeaway 1"],
+    "memory_hooks": ["mnemonic or memory aid if applicable"]
+  },
+  "student_diagnostic_hooks": {
+    "likely_errors": ["common error 1"],
+    "option_error_map": {
+      "A": "Why students pick A (null if correct)",
+      "B": "Why students pick B",
+      "C": "Why students pick C",
+      "D": "Why students pick D"
     }
   },
-  "metadata_tags": {
-    "subject": "General Intelligence and Reasoning",
-    "topic": "${subtype || 'Visual Reasoning'}",
-    "subtopic": "specific subtopic",
-    "exam_relevance": ["SSC CGL", "SSC CHSL"]
+  "quality_check": {
+    "issue_flag": false,
+    "issue_type": [],
+    "issue_note": ""
+  },
+  "indexing_metadata": {
+    "keywords": ["keyword1", "keyword2"],
+    "tags": ["tag1", "tag2"]
   }
 }`;
 }
@@ -99,7 +89,7 @@ The exam_craft.approach MUST use the reviewer's explanation verbatim. Do not rew
 function parseDifficulty(val) {
     if (!val) return null;
     const map = { easy: 1, medium: 2, hard: 3 };
-    return map[val.toLowerCase()] || null;
+    return map[String(val).toLowerCase()] || null;
 }
 
 export async function POST(request) {
@@ -119,15 +109,15 @@ export async function POST(request) {
         return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
     }
 
-    const { question_text, options, correct_option_label, reviewer_solution_en, reviewer_solution_hi, subtype, exam_name, section } = body;
+    const { question_id, language, question_text, options, correct_option, subtype, difficulty, exam_craft } = body;
 
-    if (!correct_option_label) {
-        return NextResponse.json({ error: 'correct_option_label is required' }, { status: 400 });
+    if (!question_id || !correct_option) {
+        return NextResponse.json({ error: 'question_id and correct_option are required' }, { status: 400 });
     }
 
     try {
         const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
-        const prompt = buildPrompt({ question_text, options, correct_option_label, reviewer_solution_en, reviewer_solution_hi, subtype, exam_name, section });
+        const prompt = buildPrompt({ question_id, language, question_text, options, correct_option, subtype, difficulty, exam_craft });
 
         const result = await model.generateContent(prompt);
         const rawText = result.response.text();
@@ -140,22 +130,30 @@ export async function POST(request) {
             parsed = JSON.parse(cleaned);
         }
 
-        // Enforce reviewer's answer — AI must not override
-        parsed.correct_option_label = correct_option_label;
-        parsed.subtype = subtype || parsed.subtype;
+        // Enforce reviewer values — AI must not override
+        if (parsed.question_identity) {
+            parsed.question_identity.question_id = question_id;
+            parsed.question_identity.subtype = subtype || parsed.question_identity.subtype;
+            parsed.question_identity.difficulty = difficulty || parsed.question_identity.difficulty;
+        }
+        if (parsed.answer_outcome) {
+            parsed.answer_outcome.correct_option = correct_option;
+        }
+
+        const diff = parsed.question_identity?.difficulty || difficulty;
 
         return NextResponse.json({
             success: true,
             parsed: {
                 full_json: parsed,
-                subtype: parsed.subtype || null,
-                difficulty: parseDifficulty(parsed.difficulty),
-                difficulty_label: parsed.difficulty || null,
-                correct_option_label: parsed.correct_option_label,
-                final_answer_text: parsed.final_answer_text || null,
-                recheck_options: parsed.recheck_options || false,
-                figure_helpful: parsed.figure_helpful || false,
-                figure_prompt: parsed.figure_prompt || null,
+                subtype: parsed.question_identity?.subtype || subtype || null,
+                difficulty: parseDifficulty(diff),
+                difficulty_label: diff || null,
+                correct_option_label: correct_option,
+                final_answer_text: parsed.answer_outcome?.final_answer_text || null,
+                recheck_options: parsed.answer_outcome?.recheck_options || false,
+                figure_helpful: parsed.answer_outcome?.figure_helpful || false,
+                figure_prompt: parsed.answer_outcome?.figure_prompt || null,
             },
         });
 

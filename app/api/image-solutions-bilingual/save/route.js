@@ -15,7 +15,7 @@ export async function POST(request) {
         return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
     }
 
-    const { eng_id, eng_version, hin_id, hin_version, link_id, parsed, subtype, action } = body;
+    const { eng_id, eng_version, hin_id, hin_version, link_id, parsed_en, parsed_hi, subtype, difficulty, action } = body;
 
     if (!eng_id || eng_version == null) {
         return NextResponse.json({ error: 'eng_id and eng_version are required' }, { status: 400 });
@@ -26,7 +26,7 @@ export async function POST(request) {
         client = await db.connect();
         await client.query('BEGIN');
 
-        // Flag action — change link status + question_version status
+        // Flag action
         if (action === 'flag') {
             if (link_id) {
                 await client.query(`
@@ -47,54 +47,65 @@ export async function POST(request) {
             return NextResponse.json({ success: true, action: 'flagged' });
         }
 
-        // Save action — save solution to both EN and HI
-        if (!parsed) {
-            await client.query('ROLLBACK');
-            return NextResponse.json({ error: 'parsed solution data is required' }, { status: 400 });
-        }
-
-        const answerLabel = parsed.correct_option_label;
+        // Save action — separate EN and HI solution JSONs
+        const answerLabel = parsed_en?.correct_option_label || parsed_hi?.correct_option_label;
         if (!answerLabel) {
             await client.query('ROLLBACK');
             return NextResponse.json({ error: 'correct_option_label is required' }, { status: 400 });
         }
 
-        const solutionJson = JSON.stringify({
-            ...parsed.full_json,
-            reviewed_by: user.id,
-            saved_at: new Date().toISOString(),
-        });
+        const difficultyVal = difficulty || parsed_en?.difficulty || parsed_hi?.difficulty || null;
 
-        // Save EN question_version
-        await client.query(`
-            UPDATE question_version SET
-                solution_json = $1::jsonb,
-                subtype = NULLIF($2, ''),
-                correct_option_label = NULLIF($3, ''),
-                final_answer_text = NULLIF($4, ''),
-                recheck_options = $5,
-                solution_status = 'DONE',
-                solution_generated_at = NOW(),
-                solution_figure_helpful = $6,
-                solution_figure_prompt = NULLIF($7, ''),
-                difficulty = $8,
-                updated_at = NOW()
-            WHERE question_id = $9 AND version_no = $10 AND language = 'EN'
-        `, [
-            solutionJson,
-            subtype || parsed.subtype || '',
-            answerLabel,
-            parsed.final_answer_text || '',
-            parsed.recheck_options || false,
-            parsed.figure_helpful || false,
-            parsed.figure_prompt || '',
-            parsed.difficulty || null,
-            eng_id,
-            eng_version,
-        ]);
+        // Save EN
+        if (parsed_en) {
+            const solutionJson = JSON.stringify({
+                ...parsed_en.full_json,
+                reviewed_by: user.id,
+                saved_at: new Date().toISOString(),
+            });
 
-        // Save HI question_version (same solution with approach_hi if available)
-        if (hin_id && hin_version != null) {
+            await client.query(`
+                UPDATE question_version SET
+                    solution_json = $1::jsonb,
+                    subtype = NULLIF($2, ''),
+                    correct_option_label = NULLIF($3, ''),
+                    final_answer_text = NULLIF($4, ''),
+                    recheck_options = $5,
+                    solution_status = 'DONE',
+                    solution_generated_at = NOW(),
+                    solution_figure_helpful = $6,
+                    solution_figure_prompt = NULLIF($7, ''),
+                    difficulty = $8,
+                    updated_at = NOW()
+                WHERE question_id = $9 AND version_no = $10 AND language = 'EN'
+            `, [
+                solutionJson,
+                subtype || parsed_en.subtype || '',
+                answerLabel,
+                parsed_en.final_answer_text || '',
+                parsed_en.recheck_options || false,
+                parsed_en.figure_helpful || false,
+                parsed_en.figure_prompt || '',
+                difficultyVal,
+                eng_id,
+                eng_version,
+            ]);
+
+            // Mark correct option for EN
+            await client.query(`
+                UPDATE question_option SET is_correct = (option_key = $1)
+                WHERE question_id = $2 AND language = 'EN'
+            `, [answerLabel, eng_id]);
+        }
+
+        // Save HI
+        if (hin_id && hin_version != null && parsed_hi) {
+            const solutionJson = JSON.stringify({
+                ...parsed_hi.full_json,
+                reviewed_by: user.id,
+                saved_at: new Date().toISOString(),
+            });
+
             await client.query(`
                 UPDATE question_version SET
                     solution_json = $1::jsonb,
@@ -111,25 +122,18 @@ export async function POST(request) {
                 WHERE question_id = $9 AND version_no = $10 AND language = 'HI'
             `, [
                 solutionJson,
-                subtype || parsed.subtype || '',
+                subtype || parsed_hi.subtype || '',
                 answerLabel,
-                parsed.final_answer_text || '',
-                parsed.recheck_options || false,
-                parsed.figure_helpful || false,
-                parsed.figure_prompt || '',
-                parsed.difficulty || null,
+                parsed_hi.final_answer_text || '',
+                parsed_hi.recheck_options || false,
+                parsed_hi.figure_helpful || false,
+                parsed_hi.figure_prompt || '',
+                difficultyVal,
                 hin_id,
                 hin_version,
             ]);
-        }
 
-        // Mark correct option for both EN and HI
-        await client.query(`
-            UPDATE question_option SET is_correct = (option_key = $1)
-            WHERE question_id = $2 AND language = 'EN'
-        `, [answerLabel, eng_id]);
-
-        if (hin_id) {
+            // Mark correct option for HI
             await client.query(`
                 UPDATE question_option SET is_correct = (option_key = $1)
                 WHERE question_id = $2 AND language = 'HI'
