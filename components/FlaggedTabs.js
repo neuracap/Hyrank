@@ -1,106 +1,356 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import BilingualList from '@/components/BilingualList';
 import Latex from '@/components/Latex';
 
-function SoloFlaggedList({ questions }) {
-    const [saving, setSaving] = useState({});
-    const [statuses, setStatuses] = useState({});
-    const [editTexts, setEditTexts] = useState({});
+// ─── Solo Flagged Card (mirrors VerifyUnlink's VerifyCard) ───
 
-    const handleUnflag = async (q) => {
-        const key = `${q.question_id}_${q.version_no}`;
-        setSaving(prev => ({ ...prev, [key]: true }));
+function SoloFlaggedCard({ question, onCorrected }) {
+    const REQUIRED_OPTS = ['A', 'B', 'C', 'D'];
+    const optMap = new Map((question.options || []).map(o => [o.opt_label, o]));
+    const initialOptions = REQUIRED_OPTS.map(label => ({
+        opt_label: label,
+        opt_text: optMap.get(label)?.opt_text || ''
+    }));
+
+    const [questionText, setQuestionText] = useState(question.question_text || '');
+    const [options, setOptions] = useState(initialOptions);
+    const [isSaving, setIsSaving] = useState(false);
+    const [corrected, setCorrected] = useState(false);
+    const [feedbackMessage, setFeedbackMessage] = useState(null);
+    const [savedStatus, setSavedStatus] = useState(null);
+
+    const handleSave = async (status = 'MANUALLY_CORRECTED') => {
+        setIsSaving(true);
         try {
-            const res = await fetch('/api/flagged/solo-unflag', {
+            const res = await fetch('/api/verify-unlink/save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    question_id: q.question_id,
-                    version_no: q.version_no,
-                    language: q.language,
+                    id: question.question_id,
+                    version_no: question.version_no,
+                    language: question.language,
+                    question_text: questionText,
+                    options: options,
+                    status: status,
                 }),
             });
             const data = await res.json();
-            if (res.ok && data.success) {
-                setStatuses(prev => ({ ...prev, [key]: 'MANUALLY_CORRECTED' }));
+            if (data.success) {
+                setSavedStatus(status);
+                setFeedbackMessage(status === 'FLAGGED' ? 'Kept Flagged!' : 'Saved & Corrected!');
+                if (status === 'MANUALLY_CORRECTED') {
+                    setTimeout(() => {
+                        setCorrected(true);
+                        onCorrected(question.question_id);
+                    }, 800);
+                } else {
+                    setTimeout(() => setFeedbackMessage(null), 1500);
+                }
+            } else {
+                alert('Save failed: ' + data.error);
             }
-        } catch (err) {
-            console.error('Unflag error:', err);
+        } catch (e) {
+            alert('Error saving: ' + e.message);
         } finally {
-            setSaving(prev => ({ ...prev, [key]: false }));
+            setIsSaving(false);
         }
     };
 
-    if (questions.length === 0) {
+    const handleOptionChange = (optIdx, value) => {
+        setOptions(prev => {
+            const newOpts = [...prev];
+            newOpts[optIdx] = { ...newOpts[optIdx], opt_text: value };
+            return newOpts;
+        });
+    };
+
+    const handleUnderline = (textType, optIndex = null) => {
+        const textareaId = textType === 'question'
+            ? `sf-question-${question.question_id}`
+            : `sf-opt-${question.question_id}-${optIndex}`;
+        const textarea = document.getElementById(textareaId);
+        if (!textarea) return;
+
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const selectedText = textarea.value.substring(start, end);
+
+        if (!selectedText) { alert('Please select some text first'); return; }
+
+        const wrappedText = `$\\underline{\\text{${selectedText}}}$`;
+        const newValue = textarea.value.substring(0, start) + wrappedText + textarea.value.substring(end);
+
+        if (textType === 'question') {
+            setQuestionText(newValue);
+        } else {
+            handleOptionChange(optIndex, newValue);
+        }
+
+        setTimeout(() => {
+            textarea.focus();
+            const newCursorPos = start + wrappedText.length;
+            textarea.setSelectionRange(newCursorPos, newCursorPos);
+        }, 0);
+    };
+
+    const handleKeyDown = (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+            e.preventDefault();
+            handleSave('MANUALLY_CORRECTED');
+        }
+    };
+
+    // Image paste upload
+    const performUpload = async (fileBlob, optIndex = null) => {
+        const role = optIndex !== null ? 'option' : 'stem';
+        const optionKey = optIndex !== null ? ['A', 'B', 'C', 'D'][optIndex] : '__STEM__';
+
+        const reader = new FileReader();
+        reader.readAsDataURL(fileBlob);
+        reader.onloadend = async () => {
+            try {
+                const res = await fetch('/api/upload', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        data: reader.result,
+                        question_id: question.question_id,
+                        language: question.language,
+                        version_no: question.version_no,
+                        role: role,
+                        option_key: optionKey,
+                    }),
+                });
+                const data = await res.json();
+                if (data.latexPath) {
+                    const imageTag = `\\includegraphics{${data.latexPath}}`;
+                    if (optIndex !== null) {
+                        handleOptionChange(optIndex, (options[optIndex].opt_text || '') + ` ${imageTag}`);
+                    } else {
+                        setQuestionText(prev => prev + `\n\n${imageTag}`);
+                    }
+                } else {
+                    alert('Upload failed: ' + (data.error || 'Unknown error'));
+                }
+            } catch (e) {
+                console.error('Image upload error:', e);
+                alert('Upload failed');
+            }
+        };
+    };
+
+    const handlePaste = (e, optIndex = null) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+        for (let item of items) {
+            if (item.type.startsWith('image/')) {
+                e.preventDefault();
+                performUpload(item.getAsFile(), optIndex);
+                break;
+            }
+        }
+    };
+
+    if (corrected) return null;
+
+    // Warnings
+    const warnings = [];
+    const blankOpts = options.filter(o => !o.opt_text || !o.opt_text.trim());
+    if (blankOpts.length > 0) warnings.push(`Blank option(s): ${blankOpts.map(o => o.opt_label).join(', ')}`);
+
+    const forbiddenPhrases = ['Question ID', 'Question ID:', 'Status', 'Click Here', 'Challenge', 'Question No.', 'https://', 'Not provided in the source', 'Not Available'];
+    const hasForbidden = (text) => text && forbiddenPhrases.some(p => text.includes(p));
+    if (hasForbidden(questionText)) warnings.push('Question text contains suspicious text');
+    const forbiddenOpts = options.filter(o => hasForbidden(o.opt_text));
+    if (forbiddenOpts.length > 0) warnings.push(`Option(s) ${forbiddenOpts.map(o => o.opt_label).join(', ')} contain suspicious text`);
+
+    const hasImageTag = (text) => /\\includegraphics|!\[.*?\]\(.*?\)|\.jpg|\.png|\.jpeg|\.gif|\.svg/.test(text || '');
+    const imageKeywords = /\b(mirror|image|figure|diagram|picture|graph|table|chart|map|given below|shown below|refer to|as shown|adjacent figure)\b/i;
+    if (imageKeywords.test(questionText) && !hasImageTag(questionText) && !options.some(o => hasImageTag(o.opt_text))) {
+        warnings.push('Possible missing image (text mentions figure/image/diagram but none found)');
+    }
+
+    const rawImageRef = /\.(jpg|jpeg|png|gif|svg)\b/i;
+    if (rawImageRef.test(questionText)) warnings.push('Question text contains raw image file reference');
+    const imgRefOpts = options.filter(o => rawImageRef.test(o.opt_text || ''));
+    if (imgRefOpts.length > 0) warnings.push(`Option(s) ${imgRefOpts.map(o => o.opt_label).join(', ')} contain raw image file reference`);
+
+    const hasWarnings = warnings.length > 0;
+    const isFlagged = savedStatus === 'FLAGGED';
+
+    let borderClass = 'border-red-300 ring-1 ring-red-100';
+    let bgClass = 'bg-red-50/30';
+    if (isFlagged) {
+        borderClass = 'border-orange-300 ring-1 ring-orange-100';
+        bgClass = 'bg-orange-50/30';
+    } else if (hasWarnings) {
+        borderClass = 'border-pink-400 ring-2 ring-pink-100';
+        bgClass = 'bg-pink-50';
+    }
+
+    return (
+        <div className={`rounded-lg border shadow-sm overflow-hidden transition-all duration-200 mb-4 ${borderClass} ${bgClass}`}>
+            {/* Top Bar */}
+            <div className="px-6 py-3 border-b flex justify-between items-center bg-gray-50/50 border-gray-200">
+                <div className="flex items-center gap-3 flex-wrap">
+                    <span className="text-sm font-bold text-gray-800 font-mono">
+                        Q.{question.source_question_no || question.question_id?.substring(0, 6)}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${question.language === 'EN' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'}`}>
+                        {question.language}
+                    </span>
+                    <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-2.5 py-0.5 rounded-full">
+                        {question.session_label || question.paper_session_id}
+                    </span>
+                    {question.exam_name && (
+                        <span className="text-xs text-gray-400">{question.exam_name}</span>
+                    )}
+                    {question.source_pdf_path && (
+                        <a href={`/api/pdf?path=${encodeURIComponent(question.source_pdf_path)}`} target="_blank" rel="noopener noreferrer"
+                            className="text-blue-600 hover:underline flex items-center gap-1 bg-white border border-gray-200 px-2 py-0.5 rounded text-xs shadow-sm">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5 text-gray-500">
+                                <path d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5H5.625Z" />
+                                <path d="M12.971 1.816A5.23 5.23 0 0 1 14.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 0 1 3.434 1.279 9.768 9.768 0 0 0-6.963-6.963Z" />
+                            </svg>
+                            PDF
+                        </a>
+                    )}
+                </div>
+                <div className="flex gap-2 items-center">
+                    {feedbackMessage && (
+                        <span className="font-bold text-green-600 bg-green-50 px-2 py-1 rounded text-xs border border-green-200 shadow-sm">
+                            {feedbackMessage}
+                        </span>
+                    )}
+                    {savedStatus && (
+                        <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                            savedStatus === 'MANUALLY_CORRECTED' ? 'bg-green-100 text-green-700' :
+                            savedStatus === 'FLAGGED' ? 'bg-orange-100 text-orange-700' : ''
+                        }`}>
+                            {savedStatus}
+                        </span>
+                    )}
+                    <button onClick={() => handleSave('FLAGGED')} disabled={isSaving}
+                        className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded text-xs font-bold uppercase tracking-wide transition-colors shadow-sm disabled:opacity-50"
+                        title="Keep flagged for further review">
+                        Keep Flagged
+                    </button>
+                    <button onClick={() => handleSave('MANUALLY_CORRECTED')} disabled={isSaving}
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-xs font-bold uppercase tracking-wide transition-colors shadow-sm disabled:opacity-50">
+                        {isSaving ? 'Saving...' : 'Save & Correct'}
+                    </button>
+                </div>
+            </div>
+
+            {/* Warning Banner */}
+            {hasWarnings && (
+                <div className="px-6 py-2 text-xs font-bold bg-pink-100 text-pink-800 border-b border-pink-200">
+                    {warnings.map((w, i) => <div key={i} className="flex items-center gap-2">&#x26A0;&#xFE0F; {w}</div>)}
+                </div>
+            )}
+
+            {/* Question Body */}
+            <div className="p-6">
+                {/* Question Text */}
+                <div className="mb-6">
+                    <div className="flex justify-between items-center mb-2">
+                        <label className="text-xs font-semibold text-gray-500 uppercase">Question Text</label>
+                        <button onClick={() => handleUnderline('question')}
+                            className="px-2 py-1 text-xs font-bold bg-blue-500 text-white rounded hover:bg-blue-600 shadow-sm"
+                            title="Underline selected text">
+                            U
+                        </button>
+                    </div>
+                    <textarea
+                        id={`sf-question-${question.question_id}`}
+                        className={`w-full p-3 border rounded font-mono text-sm min-h-[120px] mb-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y ${hasForbidden(questionText) ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                        value={questionText}
+                        onChange={(e) => setQuestionText(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        onPaste={(e) => handlePaste(e)}
+                        placeholder="Enter question text..."
+                    />
+                    <div className="p-3 bg-gray-50 rounded border border-gray-200 text-sm">
+                        <p className="text-xs font-bold text-gray-400 uppercase mb-1">Preview</p>
+                        <Latex>{questionText}</Latex>
+                    </div>
+                </div>
+
+                {/* Options */}
+                <div className="space-y-4">
+                    {options.map((opt, optIdx) => (
+                        <div key={opt.opt_label} className="p-2 border border-gray-100 rounded bg-gray-50/50">
+                            <div className="flex gap-2 items-center mb-2">
+                                <div className="w-6 h-6 flex items-center justify-center rounded-full bg-white border border-gray-300 text-xs font-bold text-gray-500 shrink-0">
+                                    {opt.opt_label}
+                                </div>
+                                <input
+                                    id={`sf-opt-${question.question_id}-${optIdx}`}
+                                    className={`flex-1 text-xs p-1.5 border rounded font-mono ${hasForbidden(opt.opt_text) ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                                    value={opt.opt_text || ''}
+                                    onChange={(e) => handleOptionChange(optIdx, e.target.value)}
+                                    onKeyDown={handleKeyDown}
+                                    onPaste={(e) => handlePaste(e, optIdx)}
+                                    placeholder={`Option ${opt.opt_label}...`}
+                                />
+                                <button onClick={() => handleUnderline('option', optIdx)}
+                                    className="px-2 py-1 text-xs font-bold bg-blue-500 text-white rounded hover:bg-blue-600 shadow-sm shrink-0"
+                                    title="Underline selected text">
+                                    U
+                                </button>
+                            </div>
+                            <div className="pl-8 text-xs text-gray-700">
+                                <Latex>{opt.opt_text || ''}</Latex>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ─── Solo Flagged List ───
+
+function SoloFlaggedList({ questions: initialQuestions }) {
+    const [questions, setQuestions] = useState(initialQuestions);
+    const [remaining, setRemaining] = useState(initialQuestions.length);
+
+    useEffect(() => {
+        setQuestions(initialQuestions);
+        setRemaining(initialQuestions.length);
+    }, [initialQuestions]);
+
+    const handleCorrected = (questionId) => {
+        setQuestions(prev => prev.filter(q => q.question_id !== questionId));
+        setRemaining(prev => prev - 1);
+    };
+
+    if (initialQuestions.length === 0) {
         return <div className="text-center py-16 text-gray-400">No solo flagged questions found.</div>;
     }
 
     return (
-        <div className="space-y-4">
-            {questions.map((q) => {
-                const key = `${q.question_id}_${q.version_no}`;
-                const currentStatus = statuses[key] || q.status;
-                const isUnflagged = currentStatus === 'MANUALLY_CORRECTED';
-
-                return (
-                    <div key={key} className={`bg-white rounded-lg border shadow-sm overflow-hidden ${isUnflagged ? 'border-green-300' : 'border-red-300'}`}>
-                        {/* Header */}
-                        <div className={`px-5 py-3 border-b flex items-center justify-between ${isUnflagged ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                            <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-sm font-bold text-gray-700">Q.{q.source_question_no || '?'}</span>
-                                <span className="text-xs text-gray-400 font-mono">{q.question_id.slice(0, 8)}</span>
-                                <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${isUnflagged ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                    {isUnflagged ? 'Corrected' : 'FLAGGED'}
-                                </span>
-                                <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">{q.language}</span>
-                                {q.section_code && <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">{q.section_code}</span>}
-                                {q.exam_name && <span className="text-xs text-gray-500">{q.exam_name}</span>}
-                                {q.session_label && <span className="text-xs text-gray-400">| {q.session_label}</span>}
-                                {q.source_pdf_path && (
-                                    <a href={`/api/pdf?path=${encodeURIComponent(q.source_pdf_path)}`} target="_blank" rel="noopener noreferrer"
-                                        className="text-xs text-blue-600 hover:underline flex items-center gap-1">
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5">
-                                            <path d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5H5.625Z" />
-                                            <path d="M12.971 1.816A5.23 5.23 0 0 1 14.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 0 1 3.434 1.279 9.768 9.768 0 0 0-6.963-6.963Z" />
-                                        </svg>
-                                        PDF
-                                    </a>
-                                )}
-                            </div>
-                            <button onClick={() => handleUnflag(q)} disabled={saving[key] || isUnflagged}
-                                className="px-3 py-1.5 text-xs font-semibold rounded-md bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 disabled:opacity-50 transition-colors">
-                                {saving[key] ? 'Saving...' : isUnflagged ? 'Corrected' : 'Mark Corrected'}
-                            </button>
-                        </div>
-
-                        {/* Question text */}
-                        <div className="px-5 py-4 border-b border-gray-100">
-                            <div className="text-sm text-gray-800">
-                                <Latex>{q.question_text || '(No question text)'}</Latex>
-                            </div>
-                        </div>
-
-                        {/* Options */}
-                        {q.options && q.options.length > 0 && (
-                            <div className="px-5 py-3 border-b border-gray-100">
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                                    {q.options.map(opt => (
-                                        <div key={opt.opt_label} className="flex items-start gap-2 p-2 rounded border border-gray-200 bg-gray-50 text-xs">
-                                            <span className="w-5 h-5 rounded-full bg-gray-200 text-gray-700 flex items-center justify-center text-xs font-bold flex-shrink-0">{opt.opt_label}</span>
-                                            <span className="text-gray-700"><Latex>{opt.opt_text || '(image)'}</Latex></span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                );
-            })}
+        <div>
+            <div className="mb-4 text-sm text-gray-500">
+                <span className="font-semibold text-gray-800">{remaining}</span> question{remaining !== 1 ? 's' : ''} remaining
+            </div>
+            {questions.length === 0 ? (
+                <div className="text-center py-16 text-gray-400">
+                    <p className="text-lg font-medium">All solo flagged questions corrected!</p>
+                </div>
+            ) : (
+                questions.map(q => (
+                    <SoloFlaggedCard key={`${q.question_id}_${q.version_no}`} question={q} onCorrected={handleCorrected} />
+                ))
+            )}
         </div>
     );
 }
+
+// ─── Tabs Wrapper ───
 
 export default function FlaggedTabs({ linkedQuestions, linkedTotal, linkedPage, linkedTotalPages, soloQuestions, soloTotal }) {
     const [tab, setTab] = useState('linked');
@@ -110,7 +360,7 @@ export default function FlaggedTabs({ linkedQuestions, linkedTotal, linkedPage, 
             <header className="mb-6 bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
                 <h1 className="text-2xl font-bold text-gray-900 mb-2">Flagged Questions</h1>
                 <p className="text-sm text-gray-500 mb-4">
-                    Questions marked for review across the platform.
+                    Questions marked for review across the platform. Edit and save to mark them as corrected.
                 </p>
                 <div className="flex gap-2">
                     <button onClick={() => setTab('linked')}
