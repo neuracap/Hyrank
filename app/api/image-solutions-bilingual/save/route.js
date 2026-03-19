@@ -30,7 +30,7 @@ export async function POST(request) {
         if (action === 'flag') {
             if (link_id) {
                 await client.query(`
-                    UPDATE question_links SET status = 'FLAGGED', updated_at = NOW() WHERE id = $1
+                    UPDATE question_links SET status = 'FLAGGED' WHERE id = $1
                 `, [link_id]);
             }
             await client.query(`
