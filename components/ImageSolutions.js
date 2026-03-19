@@ -42,6 +42,7 @@ export default function ImageSolutions({ papers }) {
     const [generatingId, setGeneratingId] = useState(null);
     const [translatingId, setTranslatingId] = useState(null);
     const [savingId, setSavingId] = useState(null);
+    const [flaggingId, setFlaggingId] = useState(null);
     const [loadingQuestions, setLoadingQuestions] = useState(false);
     const [feedback, setFeedback] = useState(null);
     const [filter, setFilter] = useState('unsolved');
@@ -218,6 +219,37 @@ export default function ImageSolutions({ papers }) {
         }
     }, [selectedOptions, aiResults, subtypes, difficulties]);
 
+    const handleFlag = useCallback(async (q) => {
+        setFlaggingId(q.question_id);
+        setFeedback(null);
+        try {
+            const res = await fetch('/api/image-solutions/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    question_id: q.question_id,
+                    version_no: q.version_no,
+                    language: q.language || 'EN',
+                    action: 'flag',
+                }),
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setFeedback({ type: 'success', message: `Q.${q.source_q_no || q.question_id.slice(0, 6)} flagged.` });
+                setQuestions(prev => prev.map(pq =>
+                    pq.question_id === q.question_id ? { ...pq, status: 'FLAGGED' } : pq
+                ));
+            } else {
+                setFeedback({ type: 'error', message: data.error || 'Flag failed.' });
+            }
+        } catch (err) {
+            console.error(err);
+            setFeedback({ type: 'error', message: 'Network error during flag.' });
+        } finally {
+            setFlaggingId(null);
+        }
+    }, []);
+
     const extractImages = (text) => {
         if (!text) return [];
         const regex = /\\includegraphics\{([^}]+)\}/g;
@@ -353,9 +385,11 @@ export default function ImageSolutions({ papers }) {
                                         isGenerating={generatingId === q.question_id}
                                         isTranslating={translatingId === q.question_id}
                                         isSaving={savingId === q.question_id}
+                                        isFlagging={flaggingId === q.question_id}
                                         onTranslate={() => handleTranslate(q.question_id)}
                                         onGenerate={() => handleGenerate(q)}
                                         onSave={() => handleSave(q)}
+                                        onFlag={() => handleFlag(q)}
                                         extractImages={extractImages}
                                     />
                                 ))
@@ -368,21 +402,28 @@ export default function ImageSolutions({ papers }) {
     );
 }
 
-function QuestionCard({ q, idx, selectedOption, onSelectOption, subtype, onSubtypeChange, difficulty, onDifficultyChange, solutionEn, onSolutionEnChange, solutionHi, onSolutionHiChange, aiResult, isGenerating, isTranslating, isSaving, onTranslate, onGenerate, onSave, extractImages }) {
+function QuestionCard({ q, idx, selectedOption, onSelectOption, subtype, onSubtypeChange, difficulty, onDifficultyChange, solutionEn, onSolutionEnChange, solutionHi, onSolutionHiChange, aiResult, isGenerating, isTranslating, isSaving, isFlagging, onTranslate, onGenerate, onSave, onFlag, extractImages }) {
     const isSolved = !!q.answer_label || !!q.correct_option_label || q.solution_status === 'DONE';
+    const isFlagged = q.status === 'FLAGGED';
     const images = extractImages(q.question_text);
 
     return (
-        <div className={`bg-white rounded-lg border shadow-sm overflow-hidden ${isSolved ? 'border-green-300' : 'border-gray-200'}`}>
+        <div className={`bg-white rounded-lg border shadow-sm overflow-hidden ${isFlagged ? 'border-red-300' : isSolved ? 'border-green-300' : 'border-gray-200'}`}>
             {/* Header */}
-            <div className={`px-5 py-3 border-b flex items-center justify-between ${isSolved ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-100'}`}>
+            <div className={`px-5 py-3 border-b flex items-center justify-between ${isFlagged ? 'bg-red-50 border-red-200' : isSolved ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-100'}`}>
                 <div className="flex items-center gap-2">
                     <span className="text-sm font-bold text-gray-700">Q.{q.source_q_no || idx + 1}</span>
                     <span className="text-xs text-gray-400 font-mono">{q.question_id.slice(0, 8)}</span>
-                    {isSolved && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-semibold">Solved</span>}
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${isFlagged ? 'bg-red-100 text-red-700' : isSolved ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                        {isFlagged ? 'Flagged' : isSolved ? 'Solved' : q.status || 'MANUALLY_CORRECTED'}
+                    </span>
                     <DifficultyBadge level={q.difficulty || (difficulty ? difficultyToInt[difficulty] : null) || aiResult?.difficulty} />
                     {q.section_code && <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">{q.section_code}</span>}
                 </div>
+                <button onClick={onFlag} disabled={isFlagging || isFlagged}
+                    className="px-3 py-1.5 text-xs font-semibold rounded-md bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 disabled:opacity-50 transition-colors">
+                    {isFlagging ? 'Flagging...' : isFlagged ? 'Flagged' : 'Flag'}
+                </button>
             </div>
 
             {/* Question body */}

@@ -15,9 +15,30 @@ export async function POST(request) {
         return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
     }
 
-    const { question_id, version_no, language } = body;
+    const { question_id, version_no, language, action } = body;
     if (!question_id || version_no == null) {
         return NextResponse.json({ error: 'question_id and version_no are required' }, { status: 400 });
+    }
+
+    // Flag action
+    if (action === 'flag') {
+        let client;
+        try {
+            client = await db.connect();
+            await client.query('BEGIN');
+            await client.query(`
+                UPDATE question_version SET status = 'FLAGGED', updated_at = NOW()
+                WHERE question_id = $1 AND version_no = $2 AND language = $3
+            `, [question_id, version_no, language || 'EN']);
+            await client.query('COMMIT');
+            return NextResponse.json({ success: true, action: 'flagged' });
+        } catch (error) {
+            if (client) await client.query('ROLLBACK');
+            console.error('image-solutions/save flag error:', error);
+            return NextResponse.json({ error: 'Failed to flag', details: error.message }, { status: 500 });
+        } finally {
+            client?.release();
+        }
     }
 
     // Support both new rich format (parsed) and old format (answer_label + solution_text)

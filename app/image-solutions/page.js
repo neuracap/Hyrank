@@ -35,7 +35,7 @@ export default async function ImageSolutionsPage() {
                 ON qv.paper_session_id = ps.paper_session_id
                 AND qv.language = 'EN'
                 AND qv.has_image = true
-                AND qv.status = 'MANUALLY_CORRECTED'
+                AND qv.status IN ('MANUALLY_CORRECTED', 'FLAGGED')
             GROUP BY ps.paper_session_id, ps.session_label, ps.paper_date, ps.subject, ps.status, e.name
             ORDER BY ps.paper_date DESC NULLS LAST
         `);

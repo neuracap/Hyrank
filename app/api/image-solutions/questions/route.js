@@ -30,6 +30,7 @@ export async function GET(request) {
                 qv.solution_json,
                 qv.solution_json->>'answer_label' AS answer_label,
                 qv.correct_option_label,
+                qv.status,
                 qv.solution_status,
                 es.code AS section_code
             FROM question_version qv
@@ -37,7 +38,7 @@ export async function GET(request) {
             WHERE qv.paper_session_id = $1
               AND qv.language = 'EN'
               AND qv.has_image = true
-              AND qv.status = 'MANUALLY_CORRECTED'
+              AND qv.status IN ('MANUALLY_CORRECTED', 'FLAGGED')
             ORDER BY qv.source_question_no ASC NULLS LAST
         `, [paperId]);
 

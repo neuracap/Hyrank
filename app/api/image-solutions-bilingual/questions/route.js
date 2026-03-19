@@ -54,7 +54,7 @@ export async function GET(request) {
                 AND qh.language = 'HI'
             LEFT JOIN exam_section es ON es.section_id = qe.exam_section_id
             WHERE qe.paper_session_id = $1
-              AND qe.status = 'MANUALLY_CORRECTED'
+              AND qe.status IN ('MANUALLY_CORRECTED', 'FLAGGED')
               AND (qe.has_image = true OR qh.has_image = true)
             ORDER BY
                 CAST(NULLIF(regexp_replace(qe.source_question_no, '[^0-9]', '', 'g'), '') AS INTEGER) ASC NULLS LAST,
