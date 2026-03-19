@@ -1,11 +1,11 @@
-import BilingualList from '@/components/BilingualList';
+import FlaggedTabs from '@/components/FlaggedTabs';
 import db from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-edge';
 import { redirect } from 'next/navigation';
 
 export const dynamic = 'force-dynamic';
 
-async function fetchFlaggedQuestions(page = 1, limit = 100) {
+async function fetchLinkedFlagged(page = 1, limit = 100) {
     const offset = (page - 1) * limit;
     let client;
 
@@ -19,7 +19,7 @@ async function fetchFlaggedQuestions(page = 1, limit = 100) {
                 ql.status,
                 ql.paper_session_id_english as eng_session_id,
                 ql.paper_session_id_hindi as hin_session_id,
-                
+
                 -- English Question
                 qe.question_id as eng_id,
                 qe.version_no as eng_version,
@@ -28,7 +28,7 @@ async function fetchFlaggedQuestions(page = 1, limit = 100) {
                 qe.source_question_no as eng_source_no,
                 qe.exam_section_id as eng_section_id,
                 qe.difficulty as eng_difficulty,
-                
+
                 -- Hindi Question
                 qh.question_id as hin_id,
                 qh.version_no as hin_version,
@@ -36,40 +36,40 @@ async function fetchFlaggedQuestions(page = 1, limit = 100) {
                 qh.has_image as hin_has_figure,
                 qh.source_question_no as hin_source_no,
                 qh.exam_section_id as hin_section_id,
-                
+
                 -- PDFs & MMD
                 pe_ij.source_pdf_path as eng_source_pdf,
                 ph_ij.source_pdf_path as hin_source_pdf,
                 pe_doc.raw_mmd_doc_id as eng_mmd_doc_id,
                 ph_doc.raw_mmd_doc_id as hin_mmd_doc_id,
-                
+
                 -- Exam Details
                 e.name as exam_name,
                 pe.paper_date as exam_date,
-                
+
                 -- Reviewer assigned to this paper
                 u.name as reviewer_name,
-                
+
                 ql.translated_debug
             FROM question_links ql
             JOIN question_version qe ON (ql.english_question_id = qe.question_id AND ql.english_version_no = qe.version_no)
             LEFT JOIN question_version qh ON (ql.hindi_question_id = qh.question_id AND ql.hindi_version_no = qh.version_no AND qh.language = 'HI')
-            
+
             -- English PDF Joins
             LEFT JOIN paper_session pe ON ql.paper_session_id_english = pe.paper_session_id
             LEFT JOIN exam e ON pe.exam_id = e.exam_id
             LEFT JOIN raw_mmd_doc pe_doc ON pe.raw_mmd_doc_id = pe_doc.raw_mmd_doc_id
             LEFT JOIN import_job pe_ij ON pe_doc.import_job_id = pe_ij.import_job_id
-            
+
             -- Hindi PDF Joins
             LEFT JOIN paper_session ph ON ql.paper_session_id_hindi = ph.paper_session_id
             LEFT JOIN raw_mmd_doc ph_doc ON ph.raw_mmd_doc_id = ph_doc.raw_mmd_doc_id
             LEFT JOIN import_job ph_ij ON ph_doc.import_job_id = ph_ij.import_job_id
-            
+
             -- Reviewer assigned to the English paper session
             LEFT JOIN review_assignments ra ON ra.paper_session_id = ql.paper_session_id_english
             LEFT JOIN users u ON u.id = ra.reviewer_id
-            
+
             WHERE ql.status = 'FLAGGED'
             ORDER BY ql.created_at ASC
             LIMIT $1 OFFSET $2;
@@ -78,11 +78,8 @@ async function fetchFlaggedQuestions(page = 1, limit = 100) {
         const res = await client.query(query, [limit, offset]);
         const links = res.rows;
 
-        // Fetch Count
         const countRes = await client.query(`
-            SELECT COUNT(id) as c
-            FROM question_links
-            WHERE status = 'FLAGGED'
+            SELECT COUNT(id) as c FROM question_links WHERE status = 'FLAGGED'
         `);
         const total = parseInt(countRes.rows[0].c, 10);
 
@@ -93,10 +90,8 @@ async function fetchFlaggedQuestions(page = 1, limit = 100) {
         let allOptions = [];
         if (allIds.length > 0) {
             const optionsRes = await client.query(`
-                SELECT 
-                    question_id,
-                    version_no,
-                    language,
+                SELECT
+                    question_id, version_no, language,
                     option_key as opt_label,
                     option_json->>'text' as opt_text
                 FROM question_option
@@ -106,7 +101,6 @@ async function fetchFlaggedQuestions(page = 1, limit = 100) {
             allOptions = optionsRes.rows;
         }
 
-        // Attach options
         const questions = links.map(link => ({
             ...link,
             engDocInfo: { source_pdf_path: link.eng_source_pdf, mmd_doc_id: link.eng_mmd_doc_id },
@@ -116,10 +110,78 @@ async function fetchFlaggedQuestions(page = 1, limit = 100) {
         }));
 
         return { questions, total, totalPages: Math.ceil(total / limit) };
-
     } catch (e) {
-        console.error('Error fetching flagged questions:', e);
+        console.error('Error fetching linked flagged questions:', e);
         return { questions: [], total: 0, totalPages: 0 };
+    } finally {
+        client?.release();
+    }
+}
+
+async function fetchSoloFlagged() {
+    let client;
+    try {
+        client = await db.connect();
+
+        // Flagged questions in question_version that are NOT in question_links
+        const res = await client.query(`
+            SELECT
+                qv.question_id,
+                qv.version_no,
+                qv.language,
+                qv.status,
+                qv.source_question_no,
+                qv.body_json->>'text' AS question_text,
+                qv.has_image,
+                qv.difficulty,
+                es.code AS section_code,
+                e.name AS exam_name,
+                ps.session_label,
+                j.source_pdf_path
+            FROM question_version qv
+            LEFT JOIN exam_section es ON es.section_id = qv.exam_section_id
+            LEFT JOIN paper_session ps ON ps.paper_session_id = qv.paper_session_id
+            LEFT JOIN exam e ON e.exam_id = ps.exam_id
+            LEFT JOIN raw_mmd_doc d ON ps.raw_mmd_doc_id = d.raw_mmd_doc_id
+            LEFT JOIN import_job j ON d.import_job_id = j.import_job_id
+            WHERE qv.status = 'FLAGGED'
+              AND NOT EXISTS (
+                  SELECT 1 FROM question_links ql
+                  WHERE (ql.english_question_id = qv.question_id AND ql.english_version_no = qv.version_no)
+                     OR (ql.hindi_question_id = qv.question_id AND ql.hindi_version_no = qv.version_no)
+              )
+            ORDER BY ps.paper_date DESC NULLS LAST, qv.source_question_no ASC NULLS LAST
+        `);
+
+        const questions = res.rows;
+        if (questions.length === 0) return { questions: [], total: 0 };
+
+        const questionIds = questions.map(q => q.question_id);
+        const optionsRes = await client.query(`
+            SELECT
+                question_id,
+                option_key AS opt_label,
+                option_json->>'text' AS opt_text
+            FROM question_option
+            WHERE question_id = ANY($1)
+            ORDER BY option_key ASC
+        `, [questionIds]);
+
+        const optionsMap = {};
+        for (const opt of optionsRes.rows) {
+            if (!optionsMap[opt.question_id]) optionsMap[opt.question_id] = [];
+            optionsMap[opt.question_id].push(opt);
+        }
+
+        const enriched = questions.map(q => ({
+            ...q,
+            options: optionsMap[q.question_id] || [],
+        }));
+
+        return { questions: enriched, total: enriched.length };
+    } catch (e) {
+        console.error('Error fetching solo flagged questions:', e);
+        return { questions: [], total: 0 };
     } finally {
         client?.release();
     }
@@ -127,34 +189,26 @@ async function fetchFlaggedQuestions(page = 1, limit = 100) {
 
 export default async function FlaggedPage({ searchParams }) {
     const user = await getCurrentUser();
-
     if (!user) {
         redirect('/login');
     }
 
     const page = parseInt(await searchParams?.page || '1', 10);
-    const { questions, total, totalPages } = await fetchFlaggedQuestions(page, 100);
+    const [linked, solo] = await Promise.all([
+        fetchLinkedFlagged(page, 100),
+        fetchSoloFlagged(),
+    ]);
 
     return (
         <div className="bg-gray-50 min-h-screen">
             <div className="container mx-auto px-4 py-8">
-                <header className="mb-8 bg-white border border-gray-200 rounded-xl p-6 shadow-sm flex items-center justify-between">
-                    <div>
-                        <h1 className="text-2xl font-bold text-gray-900 mb-2">🔥 Flagged Questions</h1>
-                        <p className="text-sm text-gray-500">
-                            Viewing all {total} marked-for-review questions across the platform. Edit and "Save Changes" to mark them as corrected.
-                        </p>
-                    </div>
-                </header>
-
-                <BilingualList
-                    initialQuestions={questions}
-                    total={total}
-                    currentPage={page}
-                    totalPages={totalPages}
-                    isReviewMode={false}
-                    isGlobalFlaggedMode={true}
-                    paperSessionId="FLAGGED_GLOBAL" // Dummy ID so pagination knows we're not tied to one session
+                <FlaggedTabs
+                    linkedQuestions={linked.questions}
+                    linkedTotal={linked.total}
+                    linkedPage={page}
+                    linkedTotalPages={linked.totalPages}
+                    soloQuestions={solo.questions}
+                    soloTotal={solo.total}
                 />
             </div>
         </div>
