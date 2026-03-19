@@ -34,6 +34,7 @@ export default async function ImageSolutionsBilingualPage() {
                 ON qe.question_id = ql.english_question_id
                 AND qe.version_no = ql.english_version_no
                 AND qe.language = 'EN'
+                AND qe.status = 'MANUALLY_CORRECTED'
                 AND (qe.has_image = true OR EXISTS (
                     SELECT 1 FROM question_version qh
                     WHERE qh.question_id = ql.hindi_question_id
