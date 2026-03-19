@@ -453,10 +453,10 @@ function OptionGrid({ options, assets, selectedOption, onSelect }) {
                 const textWithoutImages = (opt.opt_text || '').replace(/\\includegraphics\{[^}]+\}/g, '').trim();
                 return (
                     <button key={opt.opt_label} onClick={() => onSelect(opt.opt_label)}
-                        className={`flex flex-col items-center p-2 rounded-lg border text-center transition-all ${isSelected
+                        className={`flex flex-col items-center justify-center p-2 rounded-lg border text-center transition-all min-h-[5rem] ${isSelected
                             ? 'bg-green-50 border-green-400 ring-2 ring-green-300'
                             : 'bg-white border-gray-200 hover:border-gray-400'}`}>
-                        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border mb-1 ${isSelected
+                        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border mb-1 flex-shrink-0 ${isSelected
                             ? 'bg-green-500 text-white border-green-500'
                             : 'bg-gray-100 text-gray-600 border-gray-300'}`}>{opt.opt_label}</span>
                         {optAsset ? (
