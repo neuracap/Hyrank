@@ -38,8 +38,9 @@ export default function ImageSolutionsBilingual({ papers }) {
     const [feedback, setFeedback] = useState(null);
     const [filter, setFilter] = useState('unsolved');
 
-    // Per-pair state
-    const [selectedOptions, setSelectedOptions] = useState({});
+    // Per-pair state — separate EN/HI option selections (options can be shuffled)
+    const [selectedOptionsEn, setSelectedOptionsEn] = useState({});
+    const [selectedOptionsHi, setSelectedOptionsHi] = useState({});
     const [subtypes, setSubtypes] = useState({});
     const [difficulties, setDifficulties] = useState({});
     const [solutionsEn, setSolutionsEn] = useState({});
@@ -55,7 +56,8 @@ export default function ImageSolutionsBilingual({ papers }) {
         setSelectedPaper(paper);
         setPairs([]);
         setSourcePdfPath(null);
-        setSelectedOptions({});
+        setSelectedOptionsEn({});
+        setSelectedOptionsHi({});
         setSubtypes({});
         setDifficulties({});
         setSolutionsEn({});
@@ -71,10 +73,14 @@ export default function ImageSolutionsBilingual({ papers }) {
             if (res.ok && data.pairs) {
                 setPairs(data.pairs);
                 if (data.source_pdf_path) setSourcePdfPath(data.source_pdf_path);
-                const opts = {}, subs = {}, diffs = {}, solEn = {}, solHi = {}, resEn = {}, resHi = {};
+                const optsEn = {}, optsHi = {}, subs = {}, diffs = {}, solEn = {}, solHi = {}, resEn = {}, resHi = {};
                 for (const p of data.pairs) {
-                    const label = p.correct_option_label;
-                    if (label) opts[p.link_id] = label;
+                    // EN correct option from eng solution
+                    const enLabel = p.correct_option_label || p.eng_solution_json?.answer_outcome?.correct_option || p.eng_solution_json?.correct_option_label;
+                    if (enLabel) optsEn[p.link_id] = enLabel;
+                    // HI correct option from hin solution (may differ due to shuffled options)
+                    const hiLabel = p.hin_solution_json?.answer_outcome?.correct_option || p.hin_solution_json?.correct_option_label || enLabel;
+                    if (hiLabel) optsHi[p.link_id] = hiLabel;
                     if (p.subtype) subs[p.link_id] = p.subtype;
                     if (p.difficulty) {
                         const diffMap = { 1: 'easy', 2: 'medium', 3: 'hard' };
@@ -83,16 +89,14 @@ export default function ImageSolutionsBilingual({ papers }) {
                     // Pre-populate from saved EN solution
                     if (p.eng_solution_json?.display_sections) {
                         const ds = p.eng_solution_json.display_sections;
-                        // New schema: display_sections is an array
                         if (Array.isArray(ds)) {
                             const ec = ds.find(s => s.key === 'exam_craft');
                             if (ec?.content) solEn[p.link_id] = ec.content;
                         } else if (ds.exam_craft?.approach) {
                             solEn[p.link_id] = ds.exam_craft.approach;
                         }
-                        resEn[p.link_id] = { full_json: p.eng_solution_json, correct_option_label: label, difficulty: p.difficulty, subtype: p.subtype };
+                        resEn[p.link_id] = { full_json: p.eng_solution_json, correct_option_label: enLabel, difficulty: p.difficulty, subtype: p.subtype };
                     }
-                    // Pre-populate from saved HI solution
                     if (p.hin_solution_json?.display_sections) {
                         const ds = p.hin_solution_json.display_sections;
                         if (Array.isArray(ds)) {
@@ -103,10 +107,11 @@ export default function ImageSolutionsBilingual({ papers }) {
                         } else if (ds.exam_craft?.approach) {
                             solHi[p.link_id] = ds.exam_craft.approach;
                         }
-                        resHi[p.link_id] = { full_json: p.hin_solution_json, correct_option_label: label, difficulty: p.difficulty, subtype: p.subtype };
+                        resHi[p.link_id] = { full_json: p.hin_solution_json, correct_option_label: hiLabel, difficulty: p.difficulty, subtype: p.subtype };
                     }
                 }
-                setSelectedOptions(opts);
+                setSelectedOptionsEn(optsEn);
+                setSelectedOptionsHi(optsHi);
                 setSubtypes(subs);
                 setDifficulties(diffs);
                 setSolutionsEn(solEn);
@@ -150,8 +155,10 @@ export default function ImageSolutionsBilingual({ papers }) {
 
     const handleGenerate = useCallback(async (pair) => {
         const linkId = pair.link_id;
-        const answerLabel = selectedOptions[linkId];
-        if (!answerLabel) { setFeedback({ type: 'error', message: 'Select the correct answer first.' }); return; }
+        const enAnswer = selectedOptionsEn[linkId];
+        const hiAnswer = selectedOptionsHi[linkId];
+        if (!enAnswer) { setFeedback({ type: 'error', message: 'Select the correct English answer first.' }); return; }
+        if (pair.hin_id && !hiAnswer) { setFeedback({ type: 'error', message: 'Select the correct Hindi answer first.' }); return; }
         const sub = subtypes[linkId] || 'other';
         const diff = difficulties[linkId] || 'medium';
 
@@ -159,7 +166,7 @@ export default function ImageSolutionsBilingual({ papers }) {
         setFeedback(null);
 
         try {
-            // Make 2 parallel AI calls: EN and HI
+            // Make 2 parallel AI calls: EN and HI with their respective correct options
             const [enRes, hiRes] = await Promise.all([
                 fetch('/api/image-solutions-bilingual/generate', {
                     method: 'POST',
@@ -169,7 +176,7 @@ export default function ImageSolutionsBilingual({ papers }) {
                         language: 'EN',
                         question_text: pair.eng_text,
                         options: pair.eng_options,
-                        correct_option: answerLabel,
+                        correct_option: enAnswer,
                         subtype: sub,
                         difficulty: diff,
                         exam_craft: solutionsEn[linkId] || '',
@@ -183,7 +190,7 @@ export default function ImageSolutionsBilingual({ papers }) {
                         language: 'HI',
                         question_text: pair.hin_text,
                         options: pair.hin_options,
-                        correct_option: answerLabel,
+                        correct_option: hiAnswer,
                         subtype: sub,
                         difficulty: diff,
                         exam_craft: solutionsHi[linkId] || '',
@@ -218,14 +225,15 @@ export default function ImageSolutionsBilingual({ papers }) {
         } finally {
             setGeneratingId(null);
         }
-    }, [selectedOptions, subtypes, difficulties, solutionsEn, solutionsHi]);
+    }, [selectedOptionsEn, selectedOptionsHi, subtypes, difficulties, solutionsEn, solutionsHi]);
 
     const handleSave = useCallback(async (pair) => {
         const linkId = pair.link_id;
-        const answerLabel = selectedOptions[linkId];
+        const enAnswer = selectedOptionsEn[linkId];
+        const hiAnswer = selectedOptionsHi[linkId];
         const enResult = aiResultsEn[linkId];
 
-        if (!answerLabel) { setFeedback({ type: 'error', message: 'Select the correct answer first.' }); return; }
+        if (!enAnswer) { setFeedback({ type: 'error', message: 'Select the correct English answer first.' }); return; }
         if (!enResult) { setFeedback({ type: 'error', message: 'Generate AI enrichment first.' }); return; }
 
         const diff = difficulties[linkId];
@@ -245,15 +253,15 @@ export default function ImageSolutionsBilingual({ papers }) {
                     link_id: pair.link_id,
                     subtype: subtypes[linkId] || 'other',
                     difficulty: diffInt,
-                    parsed_en: { ...enResult, correct_option_label: answerLabel },
-                    parsed_hi: aiResultsHi[linkId] ? { ...aiResultsHi[linkId], correct_option_label: answerLabel } : null,
+                    parsed_en: { ...enResult, correct_option_label: enAnswer },
+                    parsed_hi: aiResultsHi[linkId] ? { ...aiResultsHi[linkId], correct_option_label: hiAnswer || enAnswer } : null,
                 }),
             });
             const data = await res.json();
             if (res.ok && data.success) {
                 setFeedback({ type: 'success', message: `Q.${pair.eng_source_no || linkId} saved!` });
                 setPairs(prev => prev.map(p =>
-                    p.link_id === linkId ? { ...p, solution_status: 'DONE', correct_option_label: answerLabel, difficulty: diffInt } : p
+                    p.link_id === linkId ? { ...p, solution_status: 'DONE', correct_option_label: enAnswer, difficulty: diffInt } : p
                 ));
             } else {
                 setFeedback({ type: 'error', message: data.error || 'Save failed.' });
@@ -264,7 +272,7 @@ export default function ImageSolutionsBilingual({ papers }) {
         } finally {
             setSavingId(null);
         }
-    }, [aiResultsEn, aiResultsHi, selectedOptions, subtypes, difficulties]);
+    }, [aiResultsEn, aiResultsHi, selectedOptionsEn, selectedOptionsHi, subtypes, difficulties]);
 
     const handleFlag = useCallback(async (pair) => {
         setFlaggingId(pair.link_id);
@@ -403,8 +411,10 @@ export default function ImageSolutionsBilingual({ papers }) {
                                         key={pair.link_id}
                                         pair={pair}
                                         idx={idx}
-                                        selectedOption={selectedOptions[pair.link_id]}
-                                        onSelectOption={(label) => setSelectedOptions(prev => ({ ...prev, [pair.link_id]: label }))}
+                                        selectedOptionEn={selectedOptionsEn[pair.link_id]}
+                                        onSelectOptionEn={(label) => setSelectedOptionsEn(prev => ({ ...prev, [pair.link_id]: label }))}
+                                        selectedOptionHi={selectedOptionsHi[pair.link_id]}
+                                        onSelectOptionHi={(label) => setSelectedOptionsHi(prev => ({ ...prev, [pair.link_id]: label }))}
                                         subtype={subtypes[pair.link_id] || ''}
                                         onSubtypeChange={(val) => setSubtypes(prev => ({ ...prev, [pair.link_id]: val }))}
                                         difficulty={difficulties[pair.link_id] || ''}
@@ -464,7 +474,7 @@ function OptionGrid({ options, assets, selectedOption, onSelect }) {
     );
 }
 
-function PairCard({ pair, idx, selectedOption, onSelectOption, subtype, onSubtypeChange, difficulty, onDifficultyChange, solutionEn, onSolutionEnChange, solutionHi, onSolutionHiChange, aiResultEn, aiResultHi, isGenerating, isTranslating, isSaving, isFlagging, onTranslate, onGenerate, onSave, onFlag }) {
+function PairCard({ pair, idx, selectedOptionEn, onSelectOptionEn, selectedOptionHi, onSelectOptionHi, subtype, onSubtypeChange, difficulty, onDifficultyChange, solutionEn, onSolutionEnChange, solutionHi, onSolutionHiChange, aiResultEn, aiResultHi, isGenerating, isTranslating, isSaving, isFlagging, onTranslate, onGenerate, onSave, onFlag }) {
     const isSolved = pair.solution_status === 'DONE';
     const isFlagged = pair.link_status === 'FLAGGED';
 
@@ -499,7 +509,7 @@ function PairCard({ pair, idx, selectedOption, onSelectOption, subtype, onSubtyp
                             ))}
                         </div>
                     )}
-                    <OptionGrid options={pair.eng_options} assets={pair.eng_assets} selectedOption={selectedOption} onSelect={onSelectOption} />
+                    <OptionGrid options={pair.eng_options} assets={pair.eng_assets} selectedOption={selectedOptionEn} onSelect={onSelectOptionEn} />
                 </div>
                 {/* Hindi */}
                 <div className="p-5 space-y-3">
@@ -512,7 +522,7 @@ function PairCard({ pair, idx, selectedOption, onSelectOption, subtype, onSubtyp
                             ))}
                         </div>
                     )}
-                    <OptionGrid options={pair.hin_options} assets={pair.hin_assets} selectedOption={selectedOption} onSelect={onSelectOption} />
+                    <OptionGrid options={pair.hin_options} assets={pair.hin_assets} selectedOption={selectedOptionHi} onSelect={onSelectOptionHi} />
                 </div>
             </div>
 
@@ -600,16 +610,17 @@ function PairCard({ pair, idx, selectedOption, onSelectOption, subtype, onSubtyp
             {/* Action buttons */}
             <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 flex items-center justify-between">
                 <div className="text-xs text-gray-500">
-                    {selectedOption && <span>Answer: <strong>{selectedOption}</strong></span>}
+                    {selectedOptionEn && <span>EN: <strong>{selectedOptionEn}</strong></span>}
+                    {selectedOptionHi && <span className="ml-2">HI: <strong>{selectedOptionHi}</strong></span>}
                     {subtype && <span className="ml-3">Type: <strong>{subtype}</strong></span>}
                     {difficulty && <span className="ml-3">Diff: <strong>{difficulty}</strong></span>}
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={onGenerate} disabled={isGenerating || !selectedOption}
+                    <button onClick={onGenerate} disabled={isGenerating || !selectedOptionEn}
                         className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-md hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center gap-1.5">
                         {isGenerating ? (<><span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full"></span>Generating...</>) : 'Generate AI'}
                     </button>
-                    <button onClick={onSave} disabled={isSaving || !selectedOption || !aiResultEn}
+                    <button onClick={onSave} disabled={isSaving || !selectedOptionEn || !aiResultEn}
                         className="px-5 py-2 bg-orange-600 text-white text-sm font-semibold rounded-md hover:bg-orange-700 disabled:opacity-50 transition-colors flex items-center gap-1.5">
                         {isSaving ? (<><span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full"></span>Saving...</>) : 'Save'}
                     </button>

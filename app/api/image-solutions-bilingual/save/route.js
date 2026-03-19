@@ -47,11 +47,12 @@ export async function POST(request) {
             return NextResponse.json({ success: true, action: 'flagged' });
         }
 
-        // Save action — separate EN and HI solution JSONs
-        const answerLabel = parsed_en?.correct_option_label || parsed_hi?.correct_option_label;
-        if (!answerLabel) {
+        // Save action — separate EN and HI with independent correct options
+        const enAnswer = parsed_en?.correct_option_label;
+        const hiAnswer = parsed_hi?.correct_option_label;
+        if (!enAnswer) {
             await client.query('ROLLBACK');
-            return NextResponse.json({ error: 'correct_option_label is required' }, { status: 400 });
+            return NextResponse.json({ error: 'EN correct_option_label is required' }, { status: 400 });
         }
 
         const difficultyVal = difficulty || parsed_en?.difficulty || parsed_hi?.difficulty || null;
@@ -81,7 +82,7 @@ export async function POST(request) {
             `, [
                 solutionJson,
                 subtype || parsed_en.subtype || '',
-                answerLabel,
+                enAnswer,
                 parsed_en.final_answer_text || '',
                 parsed_en.recheck_options || false,
                 parsed_en.figure_helpful || false,
@@ -91,15 +92,16 @@ export async function POST(request) {
                 eng_version,
             ]);
 
-            // Mark correct option for EN
+            // Mark correct option for EN (using EN-specific answer)
             await client.query(`
                 UPDATE question_option SET is_correct = (option_key = $1)
                 WHERE question_id = $2 AND language = 'EN'
-            `, [answerLabel, eng_id]);
+            `, [enAnswer, eng_id]);
         }
 
-        // Save HI
+        // Save HI (with HI-specific correct option, which may differ from EN)
         if (hin_id && hin_version != null && parsed_hi) {
+            const hiCorrect = hiAnswer || enAnswer;
             const solutionJson = JSON.stringify({
                 ...parsed_hi.full_json,
                 reviewed_by: user.id,
@@ -123,7 +125,7 @@ export async function POST(request) {
             `, [
                 solutionJson,
                 subtype || parsed_hi.subtype || '',
-                answerLabel,
+                hiCorrect,
                 parsed_hi.final_answer_text || '',
                 parsed_hi.recheck_options || false,
                 parsed_hi.figure_helpful || false,
@@ -133,11 +135,11 @@ export async function POST(request) {
                 hin_version,
             ]);
 
-            // Mark correct option for HI
+            // Mark correct option for HI (using HI-specific answer)
             await client.query(`
                 UPDATE question_option SET is_correct = (option_key = $1)
                 WHERE question_id = $2 AND language = 'HI'
-            `, [answerLabel, hin_id]);
+            `, [hiCorrect, hin_id]);
         }
 
         await client.query('COMMIT');
