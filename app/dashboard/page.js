@@ -109,6 +109,13 @@ export default async function DashboardPage({ searchParams }) {
 
         whereConditions.push(`ps.language = 'EN'`); // Reviewers only see English sessions by default
 
+        // Only show papers that are linked in the bilingual page
+        whereConditions.push(`EXISTS (
+            SELECT 1 FROM question_links ql
+            WHERE ql.paper_session_id_english = ps.paper_session_id
+               OR ql.paper_session_id_hindi = ps.paper_session_id
+        )`);
+
         if (status !== 'ALL') {
             // For reviewers, they can also filter by the paper's pipeline status, or you could keep their PENDING/COMPLETED filter tied to ra.status. 
             // We'll update this to filter by ps.status to match the global filter dropdown.
