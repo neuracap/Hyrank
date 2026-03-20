@@ -29,8 +29,8 @@ export default async function SolutionReviewPage() {
             LEFT JOIN question_version qv
                 ON qv.paper_session_id = ps.paper_session_id
                 AND qv.language = 'EN'
-            WHERE ps.status = 'MISSING_ADDED'
-            GROUP BY ps.paper_session_id, ps.session_label, ps.paper_date, ps.subject, ps.status, e.name
+            WHERE ps.solution_done_count >= 90
+            GROUP BY ps.paper_session_id, ps.session_label, ps.paper_date, ps.subject, ps.status, e.name, ps.solution_done_count
             ORDER BY ps.paper_date DESC NULLS LAST
         `);
         papers = res.rows;

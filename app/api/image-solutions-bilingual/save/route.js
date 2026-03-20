@@ -142,6 +142,18 @@ export async function POST(request) {
             `, [hiCorrect, hin_id]);
         }
 
+        // Refresh solution_done_count on paper_session
+        await client.query(`
+            UPDATE paper_session ps SET solution_done_count = (
+                SELECT COUNT(*) FROM question_version qv
+                WHERE qv.paper_session_id = ps.paper_session_id
+                  AND qv.language = 'EN' AND qv.solution_status = 'DONE'
+            ) WHERE ps.paper_session_id = (
+                SELECT paper_session_id FROM question_version
+                WHERE question_id = $1 AND version_no = $2 LIMIT 1
+            )
+        `, [eng_id, eng_version]);
+
         await client.query('COMMIT');
         return NextResponse.json({ success: true });
 
