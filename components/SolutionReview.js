@@ -260,9 +260,10 @@ function QuestionCard({ q, idx }) {
                         </div>
                     )}
 
-                    {/* Exam Craft / Display Sections */}
+                    {/* Exam Craft / Display Sections — always visible */}
                     {displaySections && (
-                        <CollapsibleSection title="Explanation" defaultOpen={true}>
+                        <div className="px-5 py-3 border-b border-gray-100">
+                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-2">Explanation</label>
                             {Array.isArray(displaySections) ? (
                                 displaySections.map((sec, i) => (
                                     <div key={i} className="mb-2">
@@ -280,7 +281,7 @@ function QuestionCard({ q, idx }) {
                                     </div>
                                 ))
                             ) : null}
-                        </CollapsibleSection>
+                        </div>
                     )}
 
                     {/* Diagnostic Signals */}
