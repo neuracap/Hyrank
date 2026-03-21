@@ -173,6 +173,14 @@ export default function SolutionReview({ papers }) {
     );
 }
 
+// Safely convert a value to an array (handles strings, nulls, non-arrays)
+function toArray(val) {
+    if (!val) return [];
+    if (Array.isArray(val)) return val;
+    if (typeof val === 'string') return [val];
+    return [];
+}
+
 function QuestionCard({ q, idx }) {
     const hasSolution = q.solution_status === 'DONE';
     const sj = q.solution_json || {};
@@ -192,7 +200,7 @@ function QuestionCard({ q, idx }) {
             <div className={`px-5 py-3 border-b flex items-center justify-between ${hasSolution ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-100'}`}>
                 <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-bold text-gray-700">Q.{q.source_q_no || idx + 1}</span>
-                    <span className="text-xs text-gray-400 font-mono">{q.question_id.slice(0, 8)}</span>
+                    <span className="text-xs text-gray-400 font-mono">{(q.question_id || '').slice(0, 8)}</span>
                     <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${hasSolution ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
                         {hasSolution ? 'DONE' : q.solution_status || 'PENDING'}
                     </span>
@@ -278,31 +286,31 @@ function QuestionCard({ q, idx }) {
                     {/* Diagnostic Signals */}
                     {diagnosticSignals && (
                         <CollapsibleSection title="Diagnostic Signals">
-                            {diagnosticSignals.mistake_patterns?.length > 0 && (
+                            {toArray(diagnosticSignals.mistake_patterns).length > 0 && (
                                 <div className="mb-2">
                                     <span className="text-xs font-semibold text-gray-500">Mistake Patterns: </span>
                                     <div className="flex flex-wrap gap-1 mt-1">
-                                        {diagnosticSignals.mistake_patterns.map((p, i) => (
+                                        {toArray(diagnosticSignals.mistake_patterns).map((p, i) => (
                                             <span key={i} className="text-xs bg-red-50 text-red-700 px-2 py-0.5 rounded">{p}</span>
                                         ))}
                                     </div>
                                 </div>
                             )}
-                            {diagnosticSignals.exam_skills_tested?.length > 0 && (
+                            {toArray(diagnosticSignals.exam_skills_tested).length > 0 && (
                                 <div className="mb-2">
                                     <span className="text-xs font-semibold text-gray-500">Skills Tested: </span>
                                     <div className="flex flex-wrap gap-1 mt-1">
-                                        {diagnosticSignals.exam_skills_tested.map((s, i) => (
+                                        {toArray(diagnosticSignals.exam_skills_tested).map((s, i) => (
                                             <span key={i} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">{s}</span>
                                         ))}
                                     </div>
                                 </div>
                             )}
-                            {diagnosticSignals.trap_type?.length > 0 && (
+                            {toArray(diagnosticSignals.trap_type).length > 0 && (
                                 <div>
                                     <span className="text-xs font-semibold text-gray-500">Traps: </span>
                                     <div className="flex flex-wrap gap-1 mt-1">
-                                        {diagnosticSignals.trap_type.map((t, i) => (
+                                        {toArray(diagnosticSignals.trap_type).map((t, i) => (
                                             <span key={i} className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded">{t}</span>
                                         ))}
                                     </div>
@@ -314,29 +322,29 @@ function QuestionCard({ q, idx }) {
                     {/* Learning Signals */}
                     {learningSignals && (
                         <CollapsibleSection title="Learning Signals">
-                            {learningSignals.concepts?.length > 0 && (
+                            {toArray(learningSignals.concepts).length > 0 && (
                                 <div className="mb-2">
                                     <span className="text-xs font-semibold text-gray-500">Concepts: </span>
                                     <div className="flex flex-wrap gap-1 mt-1">
-                                        {learningSignals.concepts.map((c, i) => (
+                                        {toArray(learningSignals.concepts).map((c, i) => (
                                             <span key={i} className="text-xs bg-purple-50 text-purple-700 px-2 py-0.5 rounded">{c}</span>
                                         ))}
                                     </div>
                                 </div>
                             )}
-                            {learningSignals.takeaways?.length > 0 && (
+                            {toArray(learningSignals.takeaways).length > 0 && (
                                 <div className="mb-2">
                                     <span className="text-xs font-semibold text-gray-500">Takeaways: </span>
                                     <ul className="text-sm text-gray-700 list-disc list-inside mt-1">
-                                        {learningSignals.takeaways.map((t, i) => <li key={i}>{t}</li>)}
+                                        {toArray(learningSignals.takeaways).map((t, i) => <li key={i}>{t}</li>)}
                                     </ul>
                                 </div>
                             )}
-                            {learningSignals.memory_hooks?.length > 0 && (
+                            {toArray(learningSignals.memory_hooks).length > 0 && (
                                 <div>
                                     <span className="text-xs font-semibold text-gray-500">Memory Hooks: </span>
                                     <ul className="text-sm text-gray-700 list-disc list-inside mt-1">
-                                        {learningSignals.memory_hooks.map((m, i) => <li key={i}>{m}</li>)}
+                                        {toArray(learningSignals.memory_hooks).map((m, i) => <li key={i}>{m}</li>)}
                                     </ul>
                                 </div>
                             )}
@@ -346,11 +354,11 @@ function QuestionCard({ q, idx }) {
                     {/* Student Errors & Option Error Map */}
                     {studentHooks && (
                         <CollapsibleSection title="Student Errors">
-                            {studentHooks.likely_errors?.length > 0 && (
+                            {toArray(studentHooks.likely_errors).length > 0 && (
                                 <div className="mb-2">
                                     <span className="text-xs font-semibold text-gray-500">Likely Errors: </span>
                                     <ul className="text-sm text-gray-700 list-disc list-inside mt-1">
-                                        {studentHooks.likely_errors.map((e, i) => <li key={i}>{e}</li>)}
+                                        {toArray(studentHooks.likely_errors).map((e, i) => <li key={i}>{e}</li>)}
                                     </ul>
                                 </div>
                             )}
@@ -376,9 +384,9 @@ function QuestionCard({ q, idx }) {
                             <div className="text-sm text-gray-700">
                                 {qualityCheck.issue_flag ? (
                                     <>
-                                        {qualityCheck.issue_type?.length > 0 && (
+                                        {toArray(qualityCheck.issue_type).length > 0 && (
                                             <div className="flex flex-wrap gap-1 mb-1">
-                                                {qualityCheck.issue_type.map((t, i) => (
+                                                {toArray(qualityCheck.issue_type).map((t, i) => (
                                                     <span key={i} className="text-xs bg-red-50 text-red-700 px-2 py-0.5 rounded">{t}</span>
                                                 ))}
                                             </div>
@@ -393,23 +401,23 @@ function QuestionCard({ q, idx }) {
                     )}
 
                     {/* Indexing Metadata */}
-                    {indexingMeta && (indexingMeta.keywords?.length > 0 || indexingMeta.tags?.length > 0) && (
+                    {indexingMeta && (toArray(indexingMeta.keywords).length > 0 || toArray(indexingMeta.tags).length > 0) && (
                         <CollapsibleSection title="Metadata">
-                            {indexingMeta.keywords?.length > 0 && (
+                            {toArray(indexingMeta?.keywords).length > 0 && (
                                 <div className="mb-2">
                                     <span className="text-xs font-semibold text-gray-500">Keywords: </span>
                                     <div className="flex flex-wrap gap-1 mt-1">
-                                        {indexingMeta.keywords.map((k, i) => (
+                                        {toArray(indexingMeta?.keywords).map((k, i) => (
                                             <span key={i} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{k}</span>
                                         ))}
                                     </div>
                                 </div>
                             )}
-                            {indexingMeta.tags?.length > 0 && (
+                            {toArray(indexingMeta?.tags).length > 0 && (
                                 <div>
                                     <span className="text-xs font-semibold text-gray-500">Tags: </span>
                                     <div className="flex flex-wrap gap-1 mt-1">
-                                        {indexingMeta.tags.map((t, i) => (
+                                        {toArray(indexingMeta?.tags).map((t, i) => (
                                             <span key={i} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{t}</span>
                                         ))}
                                     </div>
