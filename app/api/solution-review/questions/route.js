@@ -20,19 +20,33 @@ export async function GET(request) {
 
         const questionsRes = await client.query(`
             SELECT
-                question_id,
-                version_no,
-                source_question_no AS source_q_no,
-                body_json->>'text' AS question_text,
-                difficulty,
-                solution_json->>'answer_label' AS answer_label,
-                solution_json->>'solution_text' AS solution_text,
-                solution_json->>'tags' AS tags
-            FROM question_version
-            WHERE paper_session_id = $1
-              AND language = 'EN'
-            ORDER BY source_question_no ASC NULLS LAST
+                qv.question_id,
+                qv.version_no,
+                qv.source_question_no AS source_q_no,
+                qv.body_json->>'text' AS question_text,
+                qv.difficulty,
+                qv.subtype,
+                qv.correct_option_label,
+                qv.final_answer_text,
+                qv.solution_status,
+                qv.solution_json,
+                qv.solution_json->>'answer_label' AS answer_label,
+                qv.solution_json->>'solution_text' AS solution_text,
+                qv.solution_json->>'tags' AS tags,
+                es.code AS section_code
+            FROM question_version qv
+            LEFT JOIN exam_section es ON es.section_id = qv.exam_section_id
+            WHERE qv.paper_session_id = $1
+              AND qv.language = 'EN'
+            ORDER BY qv.source_question_no ASC NULLS LAST
         `, [paperId]);
+
+        // Parse solution_json strings
+        for (const q of questionsRes.rows) {
+            if (typeof q.solution_json === 'string') {
+                try { q.solution_json = JSON.parse(q.solution_json); } catch { q.solution_json = null; }
+            }
+        }
 
         const questions = questionsRes.rows;
 
