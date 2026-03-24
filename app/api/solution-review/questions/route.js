@@ -25,9 +25,11 @@ export async function GET(request) {
                 source_question_no AS source_q_no,
                 body_json->>'text' AS question_text,
                 difficulty,
+                status,
                 solution_json->>'answer_label' AS answer_label,
                 solution_json->>'solution_text' AS solution_text,
-                solution_json->>'tags' AS tags
+                solution_json->>'tags' AS tags,
+                solution_json->>'flag_note' AS flag_note
             FROM question_version
             WHERE paper_session_id = $1
               AND language = 'EN'

@@ -11,6 +11,8 @@ export default function SolutionReview() {
     const [loadingQuestions, setLoadingQuestions] = useState(false);
     const [isMarking, setIsMarking] = useState(false);
     const [feedback, setFeedback] = useState(null);
+    const [flaggingId, setFlaggingId] = useState(null);
+    const [flagNotes, setFlagNotes] = useState({});
 
     useEffect(() => {
         fetchPapers();
@@ -35,6 +37,8 @@ export default function SolutionReview() {
         setSelectedPaper(paper);
         setQuestions([]);
         setFeedback(null);
+        setFlaggingId(null);
+        setFlagNotes({});
         setLoadingQuestions(true);
 
         try {
@@ -42,6 +46,12 @@ export default function SolutionReview() {
             const data = await res.json();
             if (res.ok && data.questions) {
                 setQuestions(data.questions);
+                // Pre-populate flag notes from existing data
+                const notes = {};
+                for (const q of data.questions) {
+                    if (q.flag_note) notes[q.question_id] = q.flag_note;
+                }
+                setFlagNotes(notes);
             } else {
                 setFeedback({ type: 'error', message: data.error || 'Failed to load questions.' });
             }
@@ -53,8 +63,44 @@ export default function SolutionReview() {
         }
     };
 
+    const handleFlag = async (question, shouldFlag) => {
+        setFlaggingId(question.question_id);
+        try {
+            const res = await fetch('/api/solution-review/flag', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    question_id: question.question_id,
+                    version_no: question.version_no,
+                    flag: shouldFlag,
+                    note: flagNotes[question.question_id] || '',
+                }),
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setQuestions(prev => prev.map(q =>
+                    q.question_id === question.question_id
+                        ? { ...q, status: shouldFlag ? 'FLAGGED' : 'DRAFT', flag_note: shouldFlag ? (flagNotes[q.question_id] || '') : null }
+                        : q
+                ));
+            } else {
+                setFeedback({ type: 'error', message: data.error || 'Flag operation failed.' });
+            }
+        } catch (err) {
+            console.error(err);
+            setFeedback({ type: 'error', message: 'Network error during flag.' });
+        } finally {
+            setFlaggingId(null);
+        }
+    };
+
     const handleMarkReviewed = async () => {
         if (!selectedPaper) return;
+        const flaggedCount = questions.filter(q => q.status === 'FLAGGED').length;
+        if (flaggedCount > 0) {
+            const ok = confirm(`${flaggedCount} question(s) are flagged with issues. Mark as reviewed anyway?`);
+            if (!ok) return;
+        }
         setIsMarking(true);
         setFeedback(null);
 
@@ -67,7 +113,6 @@ export default function SolutionReview() {
             const data = await res.json();
             if (res.ok && data.success) {
                 setFeedback({ type: 'success', message: 'Paper marked as Solution Reviewed.' });
-                // Remove from sidebar and clear selection
                 setPapers(prev => prev.filter(p => p.paper_session_id !== selectedPaper.paper_session_id));
                 setSelectedPaper(null);
                 setQuestions([]);
@@ -87,9 +132,11 @@ export default function SolutionReview() {
         return new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
     };
 
+    const flaggedCount = questions.filter(q => q.status === 'FLAGGED').length;
+
     return (
         <div className="flex h-screen overflow-hidden bg-white">
-            {/* Left Sidebar — Papers with complete solutions */}
+            {/* Left Sidebar */}
             <aside className="w-72 flex-shrink-0 border-r border-gray-200 bg-white flex flex-col">
                 <div className="px-4 py-4 border-b border-gray-200">
                     <h1 className="text-lg font-bold text-gray-900">Solution Review</h1>
@@ -161,9 +208,16 @@ export default function SolutionReview() {
                                     {feedback.message}
                                 </div>
                             )}
-                            <span className="text-xs font-medium bg-blue-100 text-blue-700 px-2 py-1 rounded">
-                                Status: {selectedPaper.status}
-                            </span>
+                            <div className="flex items-center gap-3">
+                                {flaggedCount > 0 && (
+                                    <span className="text-xs font-bold bg-red-100 text-red-700 px-2 py-1 rounded">
+                                        {flaggedCount} flagged
+                                    </span>
+                                )}
+                                <span className="text-xs font-medium bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                                    Status: {selectedPaper.status}
+                                </span>
+                            </div>
                         </div>
 
                         {/* Questions list */}
@@ -177,91 +231,142 @@ export default function SolutionReview() {
                                 ) : questions.length === 0 ? (
                                     <div className="text-center py-24 text-gray-400">No questions found for this paper.</div>
                                 ) : (
-                                    questions.map((q, idx) => (
-                                        <div key={q.question_id} className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-                                            {/* Question Header */}
-                                            <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-                                                <span className="text-sm font-bold text-gray-700">
-                                                    Q.{q.source_q_no || idx + 1}
-                                                </span>
-                                                <div className="flex items-center gap-3">
-                                                    {q.difficulty && (
-                                                        <span className={`text-xs font-medium px-2 py-0.5 rounded ${
-                                                            q.difficulty === 'easy' ? 'bg-green-100 text-green-700' :
-                                                            q.difficulty === 'medium' ? 'bg-yellow-100 text-yellow-700' :
-                                                            'bg-red-100 text-red-700'
-                                                        }`}>
-                                                            {q.difficulty}
+                                    questions.map((q, idx) => {
+                                        const isFlagged = q.status === 'FLAGGED';
+                                        return (
+                                            <div key={q.question_id} className={`bg-white rounded-lg border shadow-sm overflow-hidden ${isFlagged ? 'border-red-300 ring-1 ring-red-200' : 'border-gray-200'}`}>
+                                                {/* Question Header */}
+                                                <div className={`px-5 py-3 border-b flex items-center justify-between ${isFlagged ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-100'}`}>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-sm font-bold text-gray-700">
+                                                            Q.{q.source_q_no || idx + 1}
                                                         </span>
-                                                    )}
-                                                    {q.answer_label && (
-                                                        <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
-                                                            Ans: {q.answer_label}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </div>
-
-                                            {/* Question Text */}
-                                            <div className="px-5 py-4 border-b border-gray-100">
-                                                <div className="text-sm text-gray-800">
-                                                    <Latex>{q.question_text || '(No question text)'}</Latex>
-                                                </div>
-                                            </div>
-
-                                            {/* Options */}
-                                            <div className="px-5 py-4 border-b border-gray-100 grid grid-cols-2 gap-3">
-                                                {(q.options || []).map(opt => {
-                                                    const isCorrect = q.answer_label === opt.opt_label;
-                                                    return (
-                                                        <div
-                                                            key={opt.opt_label}
-                                                            className={`flex gap-2 items-start p-3 rounded-md border ${isCorrect ? 'bg-green-50 border-green-400' : 'bg-white border-gray-200'}`}
+                                                        {isFlagged && (
+                                                            <span className="text-xs font-bold bg-red-500 text-white px-1.5 py-0.5 rounded">FLAGGED</span>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex items-center gap-3">
+                                                        {q.difficulty && (
+                                                            <span className={`text-xs font-medium px-2 py-0.5 rounded ${
+                                                                q.difficulty === 'easy' ? 'bg-green-100 text-green-700' :
+                                                                q.difficulty === 'medium' ? 'bg-yellow-100 text-yellow-700' :
+                                                                'bg-red-100 text-red-700'
+                                                            }`}>
+                                                                {q.difficulty}
+                                                            </span>
+                                                        )}
+                                                        {q.answer_label && (
+                                                            <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                                                                Ans: {q.answer_label}
+                                                            </span>
+                                                        )}
+                                                        {/* Flag / Unflag button */}
+                                                        <button
+                                                            onClick={() => isFlagged ? handleFlag(q, false) : null}
+                                                            disabled={flaggingId === q.question_id}
+                                                            className={`text-xs font-semibold px-2 py-1 rounded transition-colors ${
+                                                                isFlagged
+                                                                    ? 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                                                    : 'hidden'
+                                                            }`}
                                                         >
-                                                            <span className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border ${isCorrect ? 'bg-green-500 text-white border-green-500' : 'bg-gray-100 text-gray-600 border-gray-300'}`}>
-                                                                {opt.opt_label}
-                                                            </span>
-                                                            <div className="text-sm text-gray-700 pt-0.5 flex-1">
-                                                                <Latex>{opt.opt_text || ''}</Latex>
+                                                            {flaggingId === q.question_id ? '...' : 'Unflag'}
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {/* Question Text */}
+                                                <div className="px-5 py-4 border-b border-gray-100">
+                                                    <div className="text-sm text-gray-800">
+                                                        <Latex>{q.question_text || '(No question text)'}</Latex>
+                                                    </div>
+                                                </div>
+
+                                                {/* Options */}
+                                                <div className="px-5 py-4 border-b border-gray-100 grid grid-cols-2 gap-3">
+                                                    {(q.options || []).map(opt => {
+                                                        const isCorrect = q.answer_label === opt.opt_label;
+                                                        return (
+                                                            <div
+                                                                key={opt.opt_label}
+                                                                className={`flex gap-2 items-start p-3 rounded-md border ${isCorrect ? 'bg-green-50 border-green-400' : 'bg-white border-gray-200'}`}
+                                                            >
+                                                                <span className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border ${isCorrect ? 'bg-green-500 text-white border-green-500' : 'bg-gray-100 text-gray-600 border-gray-300'}`}>
+                                                                    {opt.opt_label}
+                                                                </span>
+                                                                <div className="text-sm text-gray-700 pt-0.5 flex-1">
+                                                                    <Latex>{opt.opt_text || ''}</Latex>
+                                                                </div>
                                                             </div>
+                                                        );
+                                                    })}
+                                                </div>
+
+                                                {/* Solution */}
+                                                {q.solution_text && (
+                                                    <div className="px-5 py-4 bg-amber-50">
+                                                        <div className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1.5">Solution</div>
+                                                        <div className="text-sm text-gray-800 whitespace-pre-wrap">
+                                                            <Latex>{q.solution_text}</Latex>
                                                         </div>
-                                                    );
-                                                })}
+                                                    </div>
+                                                )}
+
+                                                {/* Tags */}
+                                                {q.tags && (
+                                                    <div className="px-5 py-2 border-t border-gray-100 bg-gray-50">
+                                                        <div className="flex flex-wrap gap-1.5">
+                                                            {q.tags.split(',').map((tag, i) => (
+                                                                <span key={i} className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded">
+                                                                    {tag.trim()}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* Flag note display (if flagged) */}
+                                                {isFlagged && q.flag_note && (
+                                                    <div className="px-5 py-3 bg-red-50 border-t border-red-200">
+                                                        <div className="text-xs font-semibold text-red-700 uppercase tracking-wide mb-1">Issue Note</div>
+                                                        <div className="text-sm text-red-800">{q.flag_note}</div>
+                                                    </div>
+                                                )}
+
+                                                {/* Flag action bar (if not already flagged) */}
+                                                {!isFlagged && (
+                                                    <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 flex items-center gap-2">
+                                                        <input
+                                                            type="text"
+                                                            value={flagNotes[q.question_id] || ''}
+                                                            onChange={e => setFlagNotes(prev => ({ ...prev, [q.question_id]: e.target.value }))}
+                                                            placeholder="Issue note (optional)..."
+                                                            className="flex-1 border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:ring-2 focus:ring-red-400 focus:border-red-400"
+                                                        />
+                                                        <button
+                                                            onClick={() => handleFlag(q, true)}
+                                                            disabled={flaggingId === q.question_id}
+                                                            className="px-3 py-1.5 bg-red-500 text-white text-xs font-bold rounded-md hover:bg-red-600 disabled:opacity-50 transition-colors"
+                                                        >
+                                                            {flaggingId === q.question_id ? '...' : 'Flag Issue'}
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </div>
-
-                                            {/* Solution */}
-                                            {q.solution_text && (
-                                                <div className="px-5 py-4 bg-amber-50">
-                                                    <div className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1.5">Solution</div>
-                                                    <div className="text-sm text-gray-800 whitespace-pre-wrap">
-                                                        <Latex>{q.solution_text}</Latex>
-                                                    </div>
-                                                </div>
-                                            )}
-
-                                            {/* Tags */}
-                                            {q.tags && (
-                                                <div className="px-5 py-2 border-t border-gray-100 bg-gray-50">
-                                                    <div className="flex flex-wrap gap-1.5">
-                                                        {q.tags.split(',').map((tag, i) => (
-                                                            <span key={i} className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded">
-                                                                {tag.trim()}
-                                                            </span>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    ))
+                                        );
+                                    })
                                 )}
                             </div>
                         </div>
 
-                        {/* Bottom bar with Solution Reviewed button */}
+                        {/* Bottom bar */}
                         {questions.length > 0 && !loadingQuestions && (
                             <div className="sticky bottom-0 bg-white border-t border-gray-200 shadow-[0_-2px_8px_rgba(0,0,0,0.06)] px-6 py-4 flex items-center justify-between">
                                 <div className="text-sm text-gray-500">
-                                    {questions.length} questions reviewed
+                                    {questions.length} questions
+                                    {flaggedCount > 0 && (
+                                        <span className="text-red-600 font-semibold ml-2">({flaggedCount} flagged)</span>
+                                    )}
                                 </div>
                                 <button
                                     onClick={handleMarkReviewed}
