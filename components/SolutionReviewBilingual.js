@@ -12,7 +12,9 @@ function toArray(v) { return Array.isArray(v) ? v : []; }
 function sectionsToText(sections) {
     return toArray(sections).map(s => {
         const prefix = s.key ? `[${s.key}] ` : '';
-        return prefix + (s.content || '');
+        // Normalize literal \n sequences to real newlines
+        const content = (s.content || '').replace(/\\n/g, '\n');
+        return prefix + content;
     }).join('\n\n');
 }
 
@@ -110,7 +112,7 @@ function EditableSolutionPanel({ lang, data, label, editState, onEditChange, onT
                         {textToSections(editState.solutionText).map((sec, i) => (
                             <div key={i}>
                                 <div className="font-bold text-gray-600 uppercase mb-0.5">{(sec.key || '').replace(/_/g, ' ')}</div>
-                                {(sec.content || '').split('\n').map((line, li) => (
+                                {(sec.content || '').replace(/\\n/g, '\n').split('\n').map((line, li) => (
                                     <div key={li} className={line.trim() ? '' : 'h-2'}>
                                         {line.trim() ? <Latex>{line}</Latex> : null}
                                     </div>
