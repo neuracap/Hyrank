@@ -8,16 +8,35 @@ const DIFF_COLORS = { 1: 'bg-green-100 text-green-700', 2: 'bg-yellow-100 text-y
 
 function toArray(v) { return Array.isArray(v) ? v : []; }
 
-// Single-language solution panel
-function SolutionPanel({ lang, data, label }) {
+// Helper to flatten display_sections into editable text
+function sectionsToText(sections) {
+    return toArray(sections).map(s => {
+        const prefix = s.key ? `[${s.key}] ` : '';
+        return prefix + (s.content || '');
+    }).join('\n\n');
+}
+
+// Helper to parse edited text back to display_sections
+function textToSections(text) {
+    const blocks = text.split(/\n\n+/).filter(b => b.trim());
+    return blocks.map(block => {
+        const match = block.match(/^\[([^\]]+)\]\s*([\s\S]*)$/);
+        if (match) return { key: match[1], content: match[2].trim() };
+        return { key: 'exam_craft', content: block.trim() };
+    });
+}
+
+// =========================================================
+// Editable Solution Panel (one language side)
+// =========================================================
+function EditableSolutionPanel({ lang, data, label, editState, onEditChange, onTranslateFrom, translating, onCopyFrom }) {
     if (!data) return <div className="text-xs text-gray-400 italic p-3">No {label} version linked</div>;
 
-    const sol = data.solution_json || {};
-    const displaySections = toArray(sol.display_sections);
     const hasSolution = data.solution_status === 'DONE';
+    const [showPreview, setShowPreview] = useState(true);
 
     return (
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 flex flex-col">
             {/* Header */}
             <div className={`px-3 py-1.5 text-xs font-bold border-b flex items-center justify-between ${lang === 'en' ? 'bg-blue-50 text-blue-800' : 'bg-orange-50 text-orange-800'}`}>
                 <span>{label} — {data.q_no || '?'}</span>
@@ -31,7 +50,7 @@ function SolutionPanel({ lang, data, label }) {
                 </div>
             </div>
 
-            {/* Question text */}
+            {/* Question text + options (read-only) */}
             <div className="px-3 py-2 border-b bg-white">
                 <div className="text-sm text-gray-800"><Latex>{data.text || '(No text)'}</Latex></div>
                 <div className="grid grid-cols-2 gap-1.5 mt-2">
@@ -44,54 +63,182 @@ function SolutionPanel({ lang, data, label }) {
                 </div>
             </div>
 
-            {/* Solution */}
-            {hasSolution && displaySections.length > 0 ? (
-                <div className="px-3 py-2 space-y-2">
-                    {displaySections.map((sec, i) => (
-                        <div key={i}>
-                            <div className="text-xs font-bold text-gray-600 uppercase mb-0.5">
-                                {(sec.key || '').replace(/_/g, ' ')}
+            {/* Correct answer editor */}
+            <div className="px-3 py-1.5 border-b bg-gray-50 flex items-center gap-2">
+                <span className="text-xs text-gray-500 font-semibold">Correct:</span>
+                {['A', 'B', 'C', 'D'].map(opt => (
+                    <button key={opt} onClick={() => onEditChange({ ...editState, correct: opt })}
+                        className={`w-6 h-6 text-xs font-bold rounded border ${editState.correct === opt ? 'bg-green-500 text-white border-green-600' : 'bg-white text-gray-600 border-gray-300 hover:border-green-400'}`}>
+                        {opt}
+                    </button>
+                ))}
+            </div>
+
+            {/* Action buttons: Translate / Copy from other side */}
+            <div className="px-3 py-1.5 border-b bg-gray-50 flex items-center gap-2 flex-wrap">
+                <button onClick={onTranslateFrom} disabled={translating}
+                    className="px-2 py-1 text-xs font-semibold bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50">
+                    {translating ? 'Translating...' : `Translate from ${lang === 'en' ? 'Hindi' : 'English'}`}
+                </button>
+                <button onClick={onCopyFrom}
+                    className="px-2 py-1 text-xs font-semibold bg-gray-600 text-white rounded hover:bg-gray-700">
+                    Copy from {lang === 'en' ? 'Hindi' : 'English'}
+                </button>
+                <button onClick={() => setShowPreview(!showPreview)}
+                    className="px-2 py-1 text-xs font-semibold bg-white text-gray-600 border border-gray-300 rounded hover:bg-gray-50 ml-auto">
+                    {showPreview ? 'Hide Preview' : 'Show Preview'}
+                </button>
+            </div>
+
+            {/* Editable solution text */}
+            <div className="px-3 py-2 flex-1 flex flex-col">
+                <textarea
+                    value={editState.solutionText}
+                    onChange={e => onEditChange({ ...editState, solutionText: e.target.value })}
+                    rows={8}
+                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y"
+                    placeholder="[exam_craft] Solution text here...&#10;&#10;[toppers_insight] One-liner..."
+                />
+
+                {/* Preview */}
+                {showPreview && editState.solutionText && (
+                    <div className="mt-2 p-2 bg-gray-50 rounded border border-gray-200 text-xs space-y-1.5 max-h-64 overflow-y-auto">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase">Preview</p>
+                        {textToSections(editState.solutionText).map((sec, i) => (
+                            <div key={i}>
+                                <span className="font-bold text-gray-600 uppercase">{(sec.key || '').replace(/_/g, ' ')}: </span>
+                                <Latex>{sec.content}</Latex>
                             </div>
-                            <div className="text-xs text-gray-700 leading-relaxed">
-                                <Latex>{sec.content || ''}</Latex>
-                            </div>
-                        </div>
-                    ))}
-                    {data.answer_text && (
-                        <div className="text-xs text-gray-500 mt-1">
-                            Answer: <span className="font-semibold text-gray-700"><Latex>{data.answer_text}</Latex></span>
-                        </div>
-                    )}
-                </div>
-            ) : hasSolution ? (
-                <div className="px-3 py-2 text-xs text-gray-500 italic">Solution data present but no display sections.</div>
-            ) : (
-                <div className="px-3 py-2 text-xs text-red-400 italic">No solution generated.</div>
-            )}
+                        ))}
+                    </div>
+                )}
+            </div>
         </div>
     );
 }
 
-// Bilingual question pair card
-function BilingualCard({ pair, idx }) {
+// =========================================================
+// Bilingual question pair card (editable)
+// =========================================================
+function BilingualCard({ pair, idx, onSaveSuccess }) {
     const [expanded, setExpanded] = useState(true);
+
+    // Edit state for EN and HI
+    const enSections = toArray(pair.en?.solution_json?.display_sections);
+    const hiSections = toArray(pair.hi?.solution_json?.display_sections);
+
+    const [enEdit, setEnEdit] = useState({
+        solutionText: sectionsToText(enSections),
+        correct: pair.en?.correct || '',
+    });
+    const [hiEdit, setHiEdit] = useState({
+        solutionText: sectionsToText(hiSections),
+        correct: pair.hi?.correct || '',
+    });
+
+    const [saving, setSaving] = useState(false);
+    const [saveMsg, setSaveMsg] = useState(null);
+    const [translatingEn, setTranslatingEn] = useState(false);
+    const [translatingHi, setTranslatingHi] = useState(false);
 
     const enDone = pair.en?.solution_status === 'DONE';
     const hiDone = pair.hi?.solution_status === 'DONE';
     const bothDone = enDone && hiDone;
-    const answerMismatch = pair.en?.correct && pair.hi?.correct && pair.en.correct !== pair.hi.correct;
+    const answerMismatch = enEdit.correct && hiEdit.correct && enEdit.correct !== hiEdit.correct;
+
+    // Translate: take the OTHER side's text, translate it, put it in THIS side
+    const handleTranslate = async (targetLang) => {
+        const sourceText = targetLang === 'en' ? hiEdit.solutionText : enEdit.solutionText;
+        if (!sourceText.trim()) return;
+
+        const setTranslating = targetLang === 'en' ? setTranslatingEn : setTranslatingHi;
+        const setEdit = targetLang === 'en' ? setEnEdit : setHiEdit;
+
+        setTranslating(true);
+        try {
+            const res = await fetch('/api/translate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text: sourceText,
+                    source: targetLang === 'en' ? 'hi' : 'en',
+                    target: targetLang === 'en' ? 'en' : 'hi',
+                }),
+            });
+            const data = await res.json();
+            if (data.translatedText) {
+                setEdit(prev => ({ ...prev, solutionText: data.translatedText }));
+            }
+        } catch (e) {
+            console.error('Translation error:', e);
+        } finally {
+            setTranslating(false);
+        }
+    };
+
+    // Copy: take the OTHER side's text verbatim
+    const handleCopy = (targetLang) => {
+        if (targetLang === 'en') {
+            setEnEdit(prev => ({ ...prev, solutionText: hiEdit.solutionText }));
+        } else {
+            setHiEdit(prev => ({ ...prev, solutionText: enEdit.solutionText }));
+        }
+    };
+
+    // Save both sides
+    const handleSave = async () => {
+        setSaving(true);
+        setSaveMsg(null);
+        try {
+            const buildPayload = (data, editState) => {
+                if (!data?.question_id) return null;
+                const existingSol = data.solution_json || {};
+                return {
+                    question_id: data.question_id,
+                    version_no: data.version_no || 1,
+                    correct_option_label: editState.correct || '',
+                    solution_json: {
+                        ...existingSol,
+                        display_sections: textToSections(editState.solutionText),
+                    },
+                };
+            };
+
+            const res = await fetch('/api/solution-review/bilingual-save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    link_id: pair.link_id,
+                    en: buildPayload(pair.en, enEdit),
+                    hi: buildPayload(pair.hi, hiEdit),
+                }),
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setSaveMsg('Saved!');
+                if (onSaveSuccess) onSaveSuccess();
+                setTimeout(() => setSaveMsg(null), 3000);
+            } else {
+                setSaveMsg('Error: ' + (data.error || 'Failed'));
+            }
+        } catch (e) {
+            setSaveMsg('Error: ' + e.message);
+        } finally {
+            setSaving(false);
+        }
+    };
 
     return (
-        <div className={`border rounded-lg overflow-hidden ${bothDone ? 'border-gray-200' : 'border-red-300'}`}>
+        <div className={`border rounded-lg overflow-hidden ${answerMismatch ? 'border-red-400 ring-1 ring-red-200' : bothDone ? 'border-gray-200' : 'border-amber-300'}`}>
             {/* Pair header */}
-            <div className="px-3 py-1.5 bg-gray-50 border-b flex items-center justify-between cursor-pointer" onClick={() => setExpanded(!expanded)}>
-                <div className="flex items-center gap-2">
+            <div className="px-3 py-1.5 bg-gray-50 border-b flex items-center justify-between">
+                <div className="flex items-center gap-2 cursor-pointer" onClick={() => setExpanded(!expanded)}>
                     <span className="text-xs font-bold text-gray-600">#{idx + 1}</span>
                     {pair.section_code && <span className="text-xs bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded">{pair.section_code}</span>}
                     <span className="text-xs text-gray-400">Link #{pair.link_id}</span>
                     {answerMismatch && (
                         <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold">
-                            ANSWER MISMATCH: EN={pair.en.correct} HI={pair.hi.correct}
+                            ANSWER MISMATCH: EN={enEdit.correct} HI={hiEdit.correct}
                         </span>
                     )}
                     {!bothDone && (
@@ -99,21 +246,47 @@ function BilingualCard({ pair, idx }) {
                             {!enDone && !hiDone ? 'Both unsolved' : !enDone ? 'EN unsolved' : 'HI unsolved'}
                         </span>
                     )}
+                    <span className="text-xs text-gray-400">{expanded ? '[-]' : '[+]'}</span>
                 </div>
-                <span className="text-xs text-gray-400">{expanded ? '[-]' : '[+]'}</span>
+                <div className="flex items-center gap-2">
+                    {saveMsg && (
+                        <span className={`text-xs font-semibold ${saveMsg === 'Saved!' ? 'text-green-600' : 'text-red-600'}`}>
+                            {saveMsg}
+                        </span>
+                    )}
+                    <button onClick={handleSave} disabled={saving}
+                        className="px-3 py-1 text-xs font-semibold bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
+                        {saving ? 'Saving...' : 'Save Both'}
+                    </button>
+                </div>
             </div>
 
-            {/* Side by side panels */}
+            {/* Side by side editable panels */}
             {expanded && (
                 <div className="flex divide-x divide-gray-200">
-                    <SolutionPanel lang="en" data={pair.en} label="English" />
-                    <SolutionPanel lang="hi" data={pair.hi} label="Hindi" />
+                    <EditableSolutionPanel
+                        lang="en" data={pair.en} label="English"
+                        editState={enEdit} onEditChange={setEnEdit}
+                        onTranslateFrom={() => handleTranslate('en')}
+                        translating={translatingEn}
+                        onCopyFrom={() => handleCopy('en')}
+                    />
+                    <EditableSolutionPanel
+                        lang="hi" data={pair.hi} label="Hindi"
+                        editState={hiEdit} onEditChange={setHiEdit}
+                        onTranslateFrom={() => handleTranslate('hi')}
+                        translating={translatingHi}
+                        onCopyFrom={() => handleCopy('hi')}
+                    />
                 </div>
             )}
         </div>
     );
 }
 
+// =========================================================
+// Main Component
+// =========================================================
 export default function SolutionReviewBilingual({ exams }) {
     const [selectedExamId, setSelectedExamId] = useState('');
     const [papers, setPapers] = useState([]);
@@ -140,16 +313,9 @@ export default function SolutionReviewBilingual({ exams }) {
         finally { setLoadingPapers(false); }
     };
 
-    const handlePaperChange = async (val) => {
-        if (!val) return;
-        const [enId, hiId] = val.split('|');
-        const pair = papers.find(p => p.en_session_id === enId && p.hi_session_id === hiId);
-        setSelectedPair(pair);
-        setQuestions([]);
-        setFilter('all');
-        setFeedback(null);
+    const loadQuestions = async (enId, hiId) => {
         setLoadingQuestions(true);
-
+        setFeedback(null);
         try {
             const res = await fetch(`/api/solution-review/bilingual-questions?en_session_id=${enId}&hi_session_id=${hiId}`);
             const data = await res.json();
@@ -165,6 +331,16 @@ export default function SolutionReviewBilingual({ exams }) {
         }
     };
 
+    const handlePaperChange = async (val) => {
+        if (!val) return;
+        const [enId, hiId] = val.split('|');
+        const pair = papers.find(p => p.en_session_id === enId && p.hi_session_id === hiId);
+        setSelectedPair(pair);
+        setQuestions([]);
+        setFilter('all');
+        await loadQuestions(enId, hiId);
+    };
+
     const filteredQuestions = questions.filter(q => {
         const enDone = q.en?.solution_status === 'DONE';
         const hiDone = q.hi?.solution_status === 'DONE';
@@ -178,10 +354,10 @@ export default function SolutionReviewBilingual({ exams }) {
     const mismatchCount = questions.filter(q => q.en?.correct && q.hi?.correct && q.en.correct !== q.hi.correct).length;
 
     // Group by section for sidebar
-    const groupedQuestions = questions.reduce((acc, q, idx) => {
+    const groupedQuestions = questions.reduce((acc, q) => {
         const sec = q.section_code || 'Other';
         if (!acc[sec]) acc[sec] = [];
-        acc[sec].push({ ...q, _idx: idx });
+        acc[sec].push(q);
         return acc;
     }, {});
 
@@ -248,7 +424,7 @@ export default function SolutionReviewBilingual({ exams }) {
 
             {/* Body */}
             <div className="flex flex-1 overflow-hidden">
-                {/* Left Sidebar: Section-wise question grid */}
+                {/* Left Sidebar */}
                 {selectedPair && questions.length > 0 && (
                     <aside className="w-56 flex-shrink-0 border-r border-gray-200 bg-white overflow-y-auto p-3">
                         <div className="space-y-4">
@@ -277,10 +453,7 @@ export default function SolutionReviewBilingual({ exams }) {
                                                 return (
                                                     <a key={q.link_id}
                                                         href={`#bp-${q.link_id}`}
-                                                        onClick={e => {
-                                                            e.preventDefault();
-                                                            document.getElementById(`bp-${q.link_id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                                        }}
+                                                        onClick={e => { e.preventDefault(); document.getElementById(`bp-${q.link_id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
                                                         className={`flex items-center justify-center aspect-square text-xs font-medium rounded border transition-colors ${colorClass}`}
                                                         title={`Q.${qLabel} EN:${enDone ? 'DONE' : 'PENDING'} HI:${hiDone ? 'DONE' : 'PENDING'}${mismatch ? ' MISMATCH!' : ''}`}
                                                     >
