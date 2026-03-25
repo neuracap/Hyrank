@@ -428,9 +428,9 @@ export default function SolutionReviewBilingual({ exams }) {
 
     return (
         <div className="flex flex-col h-screen overflow-hidden bg-white">
-            {/* Top Bar */}
-            <div className="flex-shrink-0 bg-white border-b border-gray-200 shadow-sm px-4 py-3">
-                <div className="flex items-center gap-3 flex-wrap">
+            {/* Top Bar — Row 1: Selectors */}
+            <div className="flex-shrink-0 bg-white border-b border-gray-200 shadow-sm px-4 py-2 space-y-2">
+                <div className="flex items-center gap-3">
                     <h1 className="text-lg font-bold text-gray-900 flex-shrink-0">Bilingual Solution Review</h1>
 
                     <select value={selectedExamId} onChange={e => handleExamChange(e.target.value)}
@@ -446,7 +446,7 @@ export default function SolutionReviewBilingual({ exams }) {
                             value={selectedPair ? `${selectedPair.en_session_id}|${selectedPair.hi_session_id}` : ''}
                             onChange={e => handlePaperChange(e.target.value)}
                             disabled={loadingPapers}
-                            className="border border-gray-300 rounded-md px-3 py-1.5 text-sm min-w-[300px] max-w-xl disabled:opacity-50"
+                            className="flex-1 border border-gray-300 rounded-md px-3 py-1.5 text-sm min-w-[300px] disabled:opacity-50"
                         >
                             <option value="">{loadingPapers ? 'Loading...' : `Select Paper Pair (${papers.length})...`}</option>
                             {papers.map(p => (
@@ -457,48 +457,45 @@ export default function SolutionReviewBilingual({ exams }) {
                         </select>
                     )}
 
-                    {selectedPair && questions.length > 0 && (
-                        <>
-                            <span className="text-xs text-gray-500">
-                                {bothSolvedCount}/{questions.length} both solved
-                                {mismatchCount > 0 && <span className="text-red-600 ml-1">({mismatchCount} mismatches)</span>}
-                            </span>
-                            <div className="flex gap-1 flex-shrink-0">
-                                {[
-                                    { key: 'all', label: 'All' },
-                                    { key: 'both_solved', label: 'Both Solved' },
-                                    { key: 'unsolved', label: 'Unsolved' },
-                                    { key: 'mismatch', label: 'Mismatches' },
-                                ].map(f => (
-                                    <button key={f.key} onClick={() => setFilter(f.key)}
-                                        className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${filter === f.key ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                                        {f.label}
-                                    </button>
-                                ))}
-                            </div>
-                        </>
-                    )}
-
-                    {/* Status advance buttons */}
-                    {selectedPair && questions.length > 0 && (
-                        <div className="flex gap-1.5 flex-shrink-0 ml-auto">
-                            <button onClick={() => handleAdvanceBoth('SOLUTION_REVIEW')} disabled={advancing}
-                                className="px-3 py-1.5 text-xs font-semibold bg-amber-500 text-white rounded-md hover:bg-amber-600 disabled:opacity-50">
-                                {advancing ? '...' : 'Mark Solution Reviewed'}
-                            </button>
-                            <button onClick={() => handleAdvanceBoth('PRODUCTION')} disabled={advancing}
-                                className="px-3 py-1.5 text-xs font-semibold bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50">
-                                {advancing ? '...' : 'Move to Production'}
-                            </button>
-                        </div>
-                    )}
-
                     {feedback && (
-                        <span className={`text-sm px-3 py-1.5 rounded font-medium ${feedback.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                        <span className={`text-xs px-2.5 py-1 rounded font-medium flex-shrink-0 ${feedback.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
                             {feedback.msg}
                         </span>
                     )}
                 </div>
+
+                {/* Row 2: Stats + Filters + Actions (only when paper loaded) */}
+                {selectedPair && questions.length > 0 && (
+                    <div className="flex items-center gap-3">
+                        <span className="text-xs text-gray-500">
+                            {bothSolvedCount}/{questions.length} both solved
+                            {mismatchCount > 0 && <span className="text-red-600 ml-1">({mismatchCount} mismatches)</span>}
+                        </span>
+                        <div className="flex gap-1">
+                            {[
+                                { key: 'all', label: 'All' },
+                                { key: 'both_solved', label: 'Both Solved' },
+                                { key: 'unsolved', label: 'Unsolved' },
+                                { key: 'mismatch', label: 'Mismatches' },
+                            ].map(f => (
+                                <button key={f.key} onClick={() => setFilter(f.key)}
+                                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${filter === f.key ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                                    {f.label}
+                                </button>
+                            ))}
+                        </div>
+                        <div className="flex gap-1.5 ml-auto">
+                            <button onClick={() => handleAdvanceBoth('SOLUTION_REVIEW')} disabled={advancing}
+                                className="px-3 py-1 text-xs font-semibold bg-amber-500 text-white rounded-md hover:bg-amber-600 disabled:opacity-50">
+                                {advancing ? '...' : 'Mark Solution Reviewed'}
+                            </button>
+                            <button onClick={() => handleAdvanceBoth('PRODUCTION')} disabled={advancing}
+                                className="px-3 py-1 text-xs font-semibold bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50">
+                                {advancing ? '...' : 'Move to Production'}
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Body */}
