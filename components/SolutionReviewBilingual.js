@@ -16,13 +16,16 @@ function sectionsToText(sections) {
     }).join('\n\n');
 }
 
-// Helper to parse edited text back to display_sections
+// Helper to parse edited text back to display_sections.
+// Splits only on [section_key] tags — content between tags (including blank lines) stays together.
 function textToSections(text) {
-    const blocks = text.split(/\n\n+/).filter(b => b.trim());
-    return blocks.map(block => {
-        const match = block.match(/^\[([^\]]+)\]\s*([\s\S]*)$/);
+    if (!text || !text.trim()) return [];
+    // Split on lines that start with [some_key] — keep the delimiter
+    const parts = text.split(/^(?=\[[a-z_]+\]\s)/m).filter(b => b.trim());
+    return parts.map(part => {
+        const match = part.match(/^\[([a-z_]+)\]\s*([\s\S]*)$/);
         if (match) return { key: match[1], content: match[2].trim() };
-        return { key: 'exam_craft', content: block.trim() };
+        return { key: 'exam_craft', content: part.trim() };
     });
 }
 
