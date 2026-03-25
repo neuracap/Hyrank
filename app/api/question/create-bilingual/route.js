@@ -13,26 +13,46 @@ export async function POST(req) {
             return NextResponse.json({ error: 'Missing required fields: eng_session_id, hin_session_id, english, hindi' }, { status: 400 });
         }
 
-        // Resolve Section ID (if provided)
+        // Resolve Section ID, code, and name (if provided)
         let exam_section_id = null;
+        let sectionCode = null;
+        let sectionName = null;
         if (section_name) {
             const secRes = await client.query(`
-                SELECT s.section_id 
+                SELECT s.section_id, s.code, s.name
                 FROM exam_section s
                 JOIN paper_session ps ON s.exam_id = ps.exam_id
-                WHERE ps.paper_session_id = $1 
+                WHERE ps.paper_session_id = $1
                 AND (LOWER(s.code) = LOWER($2) OR LOWER(s.name) = LOWER($2))
                 LIMIT 1
             `, [eng_session_id, section_name]);
 
             if (secRes.rows.length > 0) {
                 exam_section_id = secRes.rows[0].section_id;
+                sectionCode = secRes.rows[0].code;
+                sectionName = secRes.rows[0].name;
             }
         }
 
         await client.query('BEGIN');
 
-        const qNo = source_question_no || 'Q.New';
+        // Normalize source_question_no to Q.XX format
+        const rawQNo = source_question_no ? String(source_question_no).trim() : null;
+        let qNo = rawQNo || 'Q.New';
+        let qNoInt = null;
+        if (rawQNo) {
+            const numMatch = rawQNo.replace(/[^0-9]/g, '');
+            if (numMatch) {
+                qNo = rawQNo.startsWith('Q.') ? rawQNo : `Q.${numMatch}`;
+                qNoInt = parseInt(numMatch, 10);
+            }
+        }
+
+        const metaJson = {
+            source: 'manual',
+            ...(sectionCode && { section_code: sectionCode }),
+            ...(sectionName && { section_name: sectionName })
+        };
 
         // --- English ---
         const engQuestionId = crypto.randomUUID();
@@ -42,10 +62,10 @@ export async function POST(req) {
         );
 
         await client.query(`
-            INSERT INTO question_version 
-            (question_id, version_no, language, status, paper_session_id, exam_section_id, body_json, question_type, has_image, source_question_no, created_at, updated_at)
-            VALUES ($1, 1, 'EN', 'draft', $2, $3, $4, 'MCQ', false, $5, NOW(), NOW())
-        `, [engQuestionId, eng_session_id, exam_section_id, { text: english.text || '' }, qNo]);
+            INSERT INTO question_version
+            (question_id, version_no, language, status, paper_session_id, exam_section_id, body_json, question_type, has_image, source_question_no, question_number_int, meta_json, created_at, updated_at)
+            VALUES ($1, 1, 'EN', 'draft', $2, $3, $4, 'MCQ', false, $5, $6, $7, NOW(), NOW())
+        `, [engQuestionId, eng_session_id, exam_section_id, { text: english.text || '' }, qNo, qNoInt, metaJson]);
 
         // Insert English options
         for (const [key, text] of Object.entries(english.options || {})) {
@@ -63,10 +83,10 @@ export async function POST(req) {
         );
 
         await client.query(`
-            INSERT INTO question_version 
-            (question_id, version_no, language, status, paper_session_id, exam_section_id, body_json, question_type, has_image, source_question_no, created_at, updated_at)
-            VALUES ($1, 1, 'HI', 'draft', $2, $3, $4, 'MCQ', false, $5, NOW(), NOW())
-        `, [hinQuestionId, hin_session_id, exam_section_id, { text: hindi.text || '' }, qNo]);
+            INSERT INTO question_version
+            (question_id, version_no, language, status, paper_session_id, exam_section_id, body_json, question_type, has_image, source_question_no, question_number_int, meta_json, created_at, updated_at)
+            VALUES ($1, 1, 'HI', 'draft', $2, $3, $4, 'MCQ', false, $5, $6, $7, NOW(), NOW())
+        `, [hinQuestionId, hin_session_id, exam_section_id, { text: hindi.text || '' }, qNo, qNoInt, metaJson]);
 
         // Insert Hindi options
         for (const [key, text] of Object.entries(hindi.options || {})) {

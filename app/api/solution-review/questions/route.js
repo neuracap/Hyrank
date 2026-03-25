@@ -29,6 +29,8 @@ export async function GET(request) {
                 qv.correct_option_label,
                 qv.final_answer_text,
                 qv.solution_status,
+                qv.solution_figure_helpful,
+                qv.solution_figure_prompt,
                 qv.solution_json,
                 qv.solution_json->>'answer_label' AS answer_label,
                 qv.solution_json->>'solution_text' AS solution_text,

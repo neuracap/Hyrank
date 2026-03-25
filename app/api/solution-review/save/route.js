@@ -28,27 +28,42 @@ export async function POST(request) {
         let saved = 0;
 
         for (const sol of solutions) {
-            const { question_id, version_no, answer_label, solution_text, difficulty, tags } = sol;
+            const { question_id, version_no, answer_label, solution_text, difficulty, tags, full_json } = sol;
             if (!question_id || version_no == null) continue;
 
-            // Build solution_json
-            const solutionJson = JSON.stringify({
-                answer_label: answer_label || null,
-                solution_text: solution_text || null,
-                tags: tags || null,
-                updated_at: new Date().toISOString(),
-            });
+            if (full_json) {
+                // Rich format: save full solution_json with reviewer info
+                const solutionJson = JSON.stringify({
+                    ...full_json,
+                    reviewed_by: user.id,
+                    saved_at: new Date().toISOString(),
+                });
 
-            // Update question_version
-            await client.query(`
-                UPDATE question_version
-                SET
-                    solution_json = $1::jsonb,
-                    difficulty = COALESCE(NULLIF($2, ''), difficulty),
-                    updated_at = NOW()
-                WHERE question_id = $3
-                  AND version_no = $4
-            `, [solutionJson, difficulty || '', question_id, version_no]);
+                await client.query(`
+                    UPDATE question_version SET
+                        solution_json = $1::jsonb,
+                        updated_at = NOW()
+                    WHERE question_id = $2 AND version_no = $3 AND language = 'EN'
+                `, [solutionJson, question_id, version_no]);
+            } else {
+                // Legacy format: basic solution_json
+                const solutionJson = JSON.stringify({
+                    answer_label: answer_label || null,
+                    solution_text: solution_text || null,
+                    tags: tags || null,
+                    updated_at: new Date().toISOString(),
+                });
+
+                await client.query(`
+                    UPDATE question_version
+                    SET
+                        solution_json = $1::jsonb,
+                        difficulty = COALESCE(NULLIF($2, ''), difficulty),
+                        updated_at = NOW()
+                    WHERE question_id = $3
+                      AND version_no = $4
+                `, [solutionJson, difficulty || '', question_id, version_no]);
+            }
 
             // Update is_correct on question_option if answer_label provided
             if (answer_label) {

@@ -17,19 +17,31 @@ export async function POST(req) {
         const validStatuses = ['MANUALLY_CORRECTED', 'FLAGGED'];
         const statusToSet = validStatuses.includes(saveStatus) ? saveStatus : 'MANUALLY_CORRECTED';
 
+        // Normalize source_question_no to Q.XX format
+        let normalizedQNo = source_question_no;
+        let qNoInt = null;
+        if (source_question_no) {
+            const raw = String(source_question_no).trim();
+            const numMatch = raw.replace(/[^0-9]/g, '');
+            if (numMatch) {
+                normalizedQNo = raw.startsWith('Q.') ? raw : `Q.${numMatch}`;
+                qNoInt = parseInt(numMatch, 10);
+            }
+        }
+
         await client.query('BEGIN');
 
-        // 1. Update Question Text & Source Question No
-        // We update body_json->>'text' and source_question_no column
+        // 1. Update Question Text & Source Question No + question_number_int
         await client.query(`
             UPDATE question_version
             SET
                 body_json = jsonb_set(body_json, '{text}', to_jsonb($1::text)),
                 source_question_no = COALESCE($5, source_question_no),
+                question_number_int = COALESCE($7, question_number_int),
                 status = $6,
                 updated_at = NOW()
             WHERE question_id = $2 AND version_no = $3 AND language = $4
-        `, [question_text, id, version_no, language, source_question_no, statusToSet]);
+        `, [question_text, id, version_no, language, normalizedQNo, statusToSet, qNoInt]);
 
 
         // 2. Update/Insert Options

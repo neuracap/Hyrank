@@ -29,11 +29,43 @@ export async function POST(req) {
 
         await client.query('BEGIN');
 
-        const qNo = source_question_no || null;
         const sectionId = exam_section_id || null;
         const diff = difficulty || null;
         const gId = group_id || null;
         const gOrder = group_order || null;
+
+        // Normalize source_question_no to Q.XX format
+        const rawQNo = source_question_no ? String(source_question_no).trim() : null;
+        let qNo = rawQNo;
+        let qNoInt = null;
+        if (rawQNo) {
+            const numMatch = rawQNo.replace(/[^0-9]/g, '');
+            if (numMatch) {
+                qNo = rawQNo.startsWith('Q.') ? rawQNo : `Q.${numMatch}`;
+                qNoInt = parseInt(numMatch, 10);
+            }
+        }
+
+        // Look up section_code and section_name for meta_json
+        let sectionCode = null;
+        let sectionName = null;
+        if (sectionId) {
+            const secRes = await client.query(
+                `SELECT code, name FROM exam_section WHERE section_id = $1`,
+                [sectionId]
+            );
+            if (secRes.rows.length > 0) {
+                sectionCode = secRes.rows[0].code;
+                sectionName = secRes.rows[0].name;
+            }
+        }
+
+        const metaJson = {
+            source: 'manual',
+            created_by: user.id,
+            ...(sectionCode && { section_code: sectionCode }),
+            ...(sectionName && { section_name: sectionName })
+        };
 
         // --- English Question ---
         const engQuestionId = crypto.randomUUID();
@@ -45,17 +77,18 @@ export async function POST(req) {
         await client.query(`
             INSERT INTO question_version
             (question_id, version_no, language, status, paper_session_id, exam_section_id,
-             body_json, question_type, has_image, source_question_no, difficulty,
+             body_json, question_type, has_image, source_question_no, question_number_int, difficulty,
              meta_json, group_id, group_order, created_at, updated_at)
-            VALUES ($1, 1, 'EN', 'MANUALLY_CORRECTED', NULL, $2, $3, 'MCQ', false, $4, $5,
-                    $6, $7, $8, NOW(), NOW())
+            VALUES ($1, 1, 'EN', 'MANUALLY_CORRECTED', NULL, $2, $3, 'MCQ', false, $4, $5, $6,
+                    $7, $8, $9, NOW(), NOW())
         `, [
             engQuestionId,
             sectionId,
             { text: english.text || '' },
             qNo,
+            qNoInt,
             diff,
-            { source: 'manual', created_by: user.id },
+            metaJson,
             gId,
             gOrder
         ]);
@@ -84,17 +117,18 @@ export async function POST(req) {
         await client.query(`
             INSERT INTO question_version
             (question_id, version_no, language, status, paper_session_id, exam_section_id,
-             body_json, question_type, has_image, source_question_no, difficulty,
+             body_json, question_type, has_image, source_question_no, question_number_int, difficulty,
              meta_json, group_id, group_order, created_at, updated_at)
-            VALUES ($1, 1, 'HI', 'MANUALLY_CORRECTED', NULL, $2, $3, 'MCQ', false, $4, $5,
-                    $6, $7, $8, NOW(), NOW())
+            VALUES ($1, 1, 'HI', 'MANUALLY_CORRECTED', NULL, $2, $3, 'MCQ', false, $4, $5, $6,
+                    $7, $8, $9, NOW(), NOW())
         `, [
             hinQuestionId,
             sectionId,
             { text: hindi.text || '' },
             qNo,
+            qNoInt,
             diff,
-            { source: 'manual', created_by: user.id },
+            metaJson,
             gId,
             gOrder
         ]);
