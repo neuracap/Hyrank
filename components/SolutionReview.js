@@ -80,7 +80,7 @@ export default function SolutionReview({ exams }) {
         setLoadingQuestions(true);
 
         try {
-            const res = await fetch(`/api/solution-review/questions?paperId=${paper.paper_session_id}`);
+            const res = await fetch(`/api/solution-review/questions?paperId=${paper.paper_session_id}&language=${selectedLanguage}`);
             const data = await res.json();
             if (res.ok && data.questions) {
                 setQuestions(data.questions);

@@ -10,6 +10,7 @@ export async function GET(request) {
 
     const { searchParams } = new URL(request.url);
     const paperId = searchParams.get('paperId');
+    const language = (searchParams.get('language') || 'EN').toUpperCase();
     if (!paperId) {
         return NextResponse.json({ error: 'paperId is required' }, { status: 400 });
     }
@@ -39,9 +40,9 @@ export async function GET(request) {
             FROM question_version qv
             LEFT JOIN exam_section es ON es.section_id = qv.exam_section_id
             WHERE qv.paper_session_id = $1
-              AND qv.language = 'EN'
+              AND qv.language = $2
             ORDER BY qv.question_number_int ASC NULLS LAST
-        `, [paperId]);
+        `, [paperId, language]);
 
         // Parse solution_json strings
         for (const q of questionsRes.rows) {
@@ -65,9 +66,9 @@ export async function GET(request) {
                 option_json->>'text' AS opt_text
             FROM question_option
             WHERE question_id = ANY($1)
-              AND language = 'EN'
+              AND language = $2
             ORDER BY option_key ASC
-        `, [questionIds]);
+        `, [questionIds, language]);
 
         // Group options by question_id
         const optionsByQuestion = {};
