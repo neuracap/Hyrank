@@ -18,6 +18,7 @@ export async function POST(request) {
 
         // Regex patterns to protect
         const patterns = [
+            /\[[a-z_]+\]/g,                    // [section_key] tags like [exam_craft], [answer_logic]
             /\\includegraphics\{[^}]+\}/g,     // images
             /\$[^$]+\$/g,                      // $ math $
             /\\\([^\)]+\\\)/g,                 // \( math \)
