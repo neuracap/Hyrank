@@ -36,20 +36,41 @@ export async function POST(req) {
             ORDER BY sort_order ASC NULLS LAST, name ASC
         `, [exam_id]);
 
-        // 3. For each section, analyze subtype distribution from solved questions
-        const sections = [];
-        let totalPapers = 0;
+        // 3. Find eligible papers: EN language, ~100 questions, last 3 years
+        const threeYearsAgo = new Date();
+        threeYearsAgo.setFullYear(threeYearsAgo.getFullYear() - 3);
 
-        // Count distinct papers
-        const paperCountRes = await db.query(`
-            SELECT COUNT(DISTINCT ps.paper_session_id) AS paper_count
+        const eligiblePapersRes = await db.query(`
+            SELECT ps.paper_session_id, ps.session_name, ps.paper_date,
+                   COUNT(qv.question_id) AS q_count
             FROM paper_session ps
+            JOIN question_version qv ON qv.paper_session_id = ps.paper_session_id
+                AND qv.language = 'EN'
             WHERE ps.exam_id = $1
-        `, [exam_id]);
-        totalPapers = parseInt(paperCountRes.rows[0]?.paper_count || 0);
+              AND ps.language = 'EN'
+              AND ps.paper_date >= $2
+            GROUP BY ps.paper_session_id, ps.session_name, ps.paper_date
+            HAVING COUNT(qv.question_id) >= 95
+            ORDER BY ps.paper_date DESC
+        `, [exam_id, threeYearsAgo.toISOString()]);
+
+        const eligiblePaperIds = eligiblePapersRes.rows.map(r => r.paper_session_id);
+        const sections = [];
+        const totalPapers = eligiblePaperIds.length;
+
+        if (eligiblePaperIds.length === 0) {
+            return NextResponse.json({
+                success: true,
+                exam: { exam_id: exam.exam_id, name: exam.name },
+                total_papers: 0,
+                eligible_papers: [],
+                suggested_config: { sections: [] },
+                warning: 'No eligible EN papers with ~100 questions found in last 3 years',
+            });
+        }
 
         for (const section of sectionsRes.rows) {
-            // Subtype distribution across all papers
+            // Subtype distribution — only from eligible papers, EN questions
             const subtypeRes = await db.query(`
                 SELECT
                     qv.subtype,
@@ -61,14 +82,15 @@ export async function POST(req) {
                     COUNT(*) FILTER (WHERE qv.difficulty = 3) AS hard_count
                 FROM question_version qv
                 WHERE qv.exam_section_id = $1
+                  AND qv.paper_session_id = ANY($2)
                   AND qv.subtype IS NOT NULL
                   AND qv.solution_status = 'DONE'
                   AND qv.language = 'EN'
                 GROUP BY qv.subtype
                 ORDER BY COUNT(*) DESC
-            `, [section.section_id]);
+            `, [section.section_id, eligiblePaperIds]);
 
-            // Overall section stats
+            // Overall section stats — only from eligible papers
             const sectionStatsRes = await db.query(`
                 SELECT
                     COUNT(*) AS total,
@@ -79,9 +101,10 @@ export async function POST(req) {
                     COUNT(*) FILTER (WHERE qv.difficulty = 3) AS hard_total
                 FROM question_version qv
                 WHERE qv.exam_section_id = $1
+                  AND qv.paper_session_id = ANY($2)
                   AND qv.solution_status = 'DONE'
                   AND qv.language = 'EN'
-            `, [section.section_id]);
+            `, [section.section_id, eligiblePaperIds]);
 
             const stats = sectionStatsRes.rows[0] || {};
             const avgPerPaper = parseInt(stats.avg_questions_per_paper || 25);
@@ -140,6 +163,12 @@ export async function POST(req) {
             success: true,
             exam: { exam_id: exam.exam_id, name: exam.name },
             total_papers: totalPapers,
+            eligible_papers: eligiblePapersRes.rows.map(p => ({
+                paper_session_id: p.paper_session_id,
+                session_name: p.session_name,
+                paper_date: p.paper_date,
+                question_count: parseInt(p.q_count),
+            })),
             suggested_config: { sections },
         });
     } catch (e) {
