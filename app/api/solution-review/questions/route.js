@@ -40,7 +40,7 @@ export async function GET(request) {
             LEFT JOIN exam_section es ON es.section_id = qv.exam_section_id
             WHERE qv.paper_session_id = $1
               AND qv.language = 'EN'
-            ORDER BY qv.source_question_no ASC NULLS LAST
+            ORDER BY qv.question_number_int ASC NULLS LAST
         `, [paperId]);
 
         // Parse solution_json strings
