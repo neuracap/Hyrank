@@ -34,12 +34,41 @@ function CollapsibleSection({ title, defaultOpen = false, children, badge }) {
     );
 }
 
-export default function SolutionReview({ papers }) {
+export default function SolutionReview({ exams }) {
+    const [selectedExamId, setSelectedExamId] = useState('');
+    const [selectedLanguage, setSelectedLanguage] = useState('EN');
+    const [papers, setPapers] = useState([]);
+    const [loadingPapers, setLoadingPapers] = useState(false);
     const [selectedPaper, setSelectedPaper] = useState(null);
     const [questions, setQuestions] = useState([]);
     const [loadingQuestions, setLoadingQuestions] = useState(false);
     const [feedback, setFeedback] = useState(null);
     const [filter, setFilter] = useState('all');
+
+    // Fetch papers when exam or language changes
+    const fetchPapers = async (examId, language) => {
+        if (!examId) { setPapers([]); return; }
+        setLoadingPapers(true);
+        setSelectedPaper(null);
+        setQuestions([]);
+        setFeedback(null);
+        try {
+            const res = await fetch(`/api/solution-review/papers?exam_id=${examId}&language=${language}`);
+            const data = await res.json();
+            setPapers(res.ok ? (data.papers || []) : []);
+        } catch { setPapers([]); }
+        finally { setLoadingPapers(false); }
+    };
+
+    const handleExamChange = (examId) => {
+        setSelectedExamId(examId);
+        fetchPapers(examId, selectedLanguage);
+    };
+
+    const handleLanguageChange = (lang) => {
+        setSelectedLanguage(lang);
+        if (selectedExamId) fetchPapers(selectedExamId, lang);
+    };
 
     const handlePaperChange = async (paperId) => {
         const paper = papers.find(p => p.paper_session_id === paperId);
@@ -66,11 +95,6 @@ export default function SolutionReview({ papers }) {
         }
     };
 
-    const formatDate = (dateStr) => {
-        if (!dateStr) return 'N/A';
-        return new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-    };
-
     const filteredQuestions = questions.filter(q => {
         if (filter === 'solved') return q.solution_status === 'DONE';
         if (filter === 'unsolved') return q.solution_status !== 'DONE';
@@ -89,22 +113,50 @@ export default function SolutionReview({ papers }) {
 
     return (
         <div className="flex flex-col h-screen overflow-hidden bg-white">
-            {/* Top Bar: Paper dropdown + stats + filters */}
+            {/* Top Bar: Exam → Language → Paper cascading filters */}
             <div className="flex-shrink-0 bg-white border-b border-gray-200 shadow-sm px-4 py-3">
-                <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-3 flex-wrap">
                     <h1 className="text-lg font-bold text-gray-900 flex-shrink-0">Solution Review</h1>
-                    <select
-                        value={selectedPaper?.paper_session_id || ''}
-                        onChange={e => e.target.value && handlePaperChange(e.target.value)}
-                        className="flex-1 min-w-[280px] max-w-lg border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                        <option value="">Select a paper...</option>
-                        {papers.map(p => (
-                            <option key={p.paper_session_id} value={p.paper_session_id}>
-                                {p.session_label} {p.exam_name ? `(${p.exam_name})` : ''} — {parseInt(p.question_count || 0)} Qs
-                            </option>
+
+                    {/* Exam selector */}
+                    <select value={selectedExamId} onChange={e => handleExamChange(e.target.value)}
+                        className="border border-gray-300 rounded-md px-3 py-1.5 text-sm min-w-[200px] focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">Select Exam...</option>
+                        {exams.map(e => (
+                            <option key={e.exam_id} value={e.exam_id}>{e.name}</option>
                         ))}
                     </select>
+
+                    {/* Language selector */}
+                    {selectedExamId && (
+                        <div className="flex gap-1">
+                            {['EN', 'HI'].map(lang => (
+                                <button key={lang} onClick={() => handleLanguageChange(lang)}
+                                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${selectedLanguage === lang ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                                    {lang === 'EN' ? 'English' : 'Hindi'}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Paper selector */}
+                    {selectedExamId && (
+                        <select
+                            value={selectedPaper?.paper_session_id || ''}
+                            onChange={e => e.target.value && handlePaperChange(e.target.value)}
+                            disabled={loadingPapers}
+                            className="border border-gray-300 rounded-md px-3 py-1.5 text-sm min-w-[280px] max-w-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
+                        >
+                            <option value="">{loadingPapers ? 'Loading papers...' : `Select Paper (${papers.length})...`}</option>
+                            {papers.map(p => (
+                                <option key={p.paper_session_id} value={p.paper_session_id}>
+                                    {p.session_label} — {parseInt(p.solved_count || 0)}/{parseInt(p.question_count || 0)} solved
+                                </option>
+                            ))}
+                        </select>
+                    )}
+
+                    {/* Stats + Filters */}
                     {selectedPaper && questions.length > 0 && (
                         <>
                             <span className="text-xs text-gray-500">
@@ -178,11 +230,20 @@ export default function SolutionReview({ papers }) {
 
                 {/* Main Content */}
                 <main className="flex-1 overflow-y-auto bg-gray-50">
-                    {!selectedPaper ? (
+                    {!selectedExamId ? (
+                        <div className="flex items-center justify-center h-full">
+                            <div className="text-center">
+                                <h2 className="text-xl font-semibold text-gray-700">Select an exam to start</h2>
+                                <p className="text-gray-400 mt-2 text-sm">Choose an exam, language, then paper from the dropdowns above.</p>
+                            </div>
+                        </div>
+                    ) : !selectedPaper ? (
                         <div className="flex items-center justify-center h-full">
                             <div className="text-center">
                                 <h2 className="text-xl font-semibold text-gray-700">Select a paper to review solutions</h2>
-                                <p className="text-gray-400 mt-2 text-sm">Choose a paper from the dropdown above.</p>
+                                <p className="text-gray-400 mt-2 text-sm">
+                                    {loadingPapers ? 'Loading papers...' : `${papers.length} papers available`}
+                                </p>
                             </div>
                         </div>
                     ) : loadingQuestions ? (

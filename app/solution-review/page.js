@@ -11,34 +11,20 @@ export default async function SolutionReviewPage() {
         redirect('/login');
     }
 
-    let papers = [];
-    let client;
+    let exams = [];
     try {
-        client = await db.connect();
-        const res = await client.query(`
-            SELECT
-                ps.paper_session_id,
-                ps.session_label,
-                ps.paper_date,
-                ps.subject,
-                ps.status,
-                e.name AS exam_name,
-                COUNT(qv.question_id) AS question_count
-            FROM paper_session ps
-            LEFT JOIN exam e ON ps.exam_id = e.exam_id
-            LEFT JOIN question_version qv
-                ON qv.paper_session_id = ps.paper_session_id
-                AND qv.language = 'EN'
-            WHERE ps.solution_done_count >= 90
-            GROUP BY ps.paper_session_id, ps.session_label, ps.paper_date, ps.subject, ps.status, e.name, ps.solution_done_count
-            ORDER BY ps.paper_date DESC NULLS LAST
+        const res = await db.query(`
+            SELECT e.exam_id, e.name
+            FROM exam e
+            WHERE EXISTS (
+                SELECT 1 FROM paper_session ps WHERE ps.exam_id = e.exam_id
+            )
+            ORDER BY e.name ASC
         `);
-        papers = res.rows;
+        exams = res.rows;
     } catch (err) {
         console.error('SolutionReviewPage DB error:', err);
-    } finally {
-        client?.release();
     }
 
-    return <SolutionReview papers={papers} />;
+    return <SolutionReview exams={exams} />;
 }
