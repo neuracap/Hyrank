@@ -109,8 +109,12 @@ function EditableSolutionPanel({ lang, data, label, editState, onEditChange, onT
                         <p className="text-[10px] font-bold text-gray-400 uppercase">Preview</p>
                         {textToSections(editState.solutionText).map((sec, i) => (
                             <div key={i}>
-                                <span className="font-bold text-gray-600 uppercase">{(sec.key || '').replace(/_/g, ' ')}: </span>
-                                <Latex>{sec.content}</Latex>
+                                <div className="font-bold text-gray-600 uppercase mb-0.5">{(sec.key || '').replace(/_/g, ' ')}</div>
+                                {(sec.content || '').split('\n').map((line, li) => (
+                                    <div key={li} className={line.trim() ? '' : 'h-2'}>
+                                        {line.trim() ? <Latex>{line}</Latex> : null}
+                                    </div>
+                                ))}
                             </div>
                         ))}
                     </div>
