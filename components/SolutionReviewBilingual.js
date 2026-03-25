@@ -305,6 +305,62 @@ export default function SolutionReviewBilingual({ exams }) {
     const [loadingQuestions, setLoadingQuestions] = useState(false);
     const [filter, setFilter] = useState('all');
     const [feedback, setFeedback] = useState(null);
+    const [advancing, setAdvancing] = useState(false);
+
+    const handleAdvanceStatus = async (sessionId, nextStatus) => {
+        if (!confirm(`Move paper to ${nextStatus}?`)) return;
+        setAdvancing(true);
+        try {
+            const res = await fetch('/api/paper/advance-status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ paper_session_id: sessionId, next_status: nextStatus }),
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setFeedback({ type: 'success', msg: `Moved to ${nextStatus}` });
+                setTimeout(() => setFeedback(null), 3000);
+            } else {
+                setFeedback({ type: 'error', msg: data.error || 'Failed' });
+            }
+        } catch (e) {
+            setFeedback({ type: 'error', msg: e.message });
+        } finally {
+            setAdvancing(false);
+        }
+    };
+
+    const handleAdvanceBoth = async (nextStatus) => {
+        if (!selectedPair) return;
+        if (!confirm(`Move BOTH EN and HI papers to ${nextStatus}?`)) return;
+        setAdvancing(true);
+        try {
+            const [res1, res2] = await Promise.all([
+                fetch('/api/paper/advance-status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ paper_session_id: selectedPair.en_session_id, next_status: nextStatus }),
+                }),
+                fetch('/api/paper/advance-status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ paper_session_id: selectedPair.hi_session_id, next_status: nextStatus }),
+                }),
+            ]);
+            const d1 = await res1.json();
+            const d2 = await res2.json();
+            if (d1.success && d2.success) {
+                setFeedback({ type: 'success', msg: `Both papers moved to ${nextStatus}` });
+            } else {
+                setFeedback({ type: 'error', msg: `EN: ${d1.error || 'OK'}, HI: ${d2.error || 'OK'}` });
+            }
+        } catch (e) {
+            setFeedback({ type: 'error', msg: e.message });
+        } finally {
+            setAdvancing(false);
+            setTimeout(() => setFeedback(null), 4000);
+        }
+    };
 
     const handleExamChange = async (examId) => {
         setSelectedExamId(examId);
@@ -421,6 +477,20 @@ export default function SolutionReviewBilingual({ exams }) {
                                 ))}
                             </div>
                         </>
+                    )}
+
+                    {/* Status advance buttons */}
+                    {selectedPair && questions.length > 0 && (
+                        <div className="flex gap-1.5 flex-shrink-0 ml-auto">
+                            <button onClick={() => handleAdvanceBoth('SOLUTION_REVIEW')} disabled={advancing}
+                                className="px-3 py-1.5 text-xs font-semibold bg-amber-500 text-white rounded-md hover:bg-amber-600 disabled:opacity-50">
+                                {advancing ? '...' : 'Mark Solution Reviewed'}
+                            </button>
+                            <button onClick={() => handleAdvanceBoth('PRODUCTION')} disabled={advancing}
+                                className="px-3 py-1.5 text-xs font-semibold bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50">
+                                {advancing ? '...' : 'Move to Production'}
+                            </button>
+                        </div>
                     )}
 
                     {feedback && (

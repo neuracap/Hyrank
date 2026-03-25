@@ -44,6 +44,31 @@ export default function SolutionReview({ exams }) {
     const [loadingQuestions, setLoadingQuestions] = useState(false);
     const [feedback, setFeedback] = useState(null);
     const [filter, setFilter] = useState('all');
+    const [advancing, setAdvancing] = useState(false);
+
+    const handleAdvanceStatus = async (nextStatus) => {
+        if (!selectedPaper) return;
+        if (!confirm(`Move this paper to ${nextStatus}?`)) return;
+        setAdvancing(true);
+        try {
+            const res = await fetch('/api/paper/advance-status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ paper_session_id: selectedPaper.paper_session_id, next_status: nextStatus }),
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setFeedback({ type: 'success', message: `Moved to ${nextStatus}` });
+                setTimeout(() => setFeedback(null), 3000);
+            } else {
+                setFeedback({ type: 'error', message: data.error || 'Failed' });
+            }
+        } catch (e) {
+            setFeedback({ type: 'error', message: e.message });
+        } finally {
+            setAdvancing(false);
+        }
+    };
 
     // Fetch papers when exam or language changes
     const fetchPapers = async (examId, language) => {
@@ -172,6 +197,20 @@ export default function SolutionReview({ exams }) {
                             </div>
                         </>
                     )}
+                    {/* Status advance buttons */}
+                    {selectedPaper && questions.length > 0 && (
+                        <div className="flex gap-1.5 flex-shrink-0 ml-auto">
+                            <button onClick={() => handleAdvanceStatus('SOLUTION_REVIEW')} disabled={advancing}
+                                className="px-3 py-1.5 text-xs font-semibold bg-amber-500 text-white rounded-md hover:bg-amber-600 disabled:opacity-50">
+                                {advancing ? '...' : 'Mark Solution Reviewed'}
+                            </button>
+                            <button onClick={() => handleAdvanceStatus('PRODUCTION')} disabled={advancing}
+                                className="px-3 py-1.5 text-xs font-semibold bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50">
+                                {advancing ? '...' : 'Move to Production'}
+                            </button>
+                        </div>
+                    )}
+
                     {feedback && (
                         <div className={`text-sm px-3 py-1.5 rounded font-medium ${feedback.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-700'}`}>
                             {feedback.message}
