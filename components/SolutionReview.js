@@ -123,6 +123,7 @@ export default function SolutionReview({ exams }) {
     const filteredQuestions = questions.filter(q => {
         if (filter === 'solved') return q.solution_status === 'DONE';
         if (filter === 'unsolved') return q.solution_status !== 'DONE';
+        if (filter === 'figures') return !!(q.solution_figure_prompt || q.solution_figure_helpful);
         return true;
     });
 
@@ -227,10 +228,15 @@ export default function SolutionReview({ exams }) {
                             {solvedCount}/{questions.length} solved
                         </span>
                         <div className="flex gap-1">
-                            {['all', 'solved', 'unsolved'].map(f => (
-                                <button key={f} onClick={() => setFilter(f)}
-                                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${filter === f ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                                    {f.charAt(0).toUpperCase() + f.slice(1)}
+                            {[
+                                { key: 'all', label: 'All' },
+                                { key: 'solved', label: 'Solved' },
+                                { key: 'unsolved', label: 'Unsolved' },
+                                { key: 'figures', label: `Figures (${questions.filter(q => q.solution_figure_prompt || q.solution_figure_helpful).length})` },
+                            ].map(f => (
+                                <button key={f.key} onClick={() => setFilter(f.key)}
+                                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${filter === f.key ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                                    {f.label}
                                 </button>
                             ))}
                         </div>
@@ -426,6 +432,8 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
     const [explanationText, setExplanationText] = useState(getExplanationText);
     const [isSaving, setIsSaving] = useState(false);
     const [saveMsg, setSaveMsg] = useState(null);
+    const [figureUrl, setFigureUrl] = useState(sj.figure_url || sj.answer_outcome?.figure_url || '');
+    const [uploadingFigure, setUploadingFigure] = useState(false);
 
     // Image paste upload
     const handlePaste = (e) => {
@@ -471,12 +479,16 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
         setIsSaving(true);
         setSaveMsg(null);
         try {
-            // Rebuild display_sections from edited text
+            // Rebuild display_sections from edited text + include figure_url
             const updatedSj = { ...sj };
             if (Array.isArray(updatedSj.display_sections)) {
                 updatedSj.display_sections = [{ key: 'exam_craft', content: explanationText }];
             } else {
                 updatedSj.display_sections = { exam_craft: { approach: explanationText } };
+            }
+            if (figureUrl) {
+                updatedSj.figure_url = figureUrl;
+                if (updatedSj.answer_outcome) updatedSj.answer_outcome.figure_url = figureUrl;
             }
 
             const res = await fetch('/api/solution-review/save', {
@@ -615,12 +627,80 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
                         )}
                     </div>
 
-                    {/* Figure Prompt */}
+                    {/* Figure Prompt + Upload */}
                     {(figurePrompt || figureHelpful) && (
                         <div className="px-5 py-3 border-b border-gray-100 bg-amber-50">
-                            <label className="text-xs font-semibold text-amber-700 uppercase tracking-wide block mb-1">Figure Prompt</label>
-                            {figureHelpful && <span className="text-xs text-amber-600 mr-2">(Figure would be helpful)</span>}
-                            {figurePrompt && <div className="text-sm text-gray-700">{figurePrompt}</div>}
+                            <div className="flex items-start justify-between gap-4">
+                                <div className="flex-1">
+                                    <label className="text-xs font-semibold text-amber-700 uppercase tracking-wide block mb-1">Figure Prompt</label>
+                                    {figureHelpful && <span className="text-xs text-amber-600 mr-2">(Figure would be helpful)</span>}
+                                    {figurePrompt && <div className="text-sm text-gray-700 mb-2">{figurePrompt}</div>}
+
+                                    {/* Figure paste/upload area */}
+                                    <div className="mt-2">
+                                        <label className="text-xs font-semibold text-gray-600 block mb-1">Generated Figure</label>
+                                        {figureUrl ? (
+                                            <div className="relative inline-block">
+                                                <img src={figureUrl} alt="Solution figure" className="max-h-48 rounded border border-gray-300 object-contain" />
+                                                <button onClick={() => setFigureUrl('')}
+                                                    className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600"
+                                                    title="Remove figure">x</button>
+                                            </div>
+                                        ) : (
+                                            <div
+                                                className="border-2 border-dashed border-amber-300 rounded-lg p-4 text-center cursor-pointer hover:border-amber-500 hover:bg-amber-100 transition-colors"
+                                                onPaste={async (e) => {
+                                                    const items = e.clipboardData?.items;
+                                                    if (!items) return;
+                                                    for (let item of items) {
+                                                        if (item.type.startsWith('image/')) {
+                                                            e.preventDefault();
+                                                            setUploadingFigure(true);
+                                                            const fileBlob = item.getAsFile();
+                                                            const reader = new FileReader();
+                                                            reader.readAsDataURL(fileBlob);
+                                                            reader.onloadend = async () => {
+                                                                try {
+                                                                    const res = await fetch('/api/upload', {
+                                                                        method: 'POST',
+                                                                        headers: { 'Content-Type': 'application/json' },
+                                                                        body: JSON.stringify({
+                                                                            data: reader.result,
+                                                                            question_id: q.question_id,
+                                                                            language: 'EN',
+                                                                            version_no: q.version_no,
+                                                                            role: 'solution_figure',
+                                                                        }),
+                                                                    });
+                                                                    const data = await res.json();
+                                                                    if (data.url || data.secure_url || data.latexPath) {
+                                                                        setFigureUrl(data.url || data.secure_url || data.latexPath);
+                                                                    } else {
+                                                                        alert('Upload failed: ' + (data.error || 'No URL returned'));
+                                                                    }
+                                                                } catch (err) {
+                                                                    console.error('Figure upload error:', err);
+                                                                    alert('Upload failed');
+                                                                } finally {
+                                                                    setUploadingFigure(false);
+                                                                }
+                                                            };
+                                                            break;
+                                                        }
+                                                    }
+                                                }}
+                                                tabIndex={0}
+                                            >
+                                                {uploadingFigure ? (
+                                                    <span className="text-xs text-amber-700">Uploading...</span>
+                                                ) : (
+                                                    <span className="text-xs text-amber-600">Paste generated figure here (Ctrl+V)</span>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     )}
 
