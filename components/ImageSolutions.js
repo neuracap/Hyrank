@@ -445,7 +445,9 @@ function QuestionCard({ q, idx, selectedOption, onSelectOption, subtype, onSubty
                     {(q.options || []).map(opt => {
                         const isSelected = selectedOption === opt.opt_label;
                         const optAsset = q.assets?.find(a => a.option_key === opt.opt_label);
-                        const textWithoutImages = (opt.opt_text || '').replace(/\\includegraphics\{[^}]+\}/g, '').trim();
+                        // Only show separate asset image when option text is empty and has no embedded images
+                        const textHasImage = /\\includegraphics|!\[/.test(opt.opt_text || '');
+                        const showAssetImg = optAsset?.image_url && !textHasImage && !(opt.opt_text || '').trim();
                         return (
                             <button key={opt.opt_label} onClick={() => onSelectOption(opt.opt_label)}
                                 className={`flex flex-col items-center justify-center p-3 rounded-lg border text-center transition-all min-h-[5rem] ${isSelected
@@ -454,14 +456,12 @@ function QuestionCard({ q, idx, selectedOption, onSelectOption, subtype, onSubty
                                 <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border mb-2 flex-shrink-0 ${isSelected
                                     ? 'bg-green-500 text-white border-green-500'
                                     : 'bg-gray-100 text-gray-600 border-gray-300'}`}>{opt.opt_label}</span>
-                                {optAsset ? (
+                                {showAssetImg && (
                                     <img src={optAsset.image_url} alt={`Option ${opt.opt_label}`} className="max-h-24 object-contain mb-1" />
-                                ) : opt.opt_text ? (
+                                )}
+                                {opt.opt_text ? (
                                     <div className="text-xs text-gray-700 break-words w-full"><Latex>{opt.opt_text}</Latex></div>
                                 ) : null}
-                                {optAsset && textWithoutImages && (
-                                    <div className="text-xs text-gray-700 break-words w-full mt-1"><Latex>{textWithoutImages}</Latex></div>
-                                )}
                             </button>
                         );
                     })}
