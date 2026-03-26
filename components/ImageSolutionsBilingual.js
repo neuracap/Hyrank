@@ -444,30 +444,37 @@ export default function ImageSolutionsBilingual({ papers }) {
     );
 }
 
-function OptionGrid({ options, assets, selectedOption, onSelect }) {
+function OptionGrid({ options, assets, selectedOption, onSelect, editedOptions, onOptionTextChange }) {
     return (
         <div className="grid grid-cols-4 gap-2">
             {(options || []).map(opt => {
                 const isSelected = selectedOption === opt.opt_label;
                 const optAsset = assets?.find(a => a.option_key === opt.opt_label);
-                const textWithoutImages = (opt.opt_text || '').replace(/\\includegraphics\{[^}]+\}/g, '').trim();
+                const editVal = editedOptions?.[opt.opt_label];
+                const isEditing = editVal !== undefined;
                 return (
-                    <button key={opt.opt_label} onClick={() => onSelect(opt.opt_label)}
-                        className={`flex flex-col items-center justify-center p-2 rounded-lg border text-center transition-all min-h-[5rem] ${isSelected
-                            ? 'bg-green-50 border-green-400 ring-2 ring-green-300'
-                            : 'bg-white border-gray-200 hover:border-gray-400'}`}>
-                        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border mb-1 flex-shrink-0 ${isSelected
-                            ? 'bg-green-500 text-white border-green-500'
-                            : 'bg-gray-100 text-gray-600 border-gray-300'}`}>{opt.opt_label}</span>
-                        {optAsset ? (
-                            <img src={optAsset.image_url} alt={`Option ${opt.opt_label}`} className="max-h-16 object-contain" />
-                        ) : opt.opt_text ? (
-                            <div className="text-xs text-gray-700 break-words w-full"><Latex>{opt.opt_text}</Latex></div>
-                        ) : null}
-                        {optAsset && textWithoutImages && (
-                            <div className="text-xs text-gray-700 break-words w-full mt-0.5"><Latex>{textWithoutImages}</Latex></div>
+                    <div key={opt.opt_label} className={`flex flex-col items-center p-2 rounded-lg border text-center transition-all min-h-[5rem] ${isSelected
+                        ? 'bg-green-50 border-green-400 ring-2 ring-green-300'
+                        : 'bg-white border-gray-200 hover:border-gray-400'}`}>
+                        <button onClick={() => onSelect(opt.opt_label)} className="w-full flex flex-col items-center">
+                            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border mb-1 flex-shrink-0 ${isSelected
+                                ? 'bg-green-500 text-white border-green-500'
+                                : 'bg-gray-100 text-gray-600 border-gray-300'}`}>{opt.opt_label}</span>
+                            {optAsset && (
+                                <img src={optAsset.image_url} alt={`Option ${opt.opt_label}`} className="max-h-16 object-contain" />
+                            )}
+                        </button>
+                        {isEditing ? (
+                            <input type="text" value={editVal}
+                                onChange={e => onOptionTextChange(opt.opt_label, e.target.value)}
+                                className="w-full text-xs border border-gray-300 rounded px-1 py-0.5 mt-1 focus:ring-1 focus:ring-blue-400" />
+                        ) : (
+                            <div className="text-xs text-gray-700 break-words w-full cursor-pointer mt-1"
+                                onClick={() => onOptionTextChange(opt.opt_label, opt.opt_text || '')}>
+                                {opt.opt_text ? <Latex>{opt.opt_text}</Latex> : <span className="text-gray-400 italic">click to edit</span>}
+                            </div>
                         )}
-                    </button>
+                    </div>
                 );
             })}
         </div>
@@ -477,6 +484,79 @@ function OptionGrid({ options, assets, selectedOption, onSelect }) {
 function PairCard({ pair, idx, selectedOptionEn, onSelectOptionEn, selectedOptionHi, onSelectOptionHi, subtype, onSubtypeChange, difficulty, onDifficultyChange, solutionEn, onSolutionEnChange, solutionHi, onSolutionHiChange, aiResultEn, aiResultHi, isGenerating, isTranslating, isSaving, isFlagging, onTranslate, onGenerate, onSave, onFlag }) {
     const isSolved = pair.solution_status === 'DONE';
     const isFlagged = pair.link_status === 'FLAGGED';
+
+    // Editable question text state
+    const [editingText, setEditingText] = useState(false);
+    const [engText, setEngText] = useState(pair.eng_text || '');
+    const [hinText, setHinText] = useState(pair.hin_text || '');
+    const [editedEngOpts, setEditedEngOpts] = useState({});
+    const [editedHinOpts, setEditedHinOpts] = useState({});
+    const [savingQuestion, setSavingQuestion] = useState(false);
+    const [saveQMsg, setSaveQMsg] = useState(null);
+
+    const handlePaste = async (e, questionId, lang, version, setText) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+        for (let item of items) {
+            if (item.type.startsWith('image/')) {
+                e.preventDefault();
+                const fileBlob = item.getAsFile();
+                const reader = new FileReader();
+                reader.readAsDataURL(fileBlob);
+                reader.onloadend = async () => {
+                    try {
+                        const res = await fetch('/api/upload', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ data: reader.result, question_id: questionId, language: lang, version_no: version, role: 'question' }),
+                        });
+                        const data = await res.json();
+                        if (data.latexPath) {
+                            setText(prev => prev + `\n\\includegraphics{${data.latexPath}}`);
+                        }
+                    } catch (err) { console.error('Image upload error:', err); }
+                };
+                break;
+            }
+        }
+    };
+
+    const handleSaveQuestion = async () => {
+        setSavingQuestion(true);
+        setSaveQMsg(null);
+        try {
+            const enOpts = (pair.eng_options || []).map(o => ({
+                opt_label: o.opt_label,
+                opt_text: editedEngOpts[o.opt_label] !== undefined ? editedEngOpts[o.opt_label] : o.opt_text,
+            }));
+            const hiOpts = (pair.hin_options || []).map(o => ({
+                opt_label: o.opt_label,
+                opt_text: editedHinOpts[o.opt_label] !== undefined ? editedHinOpts[o.opt_label] : o.opt_text,
+            }));
+
+            const res = await fetch('/api/bilingual/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    link_id: pair.link_id,
+                    english: { id: pair.eng_id, version: pair.eng_version, question_text: engText, options: enOpts },
+                    hindi: { id: pair.hin_id, version: pair.hin_version, question_text: hinText, options: hiOpts },
+                }),
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setSaveQMsg('Saved!');
+                setEditingText(false);
+                setTimeout(() => setSaveQMsg(null), 3000);
+            } else {
+                setSaveQMsg('Error: ' + (data.error || 'Failed'));
+            }
+        } catch (err) {
+            setSaveQMsg('Error: ' + err.message);
+        } finally {
+            setSavingQuestion(false);
+        }
+    };
 
     return (
         <div className={`bg-white rounded-lg border shadow-sm overflow-hidden ${isFlagged ? 'border-red-300' : isSolved ? 'border-green-300' : 'border-gray-200'}`}>
@@ -490,10 +570,30 @@ function PairCard({ pair, idx, selectedOptionEn, onSelectOptionEn, selectedOptio
                     <DifficultyBadge level={pair.difficulty || (difficulty ? difficultyToInt[difficulty] : null)} />
                     {pair.section_code && <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">{pair.section_code}</span>}
                 </div>
-                <button onClick={onFlag} disabled={isFlagging || isFlagged}
-                    className="px-3 py-1.5 text-xs font-semibold rounded-md bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 disabled:opacity-50 transition-colors">
-                    {isFlagging ? 'Flagging...' : isFlagged ? 'Flagged' : 'Flag'}
-                </button>
+                <div className="flex items-center gap-2">
+                    {saveQMsg && <span className={`text-xs font-semibold ${saveQMsg === 'Saved!' ? 'text-green-600' : 'text-red-600'}`}>{saveQMsg}</span>}
+                    {editingText ? (
+                        <>
+                            <button onClick={handleSaveQuestion} disabled={savingQuestion}
+                                className="px-3 py-1 text-xs font-semibold bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
+                                {savingQuestion ? 'Saving...' : 'Save Question'}
+                            </button>
+                            <button onClick={() => { setEditingText(false); setEngText(pair.eng_text || ''); setHinText(pair.hin_text || ''); setEditedEngOpts({}); setEditedHinOpts({}); }}
+                                className="px-3 py-1 text-xs font-semibold bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
+                                Cancel
+                            </button>
+                        </>
+                    ) : (
+                        <button onClick={() => setEditingText(true)}
+                            className="px-3 py-1 text-xs font-semibold bg-gray-100 text-gray-600 border border-gray-300 rounded hover:bg-gray-200">
+                            Edit Question
+                        </button>
+                    )}
+                    <button onClick={onFlag} disabled={isFlagging || isFlagged}
+                        className="px-3 py-1.5 text-xs font-semibold rounded-md bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 disabled:opacity-50 transition-colors">
+                        {isFlagging ? 'Flagging...' : isFlagged ? 'Flagged' : 'Flag'}
+                    </button>
+                </div>
             </div>
 
             {/* Side-by-side EN / HI */}
@@ -501,7 +601,14 @@ function PairCard({ pair, idx, selectedOptionEn, onSelectOptionEn, selectedOptio
                 {/* English */}
                 <div className="p-5 space-y-3">
                     <div className="text-xs font-bold text-blue-600 uppercase tracking-wide">English</div>
-                    <div className="text-sm text-gray-800"><Latex>{pair.eng_text || '(No text)'}</Latex></div>
+                    {editingText ? (
+                        <textarea rows={4} value={engText} onChange={e => setEngText(e.target.value)}
+                            onPaste={e => handlePaste(e, pair.eng_id, 'EN', pair.eng_version, setEngText)}
+                            className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono resize-y focus:ring-2 focus:ring-blue-400"
+                            placeholder="English question text (paste images)..." />
+                    ) : (
+                        <div className="text-sm text-gray-800"><Latex>{pair.eng_text || '(No text)'}</Latex></div>
+                    )}
                     {pair.eng_assets?.filter(a => a.role === 'question' || !a.option_key).length > 0 && !pair.eng_text?.includes('\\includegraphics') && (
                         <div className="flex flex-wrap gap-2">
                             {pair.eng_assets.filter(a => a.role === 'question' || !a.option_key).map((a, i) => (
@@ -509,12 +616,21 @@ function PairCard({ pair, idx, selectedOptionEn, onSelectOptionEn, selectedOptio
                             ))}
                         </div>
                     )}
-                    <OptionGrid options={pair.eng_options} assets={pair.eng_assets} selectedOption={selectedOptionEn} onSelect={onSelectOptionEn} />
+                    <OptionGrid options={pair.eng_options} assets={pair.eng_assets} selectedOption={selectedOptionEn} onSelect={onSelectOptionEn}
+                        editedOptions={editingText ? editedEngOpts : undefined}
+                        onOptionTextChange={(key, val) => setEditedEngOpts(prev => ({ ...prev, [key]: val }))} />
                 </div>
                 {/* Hindi */}
                 <div className="p-5 space-y-3">
                     <div className="text-xs font-bold text-orange-600 uppercase tracking-wide">Hindi</div>
-                    <div className="text-sm text-gray-800"><Latex>{pair.hin_text || '(No Hindi text)'}</Latex></div>
+                    {editingText ? (
+                        <textarea rows={4} value={hinText} onChange={e => setHinText(e.target.value)}
+                            onPaste={e => handlePaste(e, pair.hin_id, 'HI', pair.hin_version, setHinText)}
+                            className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono resize-y focus:ring-2 focus:ring-orange-400"
+                            placeholder="Hindi question text (paste images)..." />
+                    ) : (
+                        <div className="text-sm text-gray-800"><Latex>{pair.hin_text || '(No Hindi text)'}</Latex></div>
+                    )}
                     {pair.hin_assets?.filter(a => a.role === 'question' || !a.option_key).length > 0 && !pair.hin_text?.includes('\\includegraphics') && (
                         <div className="flex flex-wrap gap-2">
                             {pair.hin_assets.filter(a => a.role === 'question' || !a.option_key).map((a, i) => (
@@ -522,7 +638,9 @@ function PairCard({ pair, idx, selectedOptionEn, onSelectOptionEn, selectedOptio
                             ))}
                         </div>
                     )}
-                    <OptionGrid options={pair.hin_options} assets={pair.hin_assets} selectedOption={selectedOptionHi} onSelect={onSelectOptionHi} />
+                    <OptionGrid options={pair.hin_options} assets={pair.hin_assets} selectedOption={selectedOptionHi} onSelect={onSelectOptionHi}
+                        editedOptions={editingText ? editedHinOpts : undefined}
+                        onOptionTextChange={(key, val) => setEditedHinOpts(prev => ({ ...prev, [key]: val }))} />
                 </div>
             </div>
 
