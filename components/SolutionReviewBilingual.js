@@ -533,19 +533,38 @@ export default function SolutionReviewBilingual({ exams }) {
 
     // Handle difficulty change (updates EN side — shared for pair)
     const handleDifficultyChange = async (questionId, versionNo, newDifficulty) => {
+        // Optimistic update — both EN and HI
         setQuestions(prev => prev.map(q =>
-            q.en?.question_id === questionId ? { ...q, en: { ...q.en, difficulty: newDifficulty } } : q
+            q.en?.question_id === questionId
+                ? { ...q, en: { ...q.en, difficulty: newDifficulty }, hi: q.hi ? { ...q.hi, difficulty: newDifficulty } : q.hi }
+                : q
         ));
         try {
-            const q = questions.find(q => q.en?.question_id === questionId);
-            await fetch('/api/question/save', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    id: questionId, version_no: versionNo || 1, language: 'EN',
-                    question_text: q?.en?.text || '', difficulty: newDifficulty,
+            const pair = questions.find(q => q.en?.question_id === questionId);
+            // Save to both EN and HI in parallel
+            const saves = [
+                fetch('/api/question/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id: questionId, version_no: versionNo || 1, language: 'EN',
+                        question_text: pair?.en?.text || '', difficulty: newDifficulty,
+                    }),
                 }),
-            });
+            ];
+            if (pair?.hi?.question_id) {
+                saves.push(
+                    fetch('/api/question/save', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            id: pair.hi.question_id, version_no: pair.hi.version_no || 1, language: 'HI',
+                            question_text: pair.hi.text || '', difficulty: newDifficulty,
+                        }),
+                    })
+                );
+            }
+            await Promise.all(saves);
         } catch (e) { console.error('Difficulty update error:', e); }
     };
 
