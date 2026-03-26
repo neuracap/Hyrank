@@ -602,12 +602,33 @@ export default function SolutionReviewBilingual({ exams }) {
                             disabled={loadingPapers}
                             className="flex-1 border border-gray-300 rounded-md px-3 py-1.5 text-sm min-w-[300px] disabled:opacity-50"
                         >
-                            <option value="">{loadingPapers ? 'Loading...' : `Select Paper Pair (${papers.length})...`}</option>
-                            {papers.map(p => (
-                                <option key={`${p.en_session_id}|${p.hi_session_id}`} value={`${p.en_session_id}|${p.hi_session_id}`}>
-                                    {p.en_label} — {p.linked_count} linked, EN {p.en_solved}/{p.en_total} HI {p.hi_solved}/{p.hi_total}
-                                </option>
-                            ))}
+                            {(() => {
+                                const pendingPapers = papers.filter(p => !['SOLUTION_REVIEW', 'PRODUCTION'].includes(p.en_status));
+                                const reviewedPapers = papers.filter(p => ['SOLUTION_REVIEW', 'PRODUCTION'].includes(p.en_status));
+                                return (
+                                    <>
+                                        <option value="">{loadingPapers ? 'Loading...' : `Select Paper Pair (${papers.length})...`}</option>
+                                        {pendingPapers.length > 0 && (
+                                            <optgroup label={`To Review (${pendingPapers.length})`}>
+                                                {pendingPapers.map(p => (
+                                                    <option key={`${p.en_session_id}|${p.hi_session_id}`} value={`${p.en_session_id}|${p.hi_session_id}`}>
+                                                        {p.en_label} — {p.linked_count} linked, EN {p.en_solved}/{p.en_total} HI {p.hi_solved}/{p.hi_total}
+                                                    </option>
+                                                ))}
+                                            </optgroup>
+                                        )}
+                                        {reviewedPapers.length > 0 && (
+                                            <optgroup label={`Reviewed / Production (${reviewedPapers.length})`}>
+                                                {reviewedPapers.map(p => (
+                                                    <option key={`${p.en_session_id}|${p.hi_session_id}`} value={`${p.en_session_id}|${p.hi_session_id}`}>
+                                                        {p.en_label} — {p.linked_count} linked [{p.en_status}]
+                                                    </option>
+                                                ))}
+                                            </optgroup>
+                                        )}
+                                    </>
+                                );
+                            })()}
                         </select>
                     )}
 

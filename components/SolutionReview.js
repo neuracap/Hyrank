@@ -198,21 +198,38 @@ export default function SolutionReview({ exams }) {
                         </div>
                     )}
 
-                    {selectedExamId && (
-                        <select
-                            value={selectedPaper?.paper_session_id || ''}
-                            onChange={e => e.target.value && handlePaperChange(e.target.value)}
-                            disabled={loadingPapers}
-                            className="flex-1 border border-gray-300 rounded-md px-3 py-1.5 text-sm min-w-[280px] disabled:opacity-50"
-                        >
-                            <option value="">{loadingPapers ? 'Loading papers...' : `Select Paper (${papers.length})...`}</option>
-                            {papers.map(p => (
-                                <option key={p.paper_session_id} value={p.paper_session_id}>
-                                    {p.session_label} — {parseInt(p.solved_count || 0)}/{parseInt(p.question_count || 0)} solved
-                                </option>
-                            ))}
-                        </select>
-                    )}
+                    {selectedExamId && (() => {
+                        const pendingPapers = papers.filter(p => !['SOLUTION_REVIEW', 'PRODUCTION'].includes(p.status));
+                        const reviewedPapers = papers.filter(p => ['SOLUTION_REVIEW', 'PRODUCTION'].includes(p.status));
+                        return (
+                            <select
+                                value={selectedPaper?.paper_session_id || ''}
+                                onChange={e => e.target.value && handlePaperChange(e.target.value)}
+                                disabled={loadingPapers}
+                                className="flex-1 border border-gray-300 rounded-md px-3 py-1.5 text-sm min-w-[280px] disabled:opacity-50"
+                            >
+                                <option value="">{loadingPapers ? 'Loading papers...' : `Select Paper (${papers.length})...`}</option>
+                                {pendingPapers.length > 0 && (
+                                    <optgroup label={`To Review (${pendingPapers.length})`}>
+                                        {pendingPapers.map(p => (
+                                            <option key={p.paper_session_id} value={p.paper_session_id}>
+                                                {p.session_label} — {parseInt(p.solved_count || 0)}/{parseInt(p.question_count || 0)} solved [{p.status}]
+                                            </option>
+                                        ))}
+                                    </optgroup>
+                                )}
+                                {reviewedPapers.length > 0 && (
+                                    <optgroup label={`Reviewed / Production (${reviewedPapers.length})`}>
+                                        {reviewedPapers.map(p => (
+                                            <option key={p.paper_session_id} value={p.paper_session_id}>
+                                                {p.session_label} — {parseInt(p.solved_count || 0)}/{parseInt(p.question_count || 0)} solved [{p.status}]
+                                            </option>
+                                        ))}
+                                    </optgroup>
+                                )}
+                            </select>
+                        );
+                    })()}
 
                     {feedback && (
                         <span className={`text-xs px-2.5 py-1 rounded font-medium flex-shrink-0 ${feedback.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-700'}`}>

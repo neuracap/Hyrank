@@ -56,6 +56,7 @@ export async function GET(req) {
                 psh.session_label AS hi_label,
                 pse.paper_date,
                 pse.subject,
+                pse.status AS en_status,
                 en_s.total AS en_total,
                 en_s.solved AS en_solved,
                 hi_s.total AS hi_total,
