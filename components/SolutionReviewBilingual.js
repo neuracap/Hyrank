@@ -153,6 +153,8 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
         pair.en?.solution_json?.figure_url || pair.en?.solution_json?.answer_outcome?.figure_url || ''
     );
     const [uploadingFigure, setUploadingFigure] = useState(false);
+    const [figureNeeded, setFigureNeeded] = useState(!!(pair.en?.figure_helpful));
+    const [dismissingFigure, setDismissingFigure] = useState(false);
 
     const enDone = pair.en?.solution_status === 'DONE';
     const hiDone = pair.hi?.solution_status === 'DONE';
@@ -316,9 +318,37 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
                     </div>
 
                     {/* Figure Prompt + Upload (shared for the pair) */}
-                    {(pair.en?.figure_prompt || pair.en?.figure_helpful) && (
+                    {(pair.en?.figure_prompt || figureNeeded) && (
                         <div className="px-4 py-3 border-t border-gray-200 bg-amber-50">
-                            <label className="text-xs font-semibold text-amber-700 uppercase tracking-wide block mb-1">Figure Prompt</label>
+                            <div className="flex items-center gap-2 mb-1">
+                                <label className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Figure Prompt</label>
+                                <button
+                                    disabled={dismissingFigure}
+                                    onClick={async () => {
+                                        setDismissingFigure(true);
+                                        try {
+                                            // Update both EN and HI
+                                            await Promise.all([
+                                                fetch('/api/solution-review/toggle-figure', {
+                                                    method: 'POST',
+                                                    headers: { 'Content-Type': 'application/json' },
+                                                    body: JSON.stringify({ question_id: pair.en.question_id, version_no: pair.en.version_no, language: 'EN', value: false }),
+                                                }),
+                                                pair.hi?.question_id ? fetch('/api/solution-review/toggle-figure', {
+                                                    method: 'POST',
+                                                    headers: { 'Content-Type': 'application/json' },
+                                                    body: JSON.stringify({ question_id: pair.hi.question_id, version_no: pair.hi.version_no, language: 'HI', value: false }),
+                                                }) : Promise.resolve(),
+                                            ]);
+                                            setFigureNeeded(false);
+                                        } catch (e) { console.error(e); }
+                                        finally { setDismissingFigure(false); }
+                                    }}
+                                    className="px-2 py-0.5 text-[10px] font-semibold bg-white text-red-600 border border-red-300 rounded hover:bg-red-50 disabled:opacity-50"
+                                >
+                                    {dismissingFigure ? '...' : 'Figure Not Needed'}
+                                </button>
+                            </div>
                             {pair.en?.figure_prompt && <div className="text-xs text-gray-700 mb-2">{pair.en.figure_prompt}</div>}
                             <div className="mt-1">
                                 {figureUrl ? (

@@ -434,6 +434,8 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
     const [saveMsg, setSaveMsg] = useState(null);
     const [figureUrl, setFigureUrl] = useState(sj.figure_url || sj.answer_outcome?.figure_url || '');
     const [uploadingFigure, setUploadingFigure] = useState(false);
+    const [figureNeeded, setFigureNeeded] = useState(figureHelpful);
+    const [dismissingFigure, setDismissingFigure] = useState(false);
 
     // Image paste upload
     const handlePaste = (e) => {
@@ -628,12 +630,31 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
                     </div>
 
                     {/* Figure Prompt + Upload */}
-                    {(figurePrompt || figureHelpful) && (
+                    {(figurePrompt || figureNeeded) && (
                         <div className="px-5 py-3 border-b border-gray-100 bg-amber-50">
                             <div className="flex items-start justify-between gap-4">
                                 <div className="flex-1">
-                                    <label className="text-xs font-semibold text-amber-700 uppercase tracking-wide block mb-1">Figure Prompt</label>
-                                    {figureHelpful && <span className="text-xs text-amber-600 mr-2">(Figure would be helpful)</span>}
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <label className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Figure Prompt</label>
+                                        <button
+                                            disabled={dismissingFigure}
+                                            onClick={async () => {
+                                                setDismissingFigure(true);
+                                                try {
+                                                    const res = await fetch('/api/solution-review/toggle-figure', {
+                                                        method: 'POST',
+                                                        headers: { 'Content-Type': 'application/json' },
+                                                        body: JSON.stringify({ question_id: q.question_id, version_no: q.version_no, language: 'EN', value: false }),
+                                                    });
+                                                    if (res.ok) setFigureNeeded(false);
+                                                } catch (e) { console.error(e); }
+                                                finally { setDismissingFigure(false); }
+                                            }}
+                                            className="px-2 py-0.5 text-[10px] font-semibold bg-white text-red-600 border border-red-300 rounded hover:bg-red-50 disabled:opacity-50"
+                                        >
+                                            {dismissingFigure ? '...' : 'Figure Not Needed'}
+                                        </button>
+                                    </div>
                                     {figurePrompt && <div className="text-sm text-gray-700 mb-2">{figurePrompt}</div>}
 
                                     {/* Figure paste/upload area */}
