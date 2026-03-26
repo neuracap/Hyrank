@@ -109,7 +109,8 @@ export async function GET(request) {
                 qam.question_id,
                 qam.role,
                 qam.option_key,
-                a.local_path AS image_url
+                a.local_path,
+                a.original_name
             FROM question_asset_map qam
             JOIN asset a ON a.asset_id = qam.asset_id
             WHERE qam.question_id = ANY($1)
@@ -118,6 +119,12 @@ export async function GET(request) {
 
         const assetsMap = {};
         for (const asset of assetsRes.rows) {
+            // Convert local_path to /api/assets proxy URL
+            const filename = asset.original_name
+                || (asset.local_path ? asset.local_path.split(/[/\\]/).pop() : null);
+            asset.image_url = filename
+                ? `/api/assets?name=${encodeURIComponent(filename)}`
+                : null;
             if (!assetsMap[asset.question_id]) assetsMap[asset.question_id] = [];
             assetsMap[asset.question_id].push(asset);
         }

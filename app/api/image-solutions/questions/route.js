@@ -87,7 +87,8 @@ export async function GET(request) {
                 qam.question_id,
                 qam.role,
                 qam.option_key,
-                a.local_path AS image_url
+                a.local_path,
+                a.original_name
             FROM question_asset_map qam
             JOIN asset a ON a.asset_id = qam.asset_id
             WHERE qam.question_id = ANY($1)
@@ -96,6 +97,11 @@ export async function GET(request) {
 
         const assetsByQuestion = {};
         for (const asset of assetsRes.rows) {
+            const filename = asset.original_name
+                || (asset.local_path ? asset.local_path.split(/[/\\]/).pop() : null);
+            asset.image_url = filename
+                ? `/api/assets?name=${encodeURIComponent(filename)}`
+                : null;
             if (!assetsByQuestion[asset.question_id]) {
                 assetsByQuestion[asset.question_id] = [];
             }
