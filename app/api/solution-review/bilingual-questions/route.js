@@ -42,6 +42,7 @@ export async function GET(req) {
                 qe.solution_status AS en_solution_status,
                 qe.solution_json AS en_solution_json,
                 qe.solution_figure_helpful AS en_figure_helpful,
+                qe.solution_figure_prompt AS en_figure_prompt,
 
                 -- Hindi
                 qh.question_id AS hi_question_id,
@@ -56,6 +57,7 @@ export async function GET(req) {
                 qh.solution_status AS hi_solution_status,
                 qh.solution_json AS hi_solution_json,
                 qh.solution_figure_helpful AS hi_figure_helpful,
+                qh.solution_figure_prompt AS hi_figure_prompt,
 
                 es.code AS section_code
 
@@ -124,6 +126,7 @@ export async function GET(req) {
                     solution_status: p.en_solution_status,
                     solution_json: enSolution,
                     figure_helpful: p.en_figure_helpful,
+                    figure_prompt: p.en_figure_prompt,
                     options: optionsMap[`${p.en_question_id}|EN`] || [],
                 },
                 hi: p.hi_question_id ? {
@@ -139,6 +142,7 @@ export async function GET(req) {
                     solution_status: p.hi_solution_status,
                     solution_json: hiSolution,
                     figure_helpful: p.hi_figure_helpful,
+                    figure_prompt: p.hi_figure_prompt,
                     options: optionsMap[`${p.hi_question_id}|HI`] || [],
                 } : null,
             };

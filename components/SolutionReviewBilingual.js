@@ -129,7 +129,7 @@ function EditableSolutionPanel({ lang, data, label, editState, onEditChange, onT
 // =========================================================
 // Bilingual question pair card (editable)
 // =========================================================
-function BilingualCard({ pair, idx, onSaveSuccess }) {
+function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
     const [expanded, setExpanded] = useState(true);
 
     // Edit state for EN and HI
@@ -149,6 +149,10 @@ function BilingualCard({ pair, idx, onSaveSuccess }) {
     const [saveMsg, setSaveMsg] = useState(null);
     const [translatingEn, setTranslatingEn] = useState(false);
     const [translatingHi, setTranslatingHi] = useState(false);
+    const [figureUrl, setFigureUrl] = useState(
+        pair.en?.solution_json?.figure_url || pair.en?.solution_json?.answer_outcome?.figure_url || ''
+    );
+    const [uploadingFigure, setUploadingFigure] = useState(false);
 
     const enDone = pair.en?.solution_status === 'DONE';
     const hiDone = pair.hi?.solution_status === 'DONE';
@@ -202,14 +206,19 @@ function BilingualCard({ pair, idx, onSaveSuccess }) {
             const buildPayload = (data, editState) => {
                 if (!data?.question_id) return null;
                 const existingSol = data.solution_json || {};
+                const solJson = {
+                    ...existingSol,
+                    display_sections: textToSections(editState.solutionText),
+                };
+                if (figureUrl) {
+                    solJson.figure_url = figureUrl;
+                    if (solJson.answer_outcome) solJson.answer_outcome.figure_url = figureUrl;
+                }
                 return {
                     question_id: data.question_id,
                     version_no: data.version_no || 1,
                     correct_option_label: editState.correct || '',
-                    solution_json: {
-                        ...existingSol,
-                        display_sections: textToSections(editState.solutionText),
-                    },
+                    solution_json: solJson,
                 };
             };
 
@@ -244,7 +253,20 @@ function BilingualCard({ pair, idx, onSaveSuccess }) {
                 <div className="flex items-center gap-2 cursor-pointer" onClick={() => setExpanded(!expanded)}>
                     <span className="text-xs font-bold text-gray-600">#{idx + 1}</span>
                     {pair.section_code && <span className="text-xs bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded">{pair.section_code}</span>}
-                    <span className="text-xs text-gray-400">Link #{pair.link_id}</span>
+                    {/* Difficulty buttons */}
+                    <div className="flex gap-0.5" onClick={e => e.stopPropagation()}>
+                        {[{ val: 1, label: 'E', cls: 'bg-green-100 text-green-700 border-green-300', active: 'bg-green-600 text-white border-green-600' },
+                          { val: 2, label: 'M', cls: 'bg-yellow-100 text-yellow-700 border-yellow-300', active: 'bg-yellow-500 text-white border-yellow-500' },
+                          { val: 3, label: 'H', cls: 'bg-red-100 text-red-700 border-red-300', active: 'bg-red-600 text-white border-red-600' },
+                        ].map(d => (
+                            <button key={d.val} onClick={() => onDifficultyChange && onDifficultyChange(pair.en?.question_id, pair.en?.version_no, d.val)}
+                                className={`w-5 h-5 text-[10px] font-bold rounded border ${pair.en?.difficulty === d.val ? d.active : d.cls} transition-colors`}
+                                title={d.val === 1 ? 'Easy' : d.val === 2 ? 'Medium' : 'Hard'}>
+                                {d.label}
+                            </button>
+                        ))}
+                    </div>
+                    {pair.en?.subtype && <span className="text-xs text-gray-400">{pair.en.subtype}</span>}
                     {answerMismatch && (
                         <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold">
                             ANSWER MISMATCH: EN={enEdit.correct} HI={hiEdit.correct}
@@ -254,6 +276,9 @@ function BilingualCard({ pair, idx, onSaveSuccess }) {
                         <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">
                             {!enDone && !hiDone ? 'Both unsolved' : !enDone ? 'EN unsolved' : 'HI unsolved'}
                         </span>
+                    )}
+                    {(pair.en?.figure_prompt || pair.en?.figure_helpful) && (
+                        <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Fig</span>
                     )}
                     <span className="text-xs text-gray-400">{expanded ? '[-]' : '[+]'}</span>
                 </div>
@@ -272,22 +297,91 @@ function BilingualCard({ pair, idx, onSaveSuccess }) {
 
             {/* Side by side editable panels */}
             {expanded && (
-                <div className="flex divide-x divide-gray-200">
-                    <EditableSolutionPanel
-                        lang="en" data={pair.en} label="English"
-                        editState={enEdit} onEditChange={setEnEdit}
-                        onTranslateFrom={() => handleTranslate('en')}
-                        translating={translatingEn}
-                        onCopyFrom={() => handleCopy('en')}
-                    />
-                    <EditableSolutionPanel
-                        lang="hi" data={pair.hi} label="Hindi"
-                        editState={hiEdit} onEditChange={setHiEdit}
-                        onTranslateFrom={() => handleTranslate('hi')}
-                        translating={translatingHi}
-                        onCopyFrom={() => handleCopy('hi')}
-                    />
-                </div>
+                <>
+                    <div className="flex divide-x divide-gray-200">
+                        <EditableSolutionPanel
+                            lang="en" data={pair.en} label="English"
+                            editState={enEdit} onEditChange={setEnEdit}
+                            onTranslateFrom={() => handleTranslate('en')}
+                            translating={translatingEn}
+                            onCopyFrom={() => handleCopy('en')}
+                        />
+                        <EditableSolutionPanel
+                            lang="hi" data={pair.hi} label="Hindi"
+                            editState={hiEdit} onEditChange={setHiEdit}
+                            onTranslateFrom={() => handleTranslate('hi')}
+                            translating={translatingHi}
+                            onCopyFrom={() => handleCopy('hi')}
+                        />
+                    </div>
+
+                    {/* Figure Prompt + Upload (shared for the pair) */}
+                    {(pair.en?.figure_prompt || pair.en?.figure_helpful) && (
+                        <div className="px-4 py-3 border-t border-gray-200 bg-amber-50">
+                            <label className="text-xs font-semibold text-amber-700 uppercase tracking-wide block mb-1">Figure Prompt</label>
+                            {pair.en?.figure_prompt && <div className="text-xs text-gray-700 mb-2">{pair.en.figure_prompt}</div>}
+                            <div className="mt-1">
+                                {figureUrl ? (
+                                    <div className="relative inline-block">
+                                        <img src={figureUrl} alt="Solution figure" className="max-h-40 rounded border border-gray-300 object-contain" />
+                                        <button onClick={() => setFigureUrl('')}
+                                            className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600"
+                                            title="Remove figure">x</button>
+                                    </div>
+                                ) : (
+                                    <div
+                                        className="border-2 border-dashed border-amber-300 rounded-lg p-3 text-center cursor-pointer hover:border-amber-500 hover:bg-amber-100 transition-colors"
+                                        onPaste={async (e) => {
+                                            const items = e.clipboardData?.items;
+                                            if (!items) return;
+                                            for (let item of items) {
+                                                if (item.type.startsWith('image/')) {
+                                                    e.preventDefault();
+                                                    setUploadingFigure(true);
+                                                    const fileBlob = item.getAsFile();
+                                                    const reader = new FileReader();
+                                                    reader.readAsDataURL(fileBlob);
+                                                    reader.onloadend = async () => {
+                                                        try {
+                                                            const res = await fetch('/api/upload', {
+                                                                method: 'POST',
+                                                                headers: { 'Content-Type': 'application/json' },
+                                                                body: JSON.stringify({
+                                                                    data: reader.result,
+                                                                    question_id: pair.en.question_id,
+                                                                    language: 'EN',
+                                                                    version_no: pair.en.version_no,
+                                                                    role: 'solution_figure',
+                                                                }),
+                                                            });
+                                                            const data = await res.json();
+                                                            if (data.url || data.secure_url || data.latexPath) {
+                                                                setFigureUrl(data.url || data.secure_url || data.latexPath);
+                                                            } else {
+                                                                alert('Upload failed: ' + (data.error || 'No URL returned'));
+                                                            }
+                                                        } catch (err) {
+                                                            console.error('Figure upload error:', err);
+                                                        } finally {
+                                                            setUploadingFigure(false);
+                                                        }
+                                                    };
+                                                    break;
+                                                }
+                                            }
+                                        }}
+                                        tabIndex={0}
+                                    >
+                                        {uploadingFigure
+                                            ? <span className="text-xs text-amber-700">Uploading...</span>
+                                            : <span className="text-xs text-amber-600">Paste generated figure here (Ctrl+V)</span>
+                                        }
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </>
             )}
         </div>
     );
@@ -406,17 +500,37 @@ export default function SolutionReviewBilingual({ exams }) {
         await loadQuestions(enId, hiId);
     };
 
+    // Handle difficulty change (updates EN side — shared for pair)
+    const handleDifficultyChange = async (questionId, versionNo, newDifficulty) => {
+        setQuestions(prev => prev.map(q =>
+            q.en?.question_id === questionId ? { ...q, en: { ...q.en, difficulty: newDifficulty } } : q
+        ));
+        try {
+            const q = questions.find(q => q.en?.question_id === questionId);
+            await fetch('/api/question/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: questionId, version_no: versionNo || 1, language: 'EN',
+                    question_text: q?.en?.text || '', difficulty: newDifficulty,
+                }),
+            });
+        } catch (e) { console.error('Difficulty update error:', e); }
+    };
+
     const filteredQuestions = questions.filter(q => {
         const enDone = q.en?.solution_status === 'DONE';
         const hiDone = q.hi?.solution_status === 'DONE';
         if (filter === 'both_solved') return enDone && hiDone;
         if (filter === 'unsolved') return !enDone || !hiDone;
         if (filter === 'mismatch') return q.en?.correct && q.hi?.correct && q.en.correct !== q.hi.correct;
+        if (filter === 'figures') return !!(q.en?.figure_prompt || q.en?.figure_helpful);
         return true;
     });
 
     const bothSolvedCount = questions.filter(q => q.en?.solution_status === 'DONE' && q.hi?.solution_status === 'DONE').length;
     const mismatchCount = questions.filter(q => q.en?.correct && q.hi?.correct && q.en.correct !== q.hi.correct).length;
+    const figuresCount = questions.filter(q => q.en?.figure_prompt || q.en?.figure_helpful).length;
 
     // Group by section for sidebar
     const groupedQuestions = questions.reduce((acc, q) => {
@@ -425,6 +539,16 @@ export default function SolutionReviewBilingual({ exams }) {
         acc[sec].push(q);
         return acc;
     }, {});
+
+    // Section-wise difficulty stats (from EN side)
+    const sectionStats = Object.entries(groupedQuestions).map(([code, qs]) => ({
+        code,
+        total: qs.length,
+        easy: qs.filter(q => q.en?.difficulty === 1).length,
+        medium: qs.filter(q => q.en?.difficulty === 2).length,
+        hard: qs.filter(q => q.en?.difficulty === 3).length,
+        unset: qs.filter(q => !q.en?.difficulty).length,
+    }));
 
     return (
         <div className="flex flex-col h-screen overflow-hidden bg-white">
@@ -477,6 +601,7 @@ export default function SolutionReviewBilingual({ exams }) {
                                 { key: 'both_solved', label: 'Both Solved' },
                                 { key: 'unsolved', label: 'Unsolved' },
                                 { key: 'mismatch', label: 'Mismatches' },
+                                { key: 'figures', label: `Figures (${figuresCount})` },
                             ].map(f => (
                                 <button key={f.key} onClick={() => setFilter(f.key)}
                                     className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${filter === f.key ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
@@ -494,6 +619,46 @@ export default function SolutionReviewBilingual({ exams }) {
                                 {advancing ? '...' : 'Move to Production'}
                             </button>
                         </div>
+                    </div>
+                )}
+
+                {/* Row 3: Section-wise difficulty table */}
+                {selectedPair && sectionStats.length > 0 && (
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-xs border-collapse">
+                            <thead>
+                                <tr className="text-gray-500 uppercase">
+                                    <th className="text-left font-semibold px-2 py-1">Section</th>
+                                    <th className="text-center font-semibold px-2 py-1">Total</th>
+                                    <th className="text-center font-semibold px-2 py-1 text-green-700">Easy</th>
+                                    <th className="text-center font-semibold px-2 py-1 text-yellow-700">Medium</th>
+                                    <th className="text-center font-semibold px-2 py-1 text-red-700">Hard</th>
+                                    <th className="text-center font-semibold px-2 py-1 text-gray-400">Unset</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {sectionStats.map(s => (
+                                    <tr key={s.code} className="border-t border-gray-100">
+                                        <td className="px-2 py-1 font-semibold text-gray-700">{s.code}</td>
+                                        <td className="text-center px-2 py-1">{s.total}</td>
+                                        <td className="text-center px-2 py-1"><span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-bold">{s.easy}</span></td>
+                                        <td className="text-center px-2 py-1"><span className="bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded font-bold">{s.medium}</span></td>
+                                        <td className="text-center px-2 py-1"><span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold">{s.hard}</span></td>
+                                        <td className="text-center px-2 py-1"><span className="text-gray-400">{s.unset || '-'}</span></td>
+                                    </tr>
+                                ))}
+                                {sectionStats.length > 1 && (
+                                    <tr className="border-t border-gray-300 font-bold">
+                                        <td className="px-2 py-1 text-gray-700">Total</td>
+                                        <td className="text-center px-2 py-1">{questions.length}</td>
+                                        <td className="text-center px-2 py-1"><span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">{sectionStats.reduce((s, r) => s + r.easy, 0)}</span></td>
+                                        <td className="text-center px-2 py-1"><span className="bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded">{sectionStats.reduce((s, r) => s + r.medium, 0)}</span></td>
+                                        <td className="text-center px-2 py-1"><span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded">{sectionStats.reduce((s, r) => s + r.hard, 0)}</span></td>
+                                        <td className="text-center px-2 py-1 text-gray-400">{sectionStats.reduce((s, r) => s + r.unset, 0) || '-'}</td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
                     </div>
                 )}
             </div>
@@ -576,7 +741,7 @@ export default function SolutionReviewBilingual({ exams }) {
                         <div className="max-w-7xl mx-auto px-4 py-6 space-y-4">
                             {filteredQuestions.map((q, idx) => (
                                 <div key={q.link_id} id={`bp-${q.link_id}`}>
-                                    <BilingualCard pair={q} idx={idx} />
+                                    <BilingualCard pair={q} idx={idx} onDifficultyChange={handleDifficultyChange} />
                                 </div>
                             ))}
                         </div>
