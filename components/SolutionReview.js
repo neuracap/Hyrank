@@ -128,6 +128,30 @@ export default function SolutionReview({ exams }) {
 
     const solvedCount = questions.filter(q => q.solution_status === 'DONE').length;
 
+    // Handle difficulty change for a question
+    const handleDifficultyChange = async (questionId, versionNo, newDifficulty) => {
+        // Optimistic update
+        setQuestions(prev => prev.map(q =>
+            q.question_id === questionId ? { ...q, difficulty: newDifficulty } : q
+        ));
+        try {
+            const q = questions.find(q => q.question_id === questionId);
+            await fetch('/api/question/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: questionId,
+                    version_no: versionNo || 1,
+                    language: selectedLanguage,
+                    question_text: q?.question_text || '',
+                    difficulty: newDifficulty,
+                }),
+            });
+        } catch (e) {
+            console.error('Difficulty update error:', e);
+        }
+    };
+
     // Group questions by section_code for sidebar
     const groupedQuestions = questions.reduce((acc, q) => {
         const section = q.section_code || 'Other';
@@ -135,6 +159,17 @@ export default function SolutionReview({ exams }) {
         acc[section].push(q);
         return acc;
     }, {});
+
+    // Section-wise difficulty stats
+    const sectionStats = Object.entries(groupedQuestions).map(([code, qs]) => ({
+        code,
+        total: qs.length,
+        easy: qs.filter(q => q.difficulty === 1).length,
+        medium: qs.filter(q => q.difficulty === 2).length,
+        hard: qs.filter(q => q.difficulty === 3).length,
+        unset: qs.filter(q => !q.difficulty).length,
+        solved: qs.filter(q => q.solution_status === 'DONE').length,
+    }));
 
     return (
         <div className="flex flex-col h-screen overflow-hidden bg-white">
@@ -209,6 +244,49 @@ export default function SolutionReview({ exams }) {
                                 {advancing ? '...' : 'Move to Production'}
                             </button>
                         </div>
+                    </div>
+                )}
+
+                {/* Row 3: Section-wise difficulty table */}
+                {selectedPaper && sectionStats.length > 0 && (
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-xs border-collapse">
+                            <thead>
+                                <tr className="text-gray-500 uppercase">
+                                    <th className="text-left font-semibold px-2 py-1">Section</th>
+                                    <th className="text-center font-semibold px-2 py-1">Total</th>
+                                    <th className="text-center font-semibold px-2 py-1 text-green-700">Easy</th>
+                                    <th className="text-center font-semibold px-2 py-1 text-yellow-700">Medium</th>
+                                    <th className="text-center font-semibold px-2 py-1 text-red-700">Hard</th>
+                                    <th className="text-center font-semibold px-2 py-1 text-gray-400">Unset</th>
+                                    <th className="text-center font-semibold px-2 py-1">Solved</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {sectionStats.map(s => (
+                                    <tr key={s.code} className="border-t border-gray-100">
+                                        <td className="px-2 py-1 font-semibold text-gray-700">{s.code}</td>
+                                        <td className="text-center px-2 py-1">{s.total}</td>
+                                        <td className="text-center px-2 py-1"><span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-bold">{s.easy}</span></td>
+                                        <td className="text-center px-2 py-1"><span className="bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded font-bold">{s.medium}</span></td>
+                                        <td className="text-center px-2 py-1"><span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold">{s.hard}</span></td>
+                                        <td className="text-center px-2 py-1"><span className="text-gray-400">{s.unset || '-'}</span></td>
+                                        <td className="text-center px-2 py-1">{s.solved}/{s.total}</td>
+                                    </tr>
+                                ))}
+                                {sectionStats.length > 1 && (
+                                    <tr className="border-t border-gray-300 font-bold">
+                                        <td className="px-2 py-1 text-gray-700">Total</td>
+                                        <td className="text-center px-2 py-1">{questions.length}</td>
+                                        <td className="text-center px-2 py-1"><span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">{sectionStats.reduce((s, r) => s + r.easy, 0)}</span></td>
+                                        <td className="text-center px-2 py-1"><span className="bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded">{sectionStats.reduce((s, r) => s + r.medium, 0)}</span></td>
+                                        <td className="text-center px-2 py-1"><span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded">{sectionStats.reduce((s, r) => s + r.hard, 0)}</span></td>
+                                        <td className="text-center px-2 py-1 text-gray-400">{sectionStats.reduce((s, r) => s + r.unset, 0) || '-'}</td>
+                                        <td className="text-center px-2 py-1">{solvedCount}/{questions.length}</td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
                     </div>
                 )}
             </div>
@@ -292,7 +370,8 @@ export default function SolutionReview({ exams }) {
                         <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
                             {filteredQuestions.map((q, idx) => (
                                 <div key={q.question_id} id={`sq-${q.question_id}`}>
-                                    <QuestionCard q={q} idx={idx} paperId={selectedPaper.paper_session_id} />
+                                    <QuestionCard q={q} idx={idx} paperId={selectedPaper.paper_session_id}
+                                        onDifficultyChange={(newDiff) => handleDifficultyChange(q.question_id, q.version_no, newDiff)} />
                                 </div>
                             ))}
                         </div>
@@ -311,7 +390,7 @@ function toArray(val) {
     return [];
 }
 
-function QuestionCard({ q, idx, paperId }) {
+function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
     const hasSolution = q.solution_status === 'DONE';
     const sj = q.solution_json || {};
     const answer = q.correct_option_label || q.answer_label || sj.answer_outcome?.correct_option;
@@ -441,7 +520,18 @@ function QuestionCard({ q, idx, paperId }) {
                     <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${hasSolution ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
                         {hasSolution ? 'DONE' : q.solution_status || 'PENDING'}
                     </span>
-                    <DifficultyBadge level={q.difficulty} />
+                    <div className="flex gap-0.5">
+                        {[{ val: 1, label: 'E', cls: 'bg-green-100 text-green-700 border-green-300', active: 'bg-green-600 text-white border-green-600' },
+                          { val: 2, label: 'M', cls: 'bg-yellow-100 text-yellow-700 border-yellow-300', active: 'bg-yellow-500 text-white border-yellow-500' },
+                          { val: 3, label: 'H', cls: 'bg-red-100 text-red-700 border-red-300', active: 'bg-red-600 text-white border-red-600' },
+                        ].map(d => (
+                            <button key={d.val} onClick={() => onDifficultyChange && onDifficultyChange(d.val)}
+                                className={`w-5 h-5 text-[10px] font-bold rounded border ${q.difficulty === d.val ? d.active : d.cls} transition-colors`}
+                                title={d.val === 1 ? 'Easy' : d.val === 2 ? 'Medium' : 'Hard'}>
+                                {d.label}
+                            </button>
+                        ))}
+                    </div>
                     {q.subtype && <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">{q.subtype}</span>}
                     {q.section_code && <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">{q.section_code}</span>}
                 </div>

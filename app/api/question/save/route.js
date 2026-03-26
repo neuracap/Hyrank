@@ -8,7 +8,7 @@ export async function POST(req) {
 
     try {
         const body = await req.json();
-        const { id, version_no, language, question_text, options, source_question_no, status: saveStatus } = body;
+        const { id, version_no, language, question_text, options, source_question_no, difficulty, status: saveStatus } = body;
 
         if (!id || !version_no || !language) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -31,17 +31,18 @@ export async function POST(req) {
 
         await client.query('BEGIN');
 
-        // 1. Update Question Text & Source Question No + question_number_int
+        // 1. Update Question Text & Source Question No + question_number_int + difficulty
         await client.query(`
             UPDATE question_version
             SET
                 body_json = jsonb_set(body_json, '{text}', to_jsonb($1::text)),
                 source_question_no = COALESCE($5, source_question_no),
                 question_number_int = COALESCE($7, question_number_int),
+                difficulty = COALESCE($8, difficulty),
                 status = $6,
                 updated_at = NOW()
             WHERE question_id = $2 AND version_no = $3 AND language = $4
-        `, [question_text, id, version_no, language, normalizedQNo, statusToSet, qNoInt]);
+        `, [question_text, id, version_no, language, normalizedQNo, statusToSet, qNoInt, difficulty || null]);
 
 
         // 2. Update/Insert Options
