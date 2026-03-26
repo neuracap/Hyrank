@@ -73,7 +73,7 @@ export async function GET(req) {
             LEFT JOIN exam_section es ON es.section_id = qe.exam_section_id
             WHERE ql.paper_session_id_english = $1
               AND ql.paper_session_id_hindi = $2
-            ORDER BY qe.question_number_int ASC NULLS LAST, qe.source_question_no ASC
+            ORDER BY es.sort_order ASC NULLS LAST, qe.question_number_int ASC NULLS LAST
         `, [enSessionId, hiSessionId]);
 
         const pairs = pairsRes.rows;
