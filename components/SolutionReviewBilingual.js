@@ -231,6 +231,7 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
                     link_id: pair.link_id,
                     en: buildPayload(pair.en, enEdit),
                     hi: buildPayload(pair.hi, hiEdit),
+                    difficulty: pair.en?.difficulty || null,
                 }),
             });
             const data = await res.json();

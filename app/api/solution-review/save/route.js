@@ -42,9 +42,10 @@ export async function POST(request) {
                 await client.query(`
                     UPDATE question_version SET
                         solution_json = $1::jsonb,
+                        difficulty = COALESCE($4, difficulty),
                         updated_at = NOW()
                     WHERE question_id = $2 AND version_no = $3 AND language = 'EN'
-                `, [solutionJson, question_id, version_no]);
+                `, [solutionJson, question_id, version_no, difficulty || null]);
             } else {
                 // Legacy format: basic solution_json
                 const solutionJson = JSON.stringify({
