@@ -433,6 +433,7 @@ export default function ImageSolutionsBilingual({ papers }) {
                                         onGenerate={() => handleGenerate(pair)}
                                         onSave={() => handleSave(pair)}
                                         onFlag={() => handleFlag(pair)}
+                                        onUpdatePair={(updated) => setPairs(prev => prev.map(p => p.link_id === updated.link_id ? updated : p))}
                                     />
                                 ))
                             )}
@@ -485,7 +486,7 @@ function OptionGrid({ options, assets, selectedOption, onSelect, editedOptions, 
     );
 }
 
-function PairCard({ pair, idx, selectedOptionEn, onSelectOptionEn, selectedOptionHi, onSelectOptionHi, subtype, onSubtypeChange, difficulty, onDifficultyChange, solutionEn, onSolutionEnChange, solutionHi, onSolutionHiChange, aiResultEn, aiResultHi, isGenerating, isTranslating, isSaving, isFlagging, onTranslate, onGenerate, onSave, onFlag }) {
+function PairCard({ pair, idx, selectedOptionEn, onSelectOptionEn, selectedOptionHi, onSelectOptionHi, subtype, onSubtypeChange, difficulty, onDifficultyChange, solutionEn, onSolutionEnChange, solutionHi, onSolutionHiChange, aiResultEn, aiResultHi, isGenerating, isTranslating, isSaving, isFlagging, onTranslate, onGenerate, onSave, onFlag, onUpdatePair }) {
     const isSolved = pair.solution_status === 'DONE';
     const isFlagged = pair.link_status === 'FLAGGED';
 
@@ -551,6 +552,18 @@ function PairCard({ pair, idx, selectedOptionEn, onSelectOptionEn, selectedOptio
             if (res.ok && data.success) {
                 setSaveQMsg('Saved!');
                 setEditingText(false);
+                setEditedEngOpts({});
+                setEditedHinOpts({});
+                // Update the pair in parent state so UI reflects changes without reload
+                if (onUpdatePair) {
+                    onUpdatePair({
+                        ...pair,
+                        eng_text: engText,
+                        hin_text: hinText,
+                        eng_options: enOpts.map(o => ({ ...((pair.eng_options || []).find(eo => eo.opt_label === o.opt_label) || {}), opt_text: o.opt_text, opt_label: o.opt_label })),
+                        hin_options: hiOpts.map(o => ({ ...((pair.hin_options || []).find(ho => ho.opt_label === o.opt_label) || {}), opt_text: o.opt_text, opt_label: o.opt_label })),
+                    });
+                }
                 setTimeout(() => setSaveQMsg(null), 3000);
             } else {
                 setSaveQMsg('Error: ' + (data.error || 'Failed'));
