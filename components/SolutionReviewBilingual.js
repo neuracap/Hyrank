@@ -8,6 +8,46 @@ const DIFF_COLORS = { 1: 'bg-green-100 text-green-700', 2: 'bg-yellow-100 text-y
 
 function toArray(v) { return Array.isArray(v) ? v : []; }
 
+/**
+ * Check if a bilingual pair has an answer mismatch.
+ * Compares by option TEXT first (since options may be jumbled across languages).
+ * Falls back to A/B/C/D letter comparison only if text comparison isn't possible.
+ */
+function hasAnswerMismatch(en, hi) {
+    if (!en?.correct || !hi?.correct) return false;
+
+    // Get the text of the correct option on each side
+    const enCorrectText = (en.options || []).find(o => o.option_key === en.correct)?.opt_text?.trim();
+    const hiCorrectText = (hi.options || []).find(o => o.option_key === hi.correct)?.opt_text?.trim();
+
+    // If we have text on both sides, compare by text
+    if (enCorrectText && hiCorrectText) {
+        // Normalize: strip whitespace, LaTeX formatting differences
+        const normalize = (t) => t.replace(/\s+/g, ' ').replace(/\$/g, '').trim().toLowerCase();
+        const enNorm = normalize(enCorrectText);
+        const hiNorm = normalize(hiCorrectText);
+
+        // Direct text match
+        if (enNorm === hiNorm) return false;
+
+        // Check if EN's correct answer text exists in any HI option (and vice versa)
+        // This handles the case where both answers are the same value but in different scripts
+        const hiOptTexts = (hi.options || []).map(o => normalize(o.opt_text || ''));
+        const enOptTexts = (en.options || []).map(o => normalize(o.opt_text || ''));
+
+        // If EN correct text is found in HI options AND HI correct text is found in EN options,
+        // and they point to the same value — not a mismatch
+        const enTextInHiIdx = hiOptTexts.indexOf(enNorm);
+        if (enTextInHiIdx !== -1 && (hi.options || [])[enTextInHiIdx]?.option_key === hi.correct) return false;
+
+        // True mismatch — different answer content
+        return true;
+    }
+
+    // Fallback: compare by letter (A/B/C/D) if text isn't available
+    return en.correct !== hi.correct;
+}
+
 // Helper to flatten display_sections into editable text
 function sectionsToText(sections) {
     return toArray(sections).map(s => {
@@ -159,7 +199,10 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
     const enDone = pair.en?.solution_status === 'DONE';
     const hiDone = pair.hi?.solution_status === 'DONE';
     const bothDone = enDone && hiDone;
-    const answerMismatch = enEdit.correct && hiEdit.correct && enEdit.correct !== hiEdit.correct;
+    // Build live option data using current correct selections
+    const enLive = { ...pair.en, correct: enEdit.correct, options: pair.en?.options || [] };
+    const hiLive = { ...pair.hi, correct: hiEdit.correct, options: pair.hi?.options || [] };
+    const answerMismatch = hasAnswerMismatch(enLive, hiLive);
 
     // Translate: take the OTHER side's text, translate it, put it in THIS side
     const handleTranslate = async (targetLang) => {
@@ -573,13 +616,13 @@ export default function SolutionReviewBilingual({ exams }) {
         const hiDone = q.hi?.solution_status === 'DONE';
         if (filter === 'both_solved') return enDone && hiDone;
         if (filter === 'unsolved') return !enDone || !hiDone;
-        if (filter === 'mismatch') return q.en?.correct && q.hi?.correct && q.en.correct !== q.hi.correct;
+        if (filter === 'mismatch') return hasAnswerMismatch(q.en, q.hi);
         if (filter === 'figures') return !!(q.en?.figure_prompt || q.en?.figure_helpful);
         return true;
     });
 
     const bothSolvedCount = questions.filter(q => q.en?.solution_status === 'DONE' && q.hi?.solution_status === 'DONE').length;
-    const mismatchCount = questions.filter(q => q.en?.correct && q.hi?.correct && q.en.correct !== q.hi.correct).length;
+    const mismatchCount = questions.filter(q => hasAnswerMismatch(q.en, q.hi)).length;
     const figuresCount = questions.filter(q => q.en?.figure_prompt || q.en?.figure_helpful).length;
 
     // Group by section for sidebar
@@ -753,7 +796,7 @@ export default function SolutionReviewBilingual({ exams }) {
                                                 const enDone = q.en?.solution_status === 'DONE';
                                                 const hiDone = q.hi?.solution_status === 'DONE';
                                                 const bothDone = enDone && hiDone;
-                                                const mismatch = q.en?.correct && q.hi?.correct && q.en.correct !== q.hi.correct;
+                                                const mismatch = hasAnswerMismatch(q.en, q.hi);
                                                 const qLabel = q.en?.q_no ? q.en.q_no.replace(/Q\.\s*/, '').trim() : '?';
 
                                                 let colorClass;
