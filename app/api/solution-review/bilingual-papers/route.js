@@ -57,6 +57,8 @@ export async function GET(req) {
                 pse.paper_date,
                 pse.subject,
                 pse.status AS en_status,
+                ij_en.source_pdf_path AS en_pdf_path,
+                ij_hi.source_pdf_path AS hi_pdf_path,
                 en_s.total AS en_total,
                 en_s.solved AS en_solved,
                 hi_s.total AS hi_total,
@@ -67,6 +69,10 @@ export async function GET(req) {
             FROM paper_pairs pp
             JOIN paper_session pse ON pse.paper_session_id = pp.en_session_id
             JOIN paper_session psh ON psh.paper_session_id = pp.hi_session_id
+            LEFT JOIN raw_mmd_doc d_en ON pse.raw_mmd_doc_id = d_en.raw_mmd_doc_id
+            LEFT JOIN import_job ij_en ON d_en.import_job_id = ij_en.import_job_id
+            LEFT JOIN raw_mmd_doc d_hi ON psh.raw_mmd_doc_id = d_hi.raw_mmd_doc_id
+            LEFT JOIN import_job ij_hi ON d_hi.import_job_id = ij_hi.import_job_id
             LEFT JOIN en_stats en_s ON en_s.paper_session_id = pp.en_session_id
             LEFT JOIN hi_stats hi_s ON hi_s.paper_session_id = pp.hi_session_id
             WHERE pse.exam_id = $1
