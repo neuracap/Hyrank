@@ -148,7 +148,7 @@ function EditableSolutionPanel({ lang, data, label, editState, onEditChange, onT
                     placeholder="One-line reason why this is correct..." />
             </div>
 
-            {/* Action buttons: Translate / Copy from other side */}
+            {/* Action buttons: Translate / Copy / Format */}
             <div className="px-3 py-1.5 border-b bg-gray-50 flex items-center gap-2 flex-wrap">
                 <button onClick={onTranslateFrom} disabled={translating}
                     className="px-2 py-1 text-xs font-semibold bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50">
@@ -158,6 +158,11 @@ function EditableSolutionPanel({ lang, data, label, editState, onEditChange, onT
                     className="px-2 py-1 text-xs font-semibold bg-gray-600 text-white rounded hover:bg-gray-700">
                     Copy from {lang === 'en' ? 'Hindi' : 'English'}
                 </button>
+                <button onClick={() => onEditChange({ ...editState, solutionText: formatSentences(editState.solutionText) })}
+                    className="px-2 py-1 text-xs font-semibold bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                    title="Add line breaks after sentences (. and ।)">
+                    Format
+                </button>
                 <button onClick={() => setShowPreview(!showPreview)}
                     className="px-2 py-1 text-xs font-semibold bg-white text-gray-600 border border-gray-300 rounded hover:bg-gray-50 ml-auto">
                     {showPreview ? 'Hide Preview' : 'Show Preview'}
@@ -166,13 +171,6 @@ function EditableSolutionPanel({ lang, data, label, editState, onEditChange, onT
 
             {/* Editable solution text */}
             <div className="px-3 py-2 flex-1 flex flex-col">
-                <div className="flex items-center gap-2 mb-1">
-                    <button onClick={() => onEditChange({ ...editState, solutionText: formatSentences(editState.solutionText) })}
-                        className="px-2 py-0.5 text-[10px] font-semibold bg-gray-100 text-gray-600 border border-gray-300 rounded hover:bg-gray-200"
-                        title="Add line breaks after sentences (. and ।)">
-                        Format
-                    </button>
-                </div>
                 <textarea
                     value={editState.solutionText}
                     onChange={e => onEditChange({ ...editState, solutionText: e.target.value })}

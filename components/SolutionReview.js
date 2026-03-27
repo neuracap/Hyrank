@@ -685,18 +685,16 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
                             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Explanation</label>
                             <div className="flex items-center gap-2">
                                 {saveMsg && <span className={`text-xs font-semibold ${saveMsg === 'Saved!' ? 'text-green-600' : 'text-red-600'}`}>{saveMsg}</span>}
+                                <button onClick={() => setExplanationText(formatSentences(explanationText))}
+                                    className="px-3 py-1 text-xs font-semibold rounded-md bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors"
+                                    title="Add line breaks after sentences (. and ।)">
+                                    Format
+                                </button>
                                 <button onClick={handleSaveExplanation} disabled={isSaving}
                                     className="px-3 py-1 text-xs font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors">
                                     {isSaving ? 'Saving...' : 'Save'}
                                 </button>
                             </div>
-                        </div>
-                        <div className="flex items-center gap-2 mb-1">
-                            <button onClick={() => setExplanationText(formatSentences(explanationText))}
-                                className="px-2 py-0.5 text-[10px] font-semibold bg-gray-100 text-gray-600 border border-gray-300 rounded hover:bg-gray-200"
-                                title="Add line breaks after sentences (. and ।)">
-                                Format
-                            </button>
                         </div>
                         <textarea
                             rows={6}
