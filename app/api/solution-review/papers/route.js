@@ -31,20 +31,22 @@ export async function GET(req) {
                 ps.subject,
                 ps.status,
                 ps.language,
-                ij.source_pdf_path,
+                (SELECT ij.source_pdf_path
+                 FROM raw_mmd_doc d
+                 JOIN import_job ij ON d.import_job_id = ij.import_job_id
+                 WHERE d.raw_mmd_doc_id = ps.raw_mmd_doc_id
+                 LIMIT 1) AS source_pdf_path,
                 COUNT(qv.question_id) AS question_count,
                 COUNT(qv.question_id) FILTER (WHERE qv.solution_status = 'DONE') AS solved_count,
                 COUNT(qv.question_id) FILTER (WHERE COALESCE(qv.solution_status, 'pending') IN ('pending', 'FAILED')) AS unsolved_count
             FROM paper_session ps
-            LEFT JOIN raw_mmd_doc d ON ps.raw_mmd_doc_id = d.raw_mmd_doc_id
-            LEFT JOIN import_job ij ON d.import_job_id = ij.import_job_id
             LEFT JOIN question_version qv
                 ON qv.paper_session_id = ps.paper_session_id
                 AND qv.language = $2
             WHERE ps.exam_id = $1
               AND ps.language = $2
             GROUP BY ps.paper_session_id, ps.session_label, ps.paper_date,
-                     ps.subject, ps.status, ps.language, ij.source_pdf_path
+                     ps.subject, ps.status, ps.language
             HAVING COUNT(qv.question_id) > 0
             ORDER BY ps.paper_date DESC NULLS LAST, ps.session_label ASC
         `, [examId, language.toUpperCase()]);
