@@ -8,6 +8,21 @@ const DIFF_COLORS = { 1: 'bg-green-100 text-green-700', 2: 'bg-yellow-100 text-y
 
 function toArray(v) { return Array.isArray(v) ? v : []; }
 
+// Format text by adding line breaks after sentences
+function formatSentences(text) {
+    if (!text) return text;
+    const latexBlocks = [];
+    let p = text.replace(/\$[^$]+\$/g, (m) => { latexBlocks.push(m); return `__LATEX_${latexBlocks.length - 1}__`; });
+    const secTags = [];
+    p = p.replace(/\[[a-z_]+\]/g, (m) => { secTags.push(m); return `__SEC_${secTags.length - 1}__`; });
+    p = p.replace(/\.(\s+)(?=[A-Z\u0900-\u097F])/g, '.\n');
+    p = p.replace(/।\s*/g, '।\n');
+    p = p.replace(/\n{3,}/g, '\n\n');
+    for (let i = 0; i < latexBlocks.length; i++) p = p.replace(`__LATEX_${i}__`, latexBlocks[i]);
+    for (let i = 0; i < secTags.length; i++) p = p.replace(`__SEC_${i}__`, secTags[i]);
+    return p;
+}
+
 // Get correct answer label from various sources
 function getCorrectLabel(side) {
     if (!side) return null;
@@ -151,6 +166,13 @@ function EditableSolutionPanel({ lang, data, label, editState, onEditChange, onT
 
             {/* Editable solution text */}
             <div className="px-3 py-2 flex-1 flex flex-col">
+                <div className="flex items-center gap-2 mb-1">
+                    <button onClick={() => onEditChange({ ...editState, solutionText: formatSentences(editState.solutionText) })}
+                        className="px-2 py-0.5 text-[10px] font-semibold bg-gray-100 text-gray-600 border border-gray-300 rounded hover:bg-gray-200"
+                        title="Add line breaks after sentences (. and ।)">
+                        Format
+                    </button>
+                </div>
                 <textarea
                     value={editState.solutionText}
                     onChange={e => onEditChange({ ...editState, solutionText: e.target.value })}

@@ -9,6 +9,43 @@ const DIFFICULTY_MAP = {
     3: { label: 'Hard', cls: 'bg-red-100 text-red-700' },
 };
 
+/**
+ * Format text by adding line breaks after sentences.
+ * English: after "." followed by a space or end, but not inside LaTeX ($...$) or decimals (3.14)
+ * Hindi: after "।"
+ */
+function formatSentences(text) {
+    if (!text) return text;
+    // Protect LaTeX blocks by replacing them with placeholders
+    const latexBlocks = [];
+    let protected_ = text.replace(/\$[^$]+\$/g, (match) => {
+        latexBlocks.push(match);
+        return `__LATEX_${latexBlocks.length - 1}__`;
+    });
+    // Protect [section_key] tags
+    const sectionTags = [];
+    protected_ = protected_.replace(/\[[a-z_]+\]/g, (match) => {
+        sectionTags.push(match);
+        return `__SEC_${sectionTags.length - 1}__`;
+    });
+    // Add newline after ". " (English sentence end) — but not after decimals like 3.14
+    // A sentence-ending "." is followed by a space and an uppercase letter, or end of text
+    protected_ = protected_.replace(/\.(\s+)(?=[A-Z\u0900-\u097F])/g, '.\n');
+    // Add newline after "।" (Hindi sentence end)
+    protected_ = protected_.replace(/।\s*/g, '।\n');
+    // Remove double newlines created by formatting
+    protected_ = protected_.replace(/\n{3,}/g, '\n\n');
+    // Restore LaTeX blocks
+    for (let i = 0; i < latexBlocks.length; i++) {
+        protected_ = protected_.replace(`__LATEX_${i}__`, latexBlocks[i]);
+    }
+    // Restore section tags
+    for (let i = 0; i < sectionTags.length; i++) {
+        protected_ = protected_.replace(`__SEC_${i}__`, sectionTags[i]);
+    }
+    return protected_;
+}
+
 function DifficultyBadge({ level }) {
     if (!level) return null;
     const d = DIFFICULTY_MAP[level];
@@ -653,6 +690,13 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
                                     {isSaving ? 'Saving...' : 'Save'}
                                 </button>
                             </div>
+                        </div>
+                        <div className="flex items-center gap-2 mb-1">
+                            <button onClick={() => setExplanationText(formatSentences(explanationText))}
+                                className="px-2 py-0.5 text-[10px] font-semibold bg-gray-100 text-gray-600 border border-gray-300 rounded hover:bg-gray-200"
+                                title="Add line breaks after sentences (. and ।)">
+                                Format
+                            </button>
                         </div>
                         <textarea
                             rows={6}
