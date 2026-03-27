@@ -255,6 +255,11 @@ export default function SolutionReview({ exams }) {
                                 Source PDF
                             </a>
                         )}
+                        <a href={`/test?testId=${selectedPaper.paper_session_id}&locked=true`}
+                            target="_blank" rel="noopener noreferrer"
+                            className="text-xs text-blue-600 hover:underline flex items-center gap-1 bg-white border border-gray-200 px-2 py-0.5 rounded">
+                            Edit Paper
+                        </a>
                         <div className="flex gap-1">
                             {[
                                 { key: 'all', label: 'All' },

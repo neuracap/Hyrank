@@ -729,6 +729,21 @@ export default function SolutionReviewBilingual({ exams }) {
                                 HI PDF
                             </a>
                         )}
+                        <a href={`/bilingual/${selectedPair.en_session_id}`}
+                            target="_blank" rel="noopener noreferrer"
+                            className="text-xs text-purple-600 hover:underline flex items-center gap-1 bg-white border border-gray-200 px-2 py-0.5 rounded">
+                            Edit Bilingual
+                        </a>
+                        <a href={`/test?testId=${selectedPair.en_session_id}&locked=true`}
+                            target="_blank" rel="noopener noreferrer"
+                            className="text-xs text-blue-600 hover:underline flex items-center gap-1 bg-white border border-gray-200 px-2 py-0.5 rounded">
+                            Edit EN
+                        </a>
+                        <a href={`/test?testId=${selectedPair.hi_session_id}&locked=true`}
+                            target="_blank" rel="noopener noreferrer"
+                            className="text-xs text-orange-600 hover:underline flex items-center gap-1 bg-white border border-gray-200 px-2 py-0.5 rounded">
+                            Edit HI
+                        </a>
                         <div className="flex gap-1">
                             {[
                                 { key: 'all', label: 'All' },
