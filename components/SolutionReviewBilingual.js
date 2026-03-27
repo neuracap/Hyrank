@@ -8,44 +8,48 @@ const DIFF_COLORS = { 1: 'bg-green-100 text-green-700', 2: 'bg-yellow-100 text-y
 
 function toArray(v) { return Array.isArray(v) ? v : []; }
 
-/**
- * Check if a bilingual pair has an answer mismatch.
- * Compares by option TEXT first (since options may be jumbled across languages).
- * Falls back to A/B/C/D letter comparison only if text comparison isn't possible.
- */
+// Get correct answer label from various sources
+function getCorrectLabel(side) {
+    if (!side) return null;
+    if (side.correct) return side.correct;
+    const sj = side.solution_json || {};
+    if (sj.answer_outcome?.correct_option) return sj.answer_outcome.correct_option;
+    if (sj.correct_option_label) return sj.correct_option_label;
+    const correctOpt = (side.options || []).find(o => o.is_correct);
+    if (correctOpt) return correctOpt.option_key;
+    return null;
+}
+
+// Check if bilingual pair has an answer mismatch (compare by option text, fallback to letter)
 function hasAnswerMismatch(en, hi) {
-    if (!en?.correct || !hi?.correct) return false;
+    const enLabel = getCorrectLabel(en);
+    const hiLabel = getCorrectLabel(hi);
+    if (!enLabel || !hiLabel) return false;
 
-    // Get the text of the correct option on each side
-    const enCorrectText = (en.options || []).find(o => o.option_key === en.correct)?.opt_text?.trim();
-    const hiCorrectText = (hi.options || []).find(o => o.option_key === hi.correct)?.opt_text?.trim();
+    const normalize = (t) => (t || '').replace(/\s+/g, ' ').replace(/\$/g, '').trim().toLowerCase();
 
-    // If we have text on both sides, compare by text
+    const enCorrectText = (en.options || []).find(o => o.option_key === enLabel)?.opt_text;
+    const hiCorrectText = (hi.options || []).find(o => o.option_key === hiLabel)?.opt_text;
+
     if (enCorrectText && hiCorrectText) {
-        // Normalize: strip whitespace, LaTeX formatting differences
-        const normalize = (t) => t.replace(/\s+/g, ' ').replace(/\$/g, '').trim().toLowerCase();
         const enNorm = normalize(enCorrectText);
         const hiNorm = normalize(hiCorrectText);
 
-        // Direct text match
+        // Same text = same answer, just different position
         if (enNorm === hiNorm) return false;
 
-        // Check if EN's correct answer text exists in any HI option (and vice versa)
-        // This handles the case where both answers are the same value but in different scripts
-        const hiOptTexts = (hi.options || []).map(o => normalize(o.opt_text || ''));
-        const enOptTexts = (en.options || []).map(o => normalize(o.opt_text || ''));
+        // Check if EN correct text exists in any HI option
+        const enTextInHi = (hi.options || []).find(o => normalize(o.opt_text) === enNorm);
+        if (enTextInHi && enTextInHi.option_key === hiLabel) return false;
 
-        // If EN correct text is found in HI options AND HI correct text is found in EN options,
-        // and they point to the same value — not a mismatch
-        const enTextInHiIdx = hiOptTexts.indexOf(enNorm);
-        if (enTextInHiIdx !== -1 && (hi.options || [])[enTextInHiIdx]?.option_key === hi.correct) return false;
+        // EN text found in HI but HI picked a different option = true mismatch
+        if (enTextInHi) return true;
 
-        // True mismatch — different answer content
-        return true;
+        // Options are in different languages (EN text vs HI text) - fall back to letter
+        return enLabel !== hiLabel;
     }
 
-    // Fallback: compare by letter (A/B/C/D) if text isn't available
-    return en.correct !== hi.correct;
+    return enLabel !== hiLabel;
 }
 
 // Helper to flatten display_sections into editable text
@@ -199,9 +203,9 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
     const enDone = pair.en?.solution_status === 'DONE';
     const hiDone = pair.hi?.solution_status === 'DONE';
     const bothDone = enDone && hiDone;
-    // Build live option data using current correct selections
-    const enLive = { ...pair.en, correct: enEdit.correct, options: pair.en?.options || [] };
-    const hiLive = { ...pair.hi, correct: hiEdit.correct, options: pair.hi?.options || [] };
+    // Build live data using current correct selections for mismatch check
+    const enLive = { correct: enEdit.correct || getCorrectLabel(pair.en), options: pair.en?.options || [] };
+    const hiLive = { correct: hiEdit.correct || getCorrectLabel(pair.hi), options: pair.hi?.options || [] };
     const answerMismatch = hasAnswerMismatch(enLive, hiLive);
 
     // Translate: take the OTHER side's text, translate it, put it in THIS side
