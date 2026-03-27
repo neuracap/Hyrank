@@ -123,6 +123,16 @@ function EditableSolutionPanel({ lang, data, label, editState, onEditChange, onT
                 ))}
             </div>
 
+            {/* Core Answer Basis */}
+            <div className="px-3 py-1.5 border-b bg-blue-50">
+                <label className="text-[10px] text-gray-500 uppercase font-semibold block mb-0.5">Core Answer Basis</label>
+                <input type="text"
+                    value={editState.coreBasis || ''}
+                    onChange={e => onEditChange({ ...editState, coreBasis: e.target.value })}
+                    className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-400"
+                    placeholder="One-line reason why this is correct..." />
+            </div>
+
             {/* Action buttons: Translate / Copy from other side */}
             <div className="px-3 py-1.5 border-b bg-gray-50 flex items-center gap-2 flex-wrap">
                 <button onClick={onTranslateFrom} disabled={translating}
@@ -183,10 +193,12 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
     const [enEdit, setEnEdit] = useState({
         solutionText: sectionsToText(enSections),
         correct: pair.en?.correct || '',
+        coreBasis: pair.en?.solution_json?.answer_outcome?.core_answer_basis || '',
     });
     const [hiEdit, setHiEdit] = useState({
         solutionText: sectionsToText(hiSections),
         correct: pair.hi?.correct || '',
+        coreBasis: pair.hi?.solution_json?.answer_outcome?.core_answer_basis || '',
     });
 
     const [saving, setSaving] = useState(false);
@@ -259,9 +271,11 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
                     ...existingSol,
                     display_sections: textToSections(editState.solutionText),
                 };
+                if (!solJson.answer_outcome) solJson.answer_outcome = {};
+                solJson.answer_outcome.core_answer_basis = editState.coreBasis || '';
                 if (figureUrl) {
                     solJson.figure_url = figureUrl;
-                    if (solJson.answer_outcome) solJson.answer_outcome.figure_url = figureUrl;
+                    solJson.answer_outcome.figure_url = figureUrl;
                 }
                 return {
                     question_id: data.question_id,

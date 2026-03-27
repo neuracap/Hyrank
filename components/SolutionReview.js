@@ -463,6 +463,7 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
     };
 
     const [explanationText, setExplanationText] = useState(getExplanationText);
+    const [coreBasisText, setCoreBasisText] = useState(coreBasis || '');
     const [isSaving, setIsSaving] = useState(false);
     const [saveMsg, setSaveMsg] = useState(null);
     const [figureUrl, setFigureUrl] = useState(sj.figure_url || sj.answer_outcome?.figure_url || '');
@@ -525,6 +526,9 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
                 updatedSj.figure_url = figureUrl;
                 if (updatedSj.answer_outcome) updatedSj.answer_outcome.figure_url = figureUrl;
             }
+            // Update core_answer_basis
+            if (!updatedSj.answer_outcome) updatedSj.answer_outcome = {};
+            updatedSj.answer_outcome.core_answer_basis = coreBasisText;
 
             const res = await fetch('/api/solution-review/save', {
                 method: 'POST',
@@ -616,21 +620,25 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
             {/* Solution content — only show if solution exists */}
             {hasSolution && (
                 <div>
-                    {/* Final Answer & Core Basis — always visible */}
-                    {(finalAnswerText || coreBasis) && (
+                    {/* Final Answer & Core Basis */}
+                    {(finalAnswerText || coreBasisText) && (
                         <div className="px-5 py-3 border-b border-gray-100 bg-blue-50">
                             {finalAnswerText && (
-                                <div className="mb-1">
+                                <div className="mb-2">
                                     <span className="text-xs text-gray-500 uppercase font-semibold">Final Answer: </span>
                                     <span className="text-sm text-gray-800"><Latex>{finalAnswerText}</Latex></span>
                                 </div>
                             )}
-                            {coreBasis && (
-                                <div>
-                                    <span className="text-xs text-gray-500 uppercase font-semibold">Core Basis: </span>
-                                    <span className="text-sm text-gray-700"><Latex>{coreBasis}</Latex></span>
-                                </div>
-                            )}
+                            <div>
+                                <label className="text-xs text-gray-500 uppercase font-semibold block mb-1">Core Answer Basis</label>
+                                <textarea
+                                    rows={2}
+                                    value={coreBasisText}
+                                    onChange={e => setCoreBasisText(e.target.value)}
+                                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-y"
+                                    placeholder="One-line reason why this is the correct answer..."
+                                />
+                            </div>
                         </div>
                     )}
 
