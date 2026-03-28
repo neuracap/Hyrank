@@ -467,8 +467,27 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
                                                                 }),
                                                             });
                                                             const data = await res.json();
-                                                            if (data.url || data.secure_url || data.latexPath) {
-                                                                setFigureUrl(data.url || data.secure_url || data.latexPath);
+                                                            const url = data.url || data.secure_url || data.latexPath;
+                                                            if (url) {
+                                                                setFigureUrl(url);
+                                                                // Auto-save figure URL to both EN and HI solution_json
+                                                                const saveFigure = (qData, lang) => {
+                                                                    if (!qData?.question_id) return null;
+                                                                    const sj = { ...(qData.solution_json || {}) };
+                                                                    sj.figure_url = url;
+                                                                    if (!sj.answer_outcome) sj.answer_outcome = {};
+                                                                    sj.answer_outcome.figure_url = url;
+                                                                    return { question_id: qData.question_id, version_no: qData.version_no || 1, solution_json: sj };
+                                                                };
+                                                                fetch('/api/solution-review/bilingual-save', {
+                                                                    method: 'POST',
+                                                                    headers: { 'Content-Type': 'application/json' },
+                                                                    body: JSON.stringify({
+                                                                        link_id: pair.link_id,
+                                                                        en: saveFigure(pair.en, 'EN'),
+                                                                        hi: saveFigure(pair.hi, 'HI'),
+                                                                    }),
+                                                                }).catch(e => console.error('Auto-save figure error:', e));
                                                             } else {
                                                                 alert('Upload failed: ' + (data.error || 'No URL returned'));
                                                             }

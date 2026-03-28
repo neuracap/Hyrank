@@ -777,8 +777,22 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
                                                                         }),
                                                                     });
                                                                     const data = await res.json();
-                                                                    if (data.url || data.secure_url || data.latexPath) {
-                                                                        setFigureUrl(data.url || data.secure_url || data.latexPath);
+                                                                    const url = data.url || data.secure_url || data.latexPath;
+                                                                    if (url) {
+                                                                        setFigureUrl(url);
+                                                                        // Auto-save figure URL to solution_json
+                                                                        const updatedSj = { ...sj };
+                                                                        updatedSj.figure_url = url;
+                                                                        if (!updatedSj.answer_outcome) updatedSj.answer_outcome = {};
+                                                                        updatedSj.answer_outcome.figure_url = url;
+                                                                        fetch('/api/solution-review/save', {
+                                                                            method: 'POST',
+                                                                            headers: { 'Content-Type': 'application/json' },
+                                                                            body: JSON.stringify({
+                                                                                paper_session_id: paperId,
+                                                                                solutions: [{ question_id: q.question_id, version_no: q.version_no, full_json: updatedSj }],
+                                                                            }),
+                                                                        }).catch(e => console.error('Auto-save figure error:', e));
                                                                     } else {
                                                                         alert('Upload failed: ' + (data.error || 'No URL returned'));
                                                                     }
