@@ -229,7 +229,7 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
         pair.en?.solution_json?.figure_url || pair.en?.solution_json?.answer_outcome?.figure_url || ''
     );
     const [uploadingFigure, setUploadingFigure] = useState(false);
-    const [figureNeeded, setFigureNeeded] = useState(!!(pair.en?.figure_helpful));
+    const [figureNeeded, setFigureNeeded] = useState(!!(pair.en?.figure_helpful || pair.en?.figure_prompt));
     const [dismissingFigure, setDismissingFigure] = useState(false);
 
     const enDone = pair.en?.solution_status === 'DONE';
@@ -400,7 +400,7 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
                     </div>
 
                     {/* Figure Prompt + Upload (shared for the pair) */}
-                    {(pair.en?.figure_prompt || figureNeeded) && (
+                    {figureNeeded && (
                         <div className="px-4 py-3 border-t border-gray-200 bg-amber-50">
                             <div className="flex items-center gap-2 mb-1">
                                 <label className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Figure Prompt</label>

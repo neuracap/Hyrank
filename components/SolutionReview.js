@@ -505,7 +505,7 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
     const [saveMsg, setSaveMsg] = useState(null);
     const [figureUrl, setFigureUrl] = useState(sj.figure_url || sj.answer_outcome?.figure_url || '');
     const [uploadingFigure, setUploadingFigure] = useState(false);
-    const [figureNeeded, setFigureNeeded] = useState(figureHelpful);
+    const [figureNeeded, setFigureNeeded] = useState(!!(figureHelpful || figurePrompt));
     const [dismissingFigure, setDismissingFigure] = useState(false);
 
     // Image paste upload
@@ -713,7 +713,7 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
                     </div>
 
                     {/* Figure Prompt + Upload */}
-                    {(figurePrompt || figureNeeded) && (
+                    {figureNeeded && (
                         <div className="px-5 py-3 border-b border-gray-100 bg-amber-50">
                             <div className="flex items-start justify-between gap-4">
                                 <div className="flex-1">

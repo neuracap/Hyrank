@@ -22,6 +22,7 @@ export async function POST(req) {
         await db.query(`
             UPDATE question_version
             SET solution_figure_helpful = $1,
+                solution_figure_prompt = CASE WHEN $1 = false THEN NULL ELSE solution_figure_prompt END,
                 updated_at = NOW()
             WHERE question_id = $2
               AND version_no = COALESCE($3, 1)
