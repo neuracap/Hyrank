@@ -586,6 +586,53 @@ Are you sure you want to proceed?`;
         }
     };
 
+    const [translatingOptions, setTranslatingOptions] = useState({});
+
+    const handleTranslateAndCopyOptions = async (index, direction = 'eng-to-hin') => {
+        const targetQ = questions[index];
+        const sourceOpts = direction === 'eng-to-hin' ? targetQ.eng_options : targetQ.hin_options;
+        if (!sourceOpts || sourceOpts.length === 0) {
+            alert(`No ${direction === 'eng-to-hin' ? 'English' : 'Hindi'} options to translate`);
+            return;
+        }
+
+        setTranslatingOptions(prev => ({ ...prev, [index]: direction }));
+        try {
+            const sourceLang = direction === 'eng-to-hin' ? 'en' : 'hi';
+            const targetLang = direction === 'eng-to-hin' ? 'hi' : 'en';
+
+            const translated = await Promise.all(
+                sourceOpts.map(async (opt) => {
+                    const text = opt.opt_text || '';
+                    if (!text.trim()) return { ...opt, opt_id: null };
+                    try {
+                        const res = await fetch('/api/translate', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ text, source: sourceLang, target: targetLang }),
+                        });
+                        const data = await res.json();
+                        return { ...opt, opt_text: data.translatedText || text, opt_id: null };
+                    } catch {
+                        return { ...opt, opt_id: null };
+                    }
+                })
+            );
+
+            const newQs = [...questions];
+            if (direction === 'eng-to-hin') {
+                newQs[index].hin_options = translated;
+            } else {
+                newQs[index].eng_options = translated;
+            }
+            setQuestions(newQs);
+        } catch (e) {
+            console.error('Translate options error:', e);
+        } finally {
+            setTranslatingOptions(prev => { const n = { ...prev }; delete n[index]; return n; });
+        }
+    };
+
     const examName = engDocInfo?.exam_name || hinDocInfo?.exam_name;
     const paperName = engDocInfo?.session_label;
     const examDate = engDocInfo?.exam_date || hinDocInfo?.exam_date;
@@ -1133,29 +1180,55 @@ Are you sure you want to proceed?`;
                                 </div>
                             </div>
 
-                            {/* Copy Options Buttons */}
+                            {/* Copy & Translate Options Buttons */}
                             <div className="flex items-center justify-between px-12 py-4 border-t border-gray-200 bg-gray-50">
-                                <button
-                                    onClick={() => handleCopyOptions(index, 'eng-to-hin')}
-                                    className="px-4 py-2 bg-white border border-blue-200 text-blue-700 font-bold rounded-lg hover:bg-blue-50 hover:border-blue-300 shadow-sm transition-all flex items-center gap-2"
-                                    title="Copy English options to Hindi"
-                                >
-                                    <span>Copy Eng to Hindi</span>
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
-                                    </svg>
-                                </button>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => handleCopyOptions(index, 'eng-to-hin')}
+                                        className="px-3 py-2 bg-white border border-blue-200 text-blue-700 font-bold rounded-lg hover:bg-blue-50 hover:border-blue-300 shadow-sm transition-all flex items-center gap-2 text-sm"
+                                        title="Copy English options to Hindi (verbatim)"
+                                    >
+                                        <span>Copy Eng to Hindi</span>
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+                                        </svg>
+                                    </button>
+                                    <button
+                                        onClick={() => handleTranslateAndCopyOptions(index, 'eng-to-hin')}
+                                        disabled={translatingOptions[index] === 'eng-to-hin'}
+                                        className="px-3 py-2 bg-purple-50 border border-purple-200 text-purple-700 font-bold rounded-lg hover:bg-purple-100 hover:border-purple-300 shadow-sm transition-all flex items-center gap-2 text-sm disabled:opacity-50"
+                                        title="Translate English options to Hindi and copy"
+                                    >
+                                        <span>{translatingOptions[index] === 'eng-to-hin' ? 'Translating...' : 'Translate Eng to Hindi'}</span>
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+                                        </svg>
+                                    </button>
+                                </div>
 
-                                <button
-                                    onClick={() => handleCopyOptions(index, 'hin-to-eng')}
-                                    className="px-4 py-2 bg-white border border-orange-200 text-orange-700 font-bold rounded-lg hover:bg-orange-50 hover:border-orange-300 shadow-sm transition-all flex items-center gap-2"
-                                    title="Copy Hindi options to English"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
-                                    </svg>
-                                    <span>Copy Hindi to Eng</span>
-                                </button>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => handleTranslateAndCopyOptions(index, 'hin-to-eng')}
+                                        disabled={translatingOptions[index] === 'hin-to-eng'}
+                                        className="px-3 py-2 bg-purple-50 border border-purple-200 text-purple-700 font-bold rounded-lg hover:bg-purple-100 hover:border-purple-300 shadow-sm transition-all flex items-center gap-2 text-sm disabled:opacity-50"
+                                        title="Translate Hindi options to English and copy"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+                                        </svg>
+                                        <span>{translatingOptions[index] === 'hin-to-eng' ? 'Translating...' : 'Translate Hindi to Eng'}</span>
+                                    </button>
+                                    <button
+                                        onClick={() => handleCopyOptions(index, 'hin-to-eng')}
+                                        className="px-3 py-2 bg-white border border-orange-200 text-orange-700 font-bold rounded-lg hover:bg-orange-50 hover:border-orange-300 shadow-sm transition-all flex items-center gap-2 text-sm"
+                                        title="Copy Hindi options to English (verbatim)"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+                                        </svg>
+                                        <span>Copy Hindi to Eng</span>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     );
