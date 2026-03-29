@@ -3,7 +3,7 @@ import db from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
-async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortBy = 'eng', flaggedOnly = false) {
+async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortBy = 'eng', flaggedOnly = false, pendingOnly = false) {
     const offset = (page - 1) * limit;
     const client = await db.connect();
     try {
@@ -21,7 +21,7 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortB
         const isEnglishSession = sessionLanguage === 'EN';
 
         // Build query based on which language this session is
-        let statusWhere = flaggedOnly ? " AND ql.status = 'FLAGGED'" : "";
+        let statusWhere = flaggedOnly ? " AND ql.status = 'FLAGGED'" : pendingOnly ? " AND ql.status != 'MANUALLY_CORRECTED'" : "";
         let baseWhereParams = [paperSessionId];
 
         const query = `
@@ -224,14 +224,15 @@ async function fetchLinkedQuestions(paperSessionId, page = 1, limit = 100, sortB
 
 export default async function BilingualPage({ params, searchParams }) {
     const { id: paperSessionId } = await params;
-    const { page, sort, flagged } = await searchParams;
+    const { page, sort, flagged, pending } = await searchParams;
 
     const currentPage = parseInt(page || '1', 10);
     const limit = 100;
     const sortBy = sort === 'hin' ? 'hin' : 'eng';
     const flaggedOnly = flagged === 'true';
+    const pendingOnly = pending === 'true';
 
-    const { questions, total, engDocInfo, hinDocInfo, engSessionId, hinSessionId, reviewerName } = await fetchLinkedQuestions(paperSessionId, currentPage, limit, sortBy, flaggedOnly);
+    const { questions, total, engDocInfo, hinDocInfo, engSessionId, hinSessionId, reviewerName } = await fetchLinkedQuestions(paperSessionId, currentPage, limit, sortBy, flaggedOnly, pendingOnly);
     const totalPages = Math.ceil(total / limit);
 
     return (

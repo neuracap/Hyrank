@@ -688,6 +688,25 @@ Are you sure you want to proceed?`;
                                 <span className="text-sm font-semibold">Show Flagged Only</span>
                             </label>
 
+                            <label className="flex items-center gap-2 bg-yellow-50 hover:bg-yellow-100 border border-yellow-200 text-yellow-700 px-3 py-1.5 rounded-md cursor-pointer transition-colors shadow-sm">
+                                <input
+                                    type="checkbox"
+                                    className="form-checkbox h-4 w-4 text-yellow-600 rounded border-yellow-300 focus:ring-yellow-500"
+                                    checked={new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('pending') === 'true'}
+                                    onChange={(e) => {
+                                        const params = new URLSearchParams(window.location.search);
+                                        if (e.target.checked) {
+                                            params.set('pending', 'true');
+                                        } else {
+                                            params.delete('pending');
+                                        }
+                                        params.delete('page');
+                                        window.location.search = params.toString();
+                                    }}
+                                />
+                                <span className="text-sm font-semibold">Show Pending Only</span>
+                            </label>
+
                             <div className="flex items-center gap-2 bg-white border border-gray-300 rounded-md px-2 py-1 shadow-sm">
                                 <span className="text-xs font-semibold text-gray-500 uppercase">Sort By:</span>
                                 <select
@@ -749,6 +768,8 @@ Are you sure you want to proceed?`;
                     <div className="text-center text-gray-500 py-12 bg-gray-50 rounded-lg border border-gray-200">
                         {new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('flagged') === 'true'
                             ? "No flagged questions found in this paper session."
+                            : new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('pending') === 'true'
+                            ? "No pending questions — all questions have been reviewed!"
                             : "No questions found for this paper session."}
                     </div>
                 ) : questions.map((q, index) => {
