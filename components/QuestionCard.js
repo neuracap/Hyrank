@@ -17,6 +17,8 @@ export default function QuestionCard({ question, onSave, onImagePaste, onAddImag
     });
     const [isSaving, setIsSaving] = useState(false);
     const [feedbackMessage, setFeedbackMessage] = useState(null);
+    const [aiFixing, setAiFixing] = useState(false);
+    const [aiSuggestion, setAiSuggestion] = useState(null);
     const [savedStatus, setSavedStatus] = useState(
         question.is_manually_corrected ? 'MANUALLY_CORRECTED' : null
     );
@@ -106,6 +108,29 @@ export default function QuestionCard({ question, onSave, onImagePaste, onAddImag
         if ((e.ctrlKey || e.metaKey) && e.key === 's') {
             e.preventDefault();
             handleSave('MANUALLY_CORRECTED');
+        }
+    };
+
+    const handleAiFix = async () => {
+        if (!q.question_text?.trim()) return;
+        setAiFixing(true);
+        setAiSuggestion(null);
+        try {
+            const res = await fetch('/api/question/fix-text', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: q.question_text, language: question.language || 'HI' }),
+            });
+            const data = await res.json();
+            if (res.ok && data.corrected) {
+                setAiSuggestion(data.corrected);
+            } else {
+                setAiSuggestion('Error: ' + (data.error || 'Failed'));
+            }
+        } catch (e) {
+            setAiSuggestion('Error: ' + e.message);
+        } finally {
+            setAiFixing(false);
         }
     };
 
@@ -247,6 +272,14 @@ export default function QuestionCard({ question, onSave, onImagePaste, onAddImag
                                     Add Image
                                 </button>
                             )}
+                            <button
+                                onClick={handleAiFix}
+                                disabled={aiFixing || !q.question_text?.trim()}
+                                className="text-xs text-purple-600 hover:text-purple-700 flex items-center gap-1 font-medium bg-purple-50 border border-purple-200 px-2 py-1 rounded disabled:opacity-50"
+                                title="Fix spelling and missing characters using AI"
+                            >
+                                {aiFixing ? 'Fixing...' : 'Fix with AI'}
+                            </button>
                         </div>
                     </div>
                     <textarea
@@ -262,6 +295,26 @@ export default function QuestionCard({ question, onSave, onImagePaste, onAddImag
                         <p className="text-xs font-bold text-gray-400 uppercase mb-1">Preview</p>
                         <Latex>{q.question_text || ''}</Latex>
                     </div>
+
+                    {/* AI Fix Suggestion */}
+                    {aiSuggestion && (
+                        <div className="mt-2 p-3 bg-purple-50 rounded border border-purple-200 text-sm">
+                            <div className="flex items-center justify-between mb-1">
+                                <p className="text-xs font-bold text-purple-600 uppercase">AI Suggestion</p>
+                                <div className="flex gap-1.5">
+                                    <button onClick={() => { handleTextChange(aiSuggestion); setAiSuggestion(null); }}
+                                        className="px-2 py-0.5 text-xs font-semibold bg-green-600 text-white rounded hover:bg-green-700">
+                                        Accept
+                                    </button>
+                                    <button onClick={() => setAiSuggestion(null)}
+                                        className="px-2 py-0.5 text-xs font-semibold bg-gray-200 text-gray-600 rounded hover:bg-gray-300">
+                                        Dismiss
+                                    </button>
+                                </div>
+                            </div>
+                            <Latex>{aiSuggestion}</Latex>
+                        </div>
+                    )}
                 </div>
 
                 {/* Options */}
