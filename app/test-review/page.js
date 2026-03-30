@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth-edge';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import TestReviewFilters from '@/components/TestReviewFilters';
+import NotWorthyButton from '@/components/NotWorthyButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -127,7 +128,8 @@ export default async function TestReviewPage({ searchParams }) {
             'MISSING_ADDED': { label: 'Missing Added', color: 'bg-blue-100 text-blue-700', dot: 'bg-blue-500' },
             'PRE_PUBLISH_READY': { label: 'Pre-Publish Ready', color: 'bg-teal-100 text-teal-700', dot: 'bg-teal-500' },
             'SOLUTION_REVIEW': { label: 'Solution Review', color: 'bg-orange-100 text-orange-700', dot: 'bg-orange-500' },
-            'PRODUCTION': { label: 'Production', color: 'bg-green-100 text-green-800', dot: 'bg-green-500' }
+            'PRODUCTION': { label: 'Production', color: 'bg-green-100 text-green-800', dot: 'bg-green-500' },
+            'NOT_WORTHY': { label: 'Not Worthy', color: 'bg-red-100 text-red-700', dot: 'bg-red-500' }
         };
 
         const config = statusMap[statusStr] || { label: statusStr || 'Unknown', color: 'bg-gray-100 text-gray-800', dot: 'bg-gray-500' };
@@ -228,6 +230,9 @@ export default async function TestReviewPage({ searchParams }) {
                                                     >
                                                         Test Review
                                                     </Link>
+                                                    {paper.pipeline_status !== 'NOT_WORTHY' && (
+                                                        <NotWorthyButton paperSessionId={paper.paper_session_id} />
+                                                    )}
                                                 </div>
                                             </td>
                                         </tr>

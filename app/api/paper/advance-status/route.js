@@ -25,7 +25,8 @@ export async function POST(request) {
         'MISSING_ADDED',
         'PRE_PUBLISH_READY',
         'SOLUTION_REVIEW',
-        'PRODUCTION'
+        'PRODUCTION',
+        'NOT_WORTHY'
     ];
 
     if (!validStatuses.includes(next_status)) {
