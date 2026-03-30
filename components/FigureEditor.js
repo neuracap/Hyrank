@@ -115,6 +115,14 @@ export default function FigureEditor({ imageUrl, onSave, onClose }) {
         // If switching away from select, commit any pending selection
         if (selectRect && selectData) commitSelection();
 
+        if (tool === 'picker') {
+            const pixel = ctx.getImageData(Math.round(pos.x), Math.round(pos.y), 1, 1).data;
+            const hex = '#' + [pixel[0], pixel[1], pixel[2]].map(c => c.toString(16).padStart(2, '0')).join('');
+            setColor(hex);
+            setTool('pen'); // switch back to pen after picking
+            return;
+        }
+
         if (tool === 'text') {
             const text = prompt('Enter text:');
             if (!text) return;
@@ -271,6 +279,7 @@ export default function FigureEditor({ imageUrl, onSave, onClose }) {
 
     const getCursor = () => {
         if (tool === 'text') return 'text';
+        if (tool === 'picker') return 'copy';
         if (tool === 'select') {
             if (selectRect && !isDragging) return 'move';
             return 'crosshair';
@@ -284,6 +293,7 @@ export default function FigureEditor({ imageUrl, onSave, onClose }) {
         { key: 'text', label: 'Text', icon: 'T' },
         { key: 'select', label: 'Select & Move', icon: '⬚' },
         { key: 'eraser', label: 'Eraser', icon: '⬜' },
+        { key: 'picker', label: 'Pick Color', icon: '💧' },
     ];
 
     return (
