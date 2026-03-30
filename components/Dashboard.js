@@ -899,6 +899,11 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                                     >
                                         Mark as "Missing Added"
                                     </button>
+                                </div>
+                            )}
+
+                            {docInfo?.status !== 'NOT_WORTHY' && (
+                                <div className="mt-6 flex justify-center">
                                     <button
                                         onClick={async () => {
                                             if (!confirm('Mark this paper as NOT PRODUCTION WORTHY? It will be excluded from all workflows.')) return;
@@ -919,7 +924,7 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                                                 alert('Error: ' + e.message);
                                             }
                                         }}
-                                        className="px-6 py-3 rounded-lg shadow text-white font-bold text-sm bg-red-500 hover:bg-red-600 transition-colors"
+                                        className="px-6 py-3 rounded-lg shadow text-red-600 font-bold text-sm bg-red-50 border border-red-200 hover:bg-red-100 transition-colors"
                                     >
                                         Not Production Worthy
                                     </button>
