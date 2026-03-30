@@ -328,13 +328,19 @@ export default async function DashboardPage({ searchParams }) {
                                             </td>
                                             <td className="px-6 py-4 text-right">
                                                 <div className="flex justify-end gap-2">
-                                                    <Link
-                                                        href={`/bilingual/${paper.paper_session_id}`}
-                                                        prefetch={false}
-                                                        className="px-4 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded hover:bg-indigo-700 transition-colors shadow-sm"
-                                                    >
-                                                        Review Paper
-                                                    </Link>
+                                                    {paper.language === 'EN' ? (
+                                                        <Link
+                                                            href={`/bilingual/${paper.paper_session_id}`}
+                                                            prefetch={false}
+                                                            className="px-4 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded hover:bg-indigo-700 transition-colors shadow-sm"
+                                                        >
+                                                            Review Paper
+                                                        </Link>
+                                                    ) : (
+                                                        <span className="px-4 py-1.5 bg-gray-100 text-gray-400 text-xs font-bold rounded cursor-not-allowed" title="Open the English paper to review bilingual pairs">
+                                                            Use EN Paper
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </td>
                                         </tr>
