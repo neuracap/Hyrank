@@ -868,12 +868,12 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                                     </p>
                                     <button
                                         onClick={async () => {
-                                            const targetCount = parseInt(docInfo?.num_questions || 100, 10);
-                                            if (total !== targetCount) {
-                                                alert(`Cannot advance: This exam requires exactly ${targetCount} questions.`);
-                                                return;
-                                            }
-                                            if (confirm('Advance paper to MISSING_ADDED?')) {
+                                            const targetCount = parseInt(docInfo?.num_questions || 0, 10);
+                                            const mismatch = targetCount > 0 && total !== targetCount;
+                                            const msg = mismatch
+                                                ? `Warning: Expected ${targetCount} questions but found ${total}. Proceed anyway?`
+                                                : 'Advance paper to MISSING_ADDED?';
+                                            if (confirm(msg)) {
                                                 try {
                                                     const res = await fetch('/api/paper/advance-status', {
                                                         method: 'POST',
@@ -895,8 +895,7 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                                                 }
                                             }
                                         }}
-                                        className={`px-8 py-3 rounded-lg shadow text-white font-bold text-sm transition-colors ${total === parseInt(docInfo?.num_questions || 100, 10) ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-400 cursor-not-allowed opacity-80'}`}
-                                        disabled={total !== parseInt(docInfo?.num_questions || 100, 10)}
+                                        className={`px-8 py-3 rounded-lg shadow text-white font-bold text-sm transition-colors ${total === parseInt(docInfo?.num_questions || 0, 10) || !docInfo?.num_questions ? 'bg-blue-600 hover:bg-blue-700' : 'bg-amber-500 hover:bg-amber-600'}`}
                                     >
                                         Mark as "Missing Added"
                                     </button>
