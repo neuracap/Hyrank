@@ -164,12 +164,15 @@ export async function POST(req) {
 
         let processed = 0;
         let skippedHindi = 0;
+        let copiedEnglish = 0;
         let errors = [];
 
-        // 6. Separate EN-content questions from Hindi ones
-        const enQuestions = [];
+        // 6. Separate questions by section type
+        const enQuestions = []; // Reasoning/Quant/GK — need split + translate
+        const englishSectionQuestions = []; // English section — copy to EN only, no translation
         for (const q of questions) {
             if (q.exam_section_id === HINDI_SECTION_ID) { skippedHindi++; continue; }
+            if (q.exam_section_id === ENGLISH_SECTION_ID) { englishSectionQuestions.push(q); continue; }
             if (!EN_SECTION_IDS.includes(q.exam_section_id)) { errors.push(`Q ${q.question_id}: unknown section`); continue; }
             enQuestions.push(q);
         }
@@ -271,6 +274,46 @@ export async function POST(req) {
             }
         }
 
+        // 9. Copy English section questions to EN paper only (no translation, no HI pair)
+        for (const q of englishSectionQuestions) {
+            const opts = optionsByQ[q.question_id] || [];
+            try {
+                const enQuestionId = crypto.randomUUID();
+                const enBodyText = q.body_json?.text || '';
+
+                await client.query(
+                    `INSERT INTO question (question_id, created_at) VALUES ($1, NOW())`,
+                    [enQuestionId]
+                );
+
+                await client.query(`
+                    INSERT INTO question_version
+                    (question_id, version_no, language, status, paper_session_id, exam_section_id,
+                     body_json, question_type, has_image, source_question_no, question_number_int,
+                     meta_json, group_id, group_order, created_at, updated_at)
+                    VALUES ($1, 1, 'EN', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
+                `, [
+                    enQuestionId, q.status || 'MANUALLY_CORRECTED', enPsId, ENGLISH_SECTION_ID,
+                    { text: enBodyText }, q.question_type || 'MCQ', q.has_image || false,
+                    q.source_question_no, q.question_number_int,
+                    { ...(q.meta_json || {}), source: 'split_translate', original_question_id: q.question_id },
+                    q.group_id, q.group_order,
+                ]);
+
+                for (const opt of opts) {
+                    await client.query(`
+                        INSERT INTO question_option
+                        (question_id, version_no, language, option_key, option_json, is_correct, created_at)
+                        VALUES ($1, 1, 'EN', $2, $3, $4, NOW())
+                    `, [enQuestionId, opt.option_key, opt.option_json, opt.is_correct]);
+                }
+
+                copiedEnglish++;
+            } catch (e) {
+                errors.push(`Q ${q.question_id} (English): ${e.message}`);
+            }
+        }
+
         await client.query('COMMIT');
 
         return NextResponse.json({
@@ -278,6 +321,7 @@ export async function POST(req) {
             en_paper_session_id: enPsId,
             hi_paper_session_id: paper_session_id,
             processed,
+            copied_english: copiedEnglish,
             skipped_hindi: skippedHindi,
             errors: errors.slice(0, 20),
             total_questions: questions.length,
