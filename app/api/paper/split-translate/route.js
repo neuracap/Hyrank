@@ -93,10 +93,11 @@ export async function POST(req) {
 
         // 2. Check if EN paper_session already exists for this paper
         // (prevent double processing)
+        const enSessionLabel = ps.session_label?.replace(/\s*\(HI\)\s*$/i, '').trim() + ' (EN)';
         const existingEnRes = await client.query(`
             SELECT paper_session_id FROM paper_session
             WHERE session_label = $1 AND language = 'EN' AND exam_id = $2
-        `, [ps.session_label, ps.exam_id]);
+        `, [enSessionLabel, ps.exam_id]);
 
         if (existingEnRes.rows.length > 0) {
             client.release();
@@ -138,22 +139,28 @@ export async function POST(req) {
 
         await client.query('BEGIN');
 
-        // 4. Create new EN paper_session
+        // 4. Create new EN paper_session with all fields from original
         const enPsId = crypto.randomUUID();
         await client.query(`
             INSERT INTO paper_session
-            (paper_session_id, exam_id, session_label, session_name, paper_date,
-             subject, language, status, caption, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, 'EN', $7, $8, NOW())
+            (paper_session_id, exam_id, tier, paper_date, shift_label,
+             session_label, official_source, language, caption, subject,
+             shift_number, normalized_time, ai_processed, raw_mmd_doc_id,
+             ai_meta_json, meta_json, status, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'EN', $8, $9,
+                    $10, $11, $12, $13, $14, $15, $16, NOW())
         `, [
-            enPsId, ps.exam_id, ps.session_label, ps.session_name,
-            ps.paper_date, ps.subject, ps.status || 'NOT_REVIEWED', ps.caption,
+            enPsId, ps.exam_id, ps.tier, ps.paper_date, ps.shift_label,
+            enSessionLabel, ps.official_source, ps.caption, ps.subject,
+            ps.shift_number, ps.normalized_time, ps.ai_processed, ps.raw_mmd_doc_id,
+            ps.ai_meta_json, ps.meta_json, ps.status || 'NOT_REVIEWED',
         ]);
 
-        // 5. Update original paper_session to confirm HI language
+        // 5. Update original paper_session to confirm HI language + label
+        const hiSessionLabel = ps.session_label?.includes('(HI)') ? ps.session_label : ps.session_label?.replace(/\s*\(EN\)\s*$/i, '').trim() + ' (HI)';
         await client.query(`
-            UPDATE paper_session SET language = 'HI' WHERE paper_session_id = $1
-        `, [paper_session_id]);
+            UPDATE paper_session SET language = 'HI', session_label = $2 WHERE paper_session_id = $1
+        `, [paper_session_id, hiSessionLabel]);
 
         let processed = 0;
         let skippedHindi = 0;
