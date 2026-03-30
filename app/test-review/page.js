@@ -13,7 +13,7 @@ export default async function TestReviewPage({ searchParams }) {
         redirect('/login');
     }
 
-    const { exam = 'ALL', qcount = 'ALL' } = await searchParams || {};
+    const { exam = 'ALL', qcount = 'ALL', status = 'ALL' } = await searchParams || {};
 
     const client = await db.connect();
 
@@ -35,6 +35,12 @@ export default async function TestReviewPage({ searchParams }) {
         if (exam !== 'ALL') {
             whereConditions.push(`e.name = $${paramIndex}`);
             queryParams.push(exam);
+            paramIndex++;
+        }
+
+        if (status !== 'ALL') {
+            whereConditions.push(`ps.status = $${paramIndex}`);
+            queryParams.push(status);
             paramIndex++;
         }
 
@@ -77,6 +83,12 @@ export default async function TestReviewPage({ searchParams }) {
         if (exam !== 'ALL') {
             whereConditions.push(`e.name = $${paramIndex}`);
             queryParams.push(exam);
+            paramIndex++;
+        }
+
+        if (status !== 'ALL') {
+            whereConditions.push(`ps.status = $${paramIndex}`);
+            queryParams.push(status);
             paramIndex++;
         }
 
