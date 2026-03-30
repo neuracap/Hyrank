@@ -166,33 +166,56 @@ export async function POST(req) {
         let skippedHindi = 0;
         let errors = [];
 
-        // 6. Process each question
+        // 6. Separate EN-content questions from Hindi ones
+        const enQuestions = [];
         for (const q of questions) {
+            if (q.exam_section_id === HINDI_SECTION_ID) { skippedHindi++; continue; }
+            if (!EN_SECTION_IDS.includes(q.exam_section_id)) { errors.push(`Q ${q.question_id}: unknown section`); continue; }
+            enQuestions.push(q);
+        }
+
+        // 7. Translate all texts in parallel BEFORE the DB transaction
+        //    Batch: for each question, translate body + all option texts concurrently
+        const BATCH_SIZE = 5; // 5 questions at a time
+        const translationResults = new Map(); // questionId -> { hiBody, hiOpts: {key: text} }
+
+        for (let i = 0; i < enQuestions.length; i += BATCH_SIZE) {
+            const batch = enQuestions.slice(i, i + BATCH_SIZE);
+            await Promise.all(batch.map(async (q) => {
+                try {
+                    const opts = optionsByQ[q.question_id] || [];
+                    const enBodyText = q.body_json?.text || '';
+
+                    // Translate body + all options in parallel
+                    const [hiBody, ...hiOptTexts] = await Promise.all([
+                        translateText(enBodyText),
+                        ...opts.map(opt => translateText(opt.option_json?.text || '')),
+                    ]);
+
+                    const hiOpts = {};
+                    opts.forEach((opt, idx) => { hiOpts[opt.option_key] = hiOptTexts[idx]; });
+                    translationResults.set(q.question_id, { hiBody, hiOpts });
+                } catch (e) {
+                    errors.push(`Q ${q.question_id}: translate error: ${e.message}`);
+                }
+            }));
+        }
+
+        // 8. Now do all DB inserts/updates (fast, no network calls)
+        for (const q of enQuestions) {
             const sectionId = q.exam_section_id;
             const opts = optionsByQ[q.question_id] || [];
-
-            if (sectionId === HINDI_SECTION_ID) {
-                // Hindi section — leave as-is, no EN pair needed
-                skippedHindi++;
-                continue;
-            }
-
-            if (!EN_SECTION_IDS.includes(sectionId)) {
-                // Unknown section — skip
-                errors.push(`Q ${q.question_id}: unknown section ${sectionId}`);
-                continue;
-            }
+            const tr = translationResults.get(q.question_id);
+            if (!tr) continue; // translation failed, skip
 
             try {
-                // This question has EN text but is tagged HI.
-                // Step A: Create a new EN question + question_version
                 const enQuestionId = crypto.randomUUID();
+                const enBodyText = q.body_json?.text || '';
+
                 await client.query(
                     `INSERT INTO question (question_id, created_at) VALUES ($1, NOW())`,
                     [enQuestionId]
                 );
-
-                const enBodyText = q.body_json?.text || '';
 
                 await client.query(`
                     INSERT INTO question_version
@@ -208,7 +231,6 @@ export async function POST(req) {
                     q.group_id, q.group_order,
                 ]);
 
-                // Insert EN options (copy from existing — text is already English)
                 for (const opt of opts) {
                     await client.query(`
                         INSERT INTO question_option
@@ -217,31 +239,23 @@ export async function POST(req) {
                     `, [enQuestionId, opt.option_key, opt.option_json, opt.is_correct]);
                 }
 
-                // Step B: Translate text + options to Hindi
-                const hiBodyText = await translateText(enBodyText);
-
-                // Update existing HI question_version with translated Hindi text
+                // Update existing HI question with translated text
                 await client.query(`
                     UPDATE question_version
                     SET body_json = jsonb_set(body_json, '{text}', to_jsonb($1::text)),
-                        language = 'HI',
-                        updated_at = NOW()
+                        language = 'HI', updated_at = NOW()
                     WHERE question_id = $2 AND version_no = $3
-                `, [hiBodyText, q.question_id, q.version_no]);
+                `, [tr.hiBody, q.question_id, q.version_no]);
 
-                // Translate and update options
                 for (const opt of opts) {
-                    const optText = opt.option_json?.text || '';
-                    const hiOptText = await translateText(optText);
                     await client.query(`
                         UPDATE question_option
                         SET option_json = jsonb_set(option_json, '{text}', to_jsonb($1::text)),
                             language = 'HI'
                         WHERE question_id = $2 AND option_key = $3
-                    `, [hiOptText, q.question_id, opt.option_key]);
+                    `, [tr.hiOpts[opt.option_key] || '', q.question_id, opt.option_key]);
                 }
 
-                // Step C: Create question_links
                 await client.query(`
                     INSERT INTO question_links
                     (english_question_id, english_version_no, english_language,
