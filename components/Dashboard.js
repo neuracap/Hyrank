@@ -928,6 +928,30 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                                     >
                                         Not Production Worthy
                                     </button>
+                                    <button
+                                        onClick={async () => {
+                                            if (!confirm('Split this paper into EN + HI and translate Reasoning/Quant/GK to Hindi?\n\nThis will create a new EN paper_session and translate the 3 sections.')) return;
+                                            try {
+                                                const res = await fetch('/api/paper/split-translate', {
+                                                    method: 'POST',
+                                                    headers: { 'Content-Type': 'application/json' },
+                                                    body: JSON.stringify({ paper_session_id: selectedTestId }),
+                                                });
+                                                const data = await res.json();
+                                                if (res.ok && data.success) {
+                                                    alert(`Done! ${data.processed} questions split & translated.\n\nEN Paper: ${data.en_paper_session_id}\nHI Paper: ${data.hi_paper_session_id}\n\nOpening bilingual review...`);
+                                                    window.open(data.bilingual_url, '_blank');
+                                                } else {
+                                                    alert('Error: ' + (data.error || 'Failed'));
+                                                }
+                                            } catch (e) {
+                                                alert('Error: ' + e.message);
+                                            }
+                                        }}
+                                        className="px-6 py-3 rounded-lg shadow text-purple-600 font-bold text-sm bg-purple-50 border border-purple-200 hover:bg-purple-100 transition-colors"
+                                    >
+                                        Split & Translate (EN/HI)
+                                    </button>
                                 </div>
                             )}
                         </div>
