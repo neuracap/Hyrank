@@ -3,7 +3,6 @@ import { getCurrentUser } from '@/lib/auth-edge';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import TestReviewFilters from '@/components/TestReviewFilters';
-import NotWorthyButton from '@/components/NotWorthyButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -230,9 +229,6 @@ export default async function TestReviewPage({ searchParams }) {
                                                     >
                                                         Test Review
                                                     </Link>
-                                                    {paper.pipeline_status !== 'NOT_WORTHY' && (
-                                                        <NotWorthyButton paperSessionId={paper.paper_session_id} />
-                                                    )}
                                                 </div>
                                             </td>
                                         </tr>

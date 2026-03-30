@@ -899,6 +899,30 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                                     >
                                         Mark as "Missing Added"
                                     </button>
+                                    <button
+                                        onClick={async () => {
+                                            if (!confirm('Mark this paper as NOT PRODUCTION WORTHY? It will be excluded from all workflows.')) return;
+                                            try {
+                                                const res = await fetch('/api/paper/advance-status', {
+                                                    method: 'POST',
+                                                    headers: { 'Content-Type': 'application/json' },
+                                                    body: JSON.stringify({ paper_session_id: selectedTestId, next_status: 'NOT_WORTHY' }),
+                                                });
+                                                if (res.ok) {
+                                                    alert('Marked as Not Worthy.');
+                                                    router.refresh();
+                                                } else {
+                                                    const data = await res.json();
+                                                    alert(data.error || 'Failed');
+                                                }
+                                            } catch (e) {
+                                                alert('Error: ' + e.message);
+                                            }
+                                        }}
+                                        className="px-6 py-3 rounded-lg shadow text-white font-bold text-sm bg-red-500 hover:bg-red-600 transition-colors"
+                                    >
+                                        Not Production Worthy
+                                    </button>
                                 </div>
                             )}
                         </div>
