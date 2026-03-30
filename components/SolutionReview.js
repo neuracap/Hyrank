@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import Latex from '@/components/Latex';
+const FigureEditor = lazy(() => import('@/components/FigureEditor'));
 
 const DIFFICULTY_MAP = {
     1: { label: 'Easy', cls: 'bg-green-100 text-green-700' },
@@ -506,6 +507,7 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
     const [figureUrl, setFigureUrl] = useState(sj.figure_url || sj.answer_outcome?.figure_url || '');
     const [uploadingFigure, setUploadingFigure] = useState(false);
     const [figureNeeded, setFigureNeeded] = useState(!!(figureHelpful || figurePrompt));
+    const [editingFigure, setEditingFigure] = useState(false);
     const [dismissingFigure, setDismissingFigure] = useState(false);
 
     // Image paste upload
@@ -744,11 +746,17 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
                                     <div className="mt-2">
                                         <label className="text-xs font-semibold text-gray-600 block mb-1">Generated Figure</label>
                                         {figureUrl ? (
-                                            <div className="relative inline-block">
-                                                <img src={figureUrl} alt="Solution figure" className="max-h-48 rounded border border-gray-300 object-contain" />
-                                                <button onClick={() => setFigureUrl('')}
-                                                    className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600"
-                                                    title="Remove figure">x</button>
+                                            <div className="flex items-start gap-2">
+                                                <div className="relative inline-block">
+                                                    <img src={figureUrl} alt="Solution figure" className="max-h-48 rounded border border-gray-300 object-contain" />
+                                                    <button onClick={() => setFigureUrl('')}
+                                                        className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600"
+                                                        title="Remove figure">x</button>
+                                                </div>
+                                                <button onClick={() => setEditingFigure(true)}
+                                                    className="px-2 py-1 text-xs font-semibold bg-blue-50 text-blue-600 border border-blue-200 rounded hover:bg-blue-100">
+                                                    Edit
+                                                </button>
                                             </div>
                                         ) : (
                                             <div
@@ -820,6 +828,46 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
                                 </div>
                             </div>
                         </div>
+                    )}
+
+                    {/* Figure Editor Modal */}
+                    {editingFigure && figureUrl && (
+                        <Suspense fallback={<div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center"><span className="text-white">Loading editor...</span></div>}>
+                            <FigureEditor
+                                imageUrl={figureUrl}
+                                onSave={async (blob) => {
+                                    const reader = new FileReader();
+                                    reader.readAsDataURL(blob);
+                                    await new Promise(resolve => { reader.onloadend = resolve; });
+                                    const res = await fetch('/api/upload', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            data: reader.result,
+                                            question_id: q.question_id,
+                                            language: 'EN',
+                                            version_no: q.version_no,
+                                            role: 'solution_figure',
+                                        }),
+                                    });
+                                    const data = await res.json();
+                                    const url = data.url || data.secure_url || data.latexPath;
+                                    if (url) {
+                                        setFigureUrl(url);
+                                        const updatedSj = { ...sj, figure_url: url };
+                                        if (!updatedSj.answer_outcome) updatedSj.answer_outcome = {};
+                                        updatedSj.answer_outcome.figure_url = url;
+                                        fetch('/api/solution-review/save', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ paper_session_id: paperId, solutions: [{ question_id: q.question_id, version_no: q.version_no, full_json: updatedSj }] }),
+                                        }).catch(e => console.error('Auto-save edited figure error:', e));
+                                    }
+                                    setEditingFigure(false);
+                                }}
+                                onClose={() => setEditingFigure(false)}
+                            />
+                        </Suspense>
                     )}
 
                     {/* Diagnostic Signals */}

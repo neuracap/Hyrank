@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import Latex from '@/components/Latex';
+const FigureEditor = lazy(() => import('@/components/FigureEditor'));
 
 const DIFF_LABELS = { 1: 'Easy', 2: 'Medium', 3: 'Hard' };
 const DIFF_COLORS = { 1: 'bg-green-100 text-green-700', 2: 'bg-yellow-100 text-yellow-700', 3: 'bg-red-100 text-red-700' };
@@ -231,6 +232,7 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
     const [uploadingFigure, setUploadingFigure] = useState(false);
     const [figureNeeded, setFigureNeeded] = useState(!!(pair.en?.figure_helpful || pair.en?.figure_prompt));
     const [dismissingFigure, setDismissingFigure] = useState(false);
+    const [editingFigure, setEditingFigure] = useState(false);
 
     const enDone = pair.en?.solution_status === 'DONE';
     const hiDone = pair.hi?.solution_status === 'DONE';
@@ -434,11 +436,17 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
                             {pair.en?.figure_prompt && <div className="text-xs text-gray-700 mb-2">{pair.en.figure_prompt}</div>}
                             <div className="mt-1">
                                 {figureUrl ? (
-                                    <div className="relative inline-block">
-                                        <img src={figureUrl} alt="Solution figure" className="max-h-40 rounded border border-gray-300 object-contain" />
-                                        <button onClick={() => setFigureUrl('')}
-                                            className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600"
-                                            title="Remove figure">x</button>
+                                    <div className="flex items-start gap-2">
+                                        <div className="relative inline-block">
+                                            <img src={figureUrl} alt="Solution figure" className="max-h-40 rounded border border-gray-300 object-contain" />
+                                            <button onClick={() => setFigureUrl('')}
+                                                className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600"
+                                                title="Remove figure">x</button>
+                                        </div>
+                                        <button onClick={() => setEditingFigure(true)}
+                                            className="px-2 py-1 text-xs font-semibold bg-blue-50 text-blue-600 border border-blue-200 rounded hover:bg-blue-100">
+                                            Edit
+                                        </button>
                                     </div>
                                 ) : (
                                     <div
@@ -511,6 +519,53 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
                                 )}
                             </div>
                         </div>
+                    )}
+
+                    {/* Figure Editor Modal */}
+                    {editingFigure && figureUrl && (
+                        <Suspense fallback={<div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center"><span className="text-white">Loading editor...</span></div>}>
+                            <FigureEditor
+                                imageUrl={figureUrl}
+                                onSave={async (blob) => {
+                                    // Upload edited image to Cloudinary
+                                    const reader = new FileReader();
+                                    reader.readAsDataURL(blob);
+                                    await new Promise(resolve => { reader.onloadend = resolve; });
+                                    const res = await fetch('/api/upload', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            data: reader.result,
+                                            question_id: pair.en.question_id,
+                                            language: 'EN',
+                                            version_no: pair.en.version_no,
+                                            role: 'solution_figure',
+                                        }),
+                                    });
+                                    const data = await res.json();
+                                    const url = data.url || data.secure_url || data.latexPath;
+                                    if (url) {
+                                        setFigureUrl(url);
+                                        // Auto-save to DB
+                                        const saveFigure = (qData) => {
+                                            if (!qData?.question_id) return null;
+                                            const sj = { ...(qData.solution_json || {}) };
+                                            sj.figure_url = url;
+                                            if (!sj.answer_outcome) sj.answer_outcome = {};
+                                            sj.answer_outcome.figure_url = url;
+                                            return { question_id: qData.question_id, version_no: qData.version_no || 1, solution_json: sj };
+                                        };
+                                        fetch('/api/solution-review/bilingual-save', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ link_id: pair.link_id, en: saveFigure(pair.en), hi: saveFigure(pair.hi) }),
+                                        }).catch(e => console.error('Auto-save edited figure error:', e));
+                                    }
+                                    setEditingFigure(false);
+                                }}
+                                onClose={() => setEditingFigure(false)}
+                            />
+                        </Suspense>
                     )}
                 </>
             )}
