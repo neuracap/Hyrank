@@ -160,6 +160,8 @@ function BlankCard({ q }) {
 
 export default function BlankOptionsAudit({ questions, total, currentPage, totalPages, exams, examFilter }) {
     const router = useRouter();
+    const [flaggingAll, setFlaggingAll] = useState(false);
+    const [flagAllMsg, setFlagAllMsg] = useState(null);
 
     const handleExamChange = (val) => {
         const params = new URLSearchParams();
@@ -181,9 +183,38 @@ export default function BlankOptionsAudit({ questions, total, currentPage, total
                     <p className="text-sm text-gray-500">
                         MANUALLY_CORRECTED questions that still have 1-3 blank option choices (A/B/C/D).
                     </p>
-                    <p className="text-sm font-semibold text-red-700 mt-2">
-                        {total} question{total !== 1 ? 's' : ''} found
-                    </p>
+                    <div className="flex items-center gap-3 mt-3">
+                        <p className="text-sm font-semibold text-red-700">
+                            {total} question{total !== 1 ? 's' : ''} found
+                        </p>
+                        {questions.length > 0 && (
+                            <button
+                                disabled={flaggingAll}
+                                onClick={async () => {
+                                    if (!confirm(`Flag all ${questions.length} questions on this page as FLAGGED?`)) return;
+                                    setFlaggingAll(true);
+                                    setFlagAllMsg(null);
+                                    let flagged = 0;
+                                    for (const q of questions) {
+                                        try {
+                                            await fetch('/api/question/save', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({ id: q.id, version_no: q.version_no, language: q.language, question_text: q.question_text || '', status: 'FLAGGED' }),
+                                            });
+                                            flagged++;
+                                        } catch {}
+                                    }
+                                    setFlagAllMsg(`Flagged ${flagged}/${questions.length} questions`);
+                                    setFlaggingAll(false);
+                                }}
+                                className="px-4 py-1.5 text-xs font-bold bg-amber-500 text-white rounded-lg hover:bg-amber-600 disabled:opacity-50 transition-colors"
+                            >
+                                {flaggingAll ? 'Flagging...' : `Flag All ${questions.length} on Page`}
+                            </button>
+                        )}
+                        {flagAllMsg && <span className="text-xs font-semibold text-green-600">{flagAllMsg}</span>}
+                    </div>
                 </header>
 
                 {/* Filters */}
