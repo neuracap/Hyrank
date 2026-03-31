@@ -62,6 +62,7 @@ export default function Navigation({ user }) {
     const reviewItems = [];
     if (user?.isAdmin) {
         reviewItems.push({ href: '/question-review', label: 'Question Review' });
+        reviewItems.push({ href: '/image-audit', label: 'Image Audit' });
     }
     if (user?.isAdmin || [2, 3].includes(user?.id)) {
         reviewItems.push({ href: '/verify-unlink', label: 'Verify UnLink' });
