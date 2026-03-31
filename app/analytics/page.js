@@ -10,48 +10,34 @@ export default async function AnalyticsPage() {
 
     const client = await db.connect();
 
-    // 2. Fetch Aggregated Stats (Granular: based on Question Links)
-    // We use a CTE to find distinct matching links per reviewer to avoid double counting 
-    // the same link if both EN and HI papers are assigned to the same person.
+    // 2. Fetch Aggregated Stats — count directly from question_version (not question_links)
     const statsRes = await client.query(`
-        WITH reviewer_links AS (
-            SELECT DISTINCT
-                ra.reviewer_id,
-                ql.id as link_id,
-                ql.status
-            FROM review_assignments ra
-            JOIN question_links ql ON (
-                ql.paper_session_id_english = ra.paper_session_id
-                OR ql.paper_session_id_hindi = ra.paper_session_id
-            )
-        )
-        SELECT 
+        SELECT
             u.id as user_id,
             u.name,
             u.email,
             COUNT(DISTINCT ra.id) as papers_assigned,
-            COALESCE(rl_stats.total_q, 0) as total_questions,
-            COALESCE(rl_stats.corrected_q, 0) as corrected_questions,
-            COALESCE(rl_stats.flagged_q, 0) as flagged_questions
+            COALESCE(SUM(qv_stats.total_q), 0) as total_questions,
+            COALESCE(SUM(qv_stats.corrected_q), 0) as corrected_questions,
+            COALESCE(SUM(qv_stats.flagged_q), 0) as flagged_questions
         FROM users u
         JOIN review_assignments ra ON ra.reviewer_id = u.id
         LEFT JOIN (
-            SELECT 
-                reviewer_id,
-                COUNT(link_id) * 2 as total_q,
-                COUNT(CASE WHEN status = 'MANUALLY_CORRECTED' THEN 1 END) * 2 as corrected_q,
-                COUNT(CASE WHEN status = 'FLAGGED' THEN 1 END) * 2 as flagged_q
-            FROM reviewer_links
-            GROUP BY reviewer_id
-        ) rl_stats ON u.id = rl_stats.reviewer_id
-        GROUP BY u.id, u.name, u.email, rl_stats.total_q, rl_stats.corrected_q, rl_stats.flagged_q
+            SELECT
+                paper_session_id,
+                COUNT(*) as total_q,
+                COUNT(*) FILTER (WHERE status = 'MANUALLY_CORRECTED') as corrected_q,
+                COUNT(*) FILTER (WHERE status = 'FLAGGED') as flagged_q
+            FROM question_version
+            GROUP BY paper_session_id
+        ) qv_stats ON qv_stats.paper_session_id = ra.paper_session_id
+        GROUP BY u.id, u.name, u.email
         ORDER BY corrected_questions DESC, u.name
     `);
 
-    // 3. Detailed List with Per-Paper Progress
-    // Note: We compute progress for the *pair* this paper belongs to.
+    // 3. Detailed List with Per-Paper Progress — count from question_version directly
     const detailedRes = await client.query(`
-        SELECT 
+        SELECT
             u.email,
             ps.paper_session_id,
             ps.caption as paper_name,
@@ -60,17 +46,15 @@ export default async function AnalyticsPage() {
             ra.status as assignment_status,
             ra.assigned_at,
             (
-                SELECT COUNT(*) * 2
-                FROM question_links ql
-                WHERE ql.paper_session_id_english = ps.paper_session_id
-                   OR ql.paper_session_id_hindi = ps.paper_session_id
+                SELECT COUNT(*)
+                FROM question_version qv
+                WHERE qv.paper_session_id = ps.paper_session_id
             ) as paper_total_q,
             (
-                SELECT COUNT(*) * 2
-                FROM question_links ql
-                WHERE (ql.paper_session_id_english = ps.paper_session_id
-                   OR ql.paper_session_id_hindi = ps.paper_session_id)
-                   AND ql.status = 'MANUALLY_CORRECTED'
+                SELECT COUNT(*)
+                FROM question_version qv
+                WHERE qv.paper_session_id = ps.paper_session_id
+                  AND qv.status = 'MANUALLY_CORRECTED'
             ) as paper_corrected_q
         FROM review_assignments ra
         JOIN users u ON ra.reviewer_id = u.id
