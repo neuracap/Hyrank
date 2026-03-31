@@ -78,7 +78,23 @@ export default async function AnalyticsPage() {
         ORDER BY u.email, ra.status, ps.language
     `);
 
-    // 4. Exam-Year-Language breakdown
+    // 4. Reviewer paper-level progress (assigned vs team_reviewed vs pending)
+    const reviewerPaperRes = await client.query(`
+        SELECT
+            u.id AS user_id,
+            u.name,
+            u.email,
+            COUNT(*) AS total_assigned,
+            COUNT(*) FILTER (WHERE ps.status IN ('TEAM_REVIEWED', 'ADMIN_REVIEWED', 'MISSING_ADDED', 'PRE_PUBLISH_READY', 'SOLUTION_REVIEW', 'PRODUCTION')) AS reviewed,
+            COUNT(*) FILTER (WHERE ps.status = 'NOT_REVIEWED') AS pending
+        FROM review_assignments ra
+        JOIN users u ON ra.reviewer_id = u.id
+        JOIN paper_session ps ON ra.paper_session_id = ps.paper_session_id
+        GROUP BY u.id, u.name, u.email
+        ORDER BY pending DESC, u.name
+    `);
+
+    // 5. Exam-Year-Language breakdown
     const examYearRes = await client.query(`
         SELECT
             e.name AS exam_name,
@@ -211,6 +227,59 @@ export default async function AnalyticsPage() {
                                     </tr>
                                 );
                             })}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {/* Reviewer Paper Progress */}
+            <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden mb-12">
+                <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+                    <h2 className="text-lg font-bold text-gray-800">Reviewer Paper Progress</h2>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left text-gray-500">
+                        <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+                            <tr>
+                                <th className="px-6 py-3">Reviewer</th>
+                                <th className="px-6 py-3">Total Assigned</th>
+                                <th className="px-6 py-3">Reviewed</th>
+                                <th className="px-6 py-3">Pending</th>
+                                <th className="px-6 py-3">Progress</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {reviewerPaperRes.rows.map((r) => {
+                                const total = parseInt(r.total_assigned);
+                                const reviewed = parseInt(r.reviewed);
+                                const pending = parseInt(r.pending);
+                                const pct = total > 0 ? Math.round((reviewed / total) * 100) : 0;
+                                return (
+                                    <tr key={r.user_id} className="bg-white border-b hover:bg-gray-50">
+                                        <td className="px-6 py-3 font-medium text-gray-900">
+                                            {r.name}
+                                            <div className="text-xs text-gray-400 font-normal">{r.email}</div>
+                                        </td>
+                                        <td className="px-6 py-3 font-bold">{total}</td>
+                                        <td className="px-6 py-3 font-bold text-green-600">{reviewed}</td>
+                                        <td className="px-6 py-3 font-bold text-red-600">{pending}</td>
+                                        <td className="px-6 py-3">
+                                            <div className="w-full bg-gray-200 rounded-full h-2.5">
+                                                <div className={`h-2.5 rounded-full ${pct === 100 ? 'bg-green-500' : 'bg-blue-600'}`}
+                                                    style={{ width: `${pct}%` }}></div>
+                                            </div>
+                                            <span className="text-xs text-gray-500 mt-1 block">{reviewed}/{total} ({pct}%)</span>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                            <tr className="bg-gray-50 border-t-2 border-gray-300 font-bold">
+                                <td className="px-6 py-3 text-gray-800">Total</td>
+                                <td className="px-6 py-3">{reviewerPaperRes.rows.reduce((s, r) => s + parseInt(r.total_assigned), 0)}</td>
+                                <td className="px-6 py-3 text-green-600">{reviewerPaperRes.rows.reduce((s, r) => s + parseInt(r.reviewed), 0)}</td>
+                                <td className="px-6 py-3 text-red-600">{reviewerPaperRes.rows.reduce((s, r) => s + parseInt(r.pending), 0)}</td>
+                                <td className="px-6 py-3"></td>
+                            </tr>
                         </tbody>
                     </table>
                 </div>
