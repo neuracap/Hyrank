@@ -887,7 +887,7 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                                 </div>
                             )}
 
-                            {docInfo?.status !== 'NOT_WORTHY' && (
+                            {isAdmin && docInfo?.status !== 'NOT_WORTHY' && (
                                 <div className="mt-6 flex justify-center">
                                     <button
                                         onClick={async () => {
