@@ -155,20 +155,62 @@ export default function QuestionReviewPage() {
 
                             <div className="mt-6 space-y-3">
                                 <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Options</h3>
-                                {result.english_options && Object.entries(result.english_options).map(([key, value]) => (
-                                    <div key={`en-${key}`} className="flex gap-3 p-3 bg-white border border-gray-200 rounded-md shadow-sm hover:border-blue-300 transition-colors">
-                                        <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-50 text-blue-700 border border-blue-200 flex items-center justify-center text-xs font-bold">
+                                {result.english_options && Object.entries(result.english_options).map(([key, value]) => {
+                                    const isCorrect = result.english_correct === key;
+                                    return (
+                                    <div key={`en-${key}`} className={`flex gap-3 p-3 rounded-md shadow-sm transition-colors ${isCorrect ? 'bg-green-50 border-2 border-green-400' : 'bg-white border border-gray-200 hover:border-blue-300'}`}>
+                                        <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border ${isCorrect ? 'bg-green-500 text-white border-green-500' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
                                             {key}
                                         </div>
                                         <div className="text-sm text-gray-700 pt-0.5">
                                             {renderHtmlContent(value)}
                                         </div>
                                     </div>
-                                ))}
+                                    );
+                                })}
                                 {(!result.english_options || Object.keys(result.english_options).length === 0) && (
                                     <div className="text-sm text-gray-400 italic">No options found.</div>
                                 )}
                             </div>
+
+                            {/* EN Answer & Solution */}
+                            {(result.english_correct || result.english_solution_status === 'DONE') && (
+                                <div className="mt-6 space-y-3">
+                                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Answer & Solution</h3>
+                                    <div className="p-3 bg-green-50 border border-green-200 rounded-md">
+                                        <div className="flex items-center gap-3 mb-2">
+                                            {result.english_correct && (
+                                                <span className="text-sm font-bold text-green-700 bg-green-100 px-2.5 py-0.5 rounded-full">
+                                                    Answer: {result.english_correct}
+                                                </span>
+                                            )}
+                                            {result.english_difficulty && (
+                                                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${result.english_difficulty === 1 ? 'bg-green-100 text-green-700' : result.english_difficulty === 2 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                                                    {result.english_difficulty === 1 ? 'Easy' : result.english_difficulty === 2 ? 'Medium' : 'Hard'}
+                                                </span>
+                                            )}
+                                            {result.english_subtype && (
+                                                <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">{result.english_subtype}</span>
+                                            )}
+                                            <span className={`text-xs px-2 py-0.5 rounded-full ${result.english_solution_status === 'DONE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                                                {result.english_solution_status || 'PENDING'}
+                                            </span>
+                                        </div>
+                                        {result.english_solution_json?.answer_outcome?.core_answer_basis && (
+                                            <div className="text-xs text-gray-700 mb-2">
+                                                <span className="font-semibold text-gray-500">Core Basis: </span>
+                                                <Latex>{result.english_solution_json.answer_outcome.core_answer_basis}</Latex>
+                                            </div>
+                                        )}
+                                        {(result.english_solution_json?.display_sections || []).map((sec, i) => (
+                                            <div key={i} className="mb-2">
+                                                <div className="text-xs font-bold text-gray-600 uppercase mb-0.5">{(sec.key || '').replace(/_/g, ' ')}</div>
+                                                <div className="text-xs text-gray-700"><Latex>{sec.content || ''}</Latex></div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* Hindi Side */}
@@ -186,20 +228,59 @@ export default function QuestionReviewPage() {
 
                             <div className="mt-6 space-y-3">
                                 <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Options</h3>
-                                {result.hindi_options && Object.entries(result.hindi_options).map(([key, value]) => (
-                                    <div key={`hi-${key}`} className="flex gap-3 p-3 bg-white border border-gray-200 rounded-md shadow-sm hover:border-orange-300 transition-colors">
-                                        <div className="flex-shrink-0 w-6 h-6 rounded-full bg-orange-50 text-orange-700 border border-orange-200 flex items-center justify-center text-xs font-bold">
+                                {result.hindi_options && Object.entries(result.hindi_options).map(([key, value]) => {
+                                    const isCorrect = result.hindi_correct === key;
+                                    return (
+                                    <div key={`hi-${key}`} className={`flex gap-3 p-3 rounded-md shadow-sm transition-colors ${isCorrect ? 'bg-green-50 border-2 border-green-400' : 'bg-white border border-gray-200 hover:border-orange-300'}`}>
+                                        <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border ${isCorrect ? 'bg-green-500 text-white border-green-500' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>
                                             {key}
                                         </div>
                                         <div className="text-sm text-gray-700 pt-0.5">
                                             {renderHtmlContent(value)}
                                         </div>
                                     </div>
-                                ))}
+                                    );
+                                })}
                                 {(!result.hindi_options || Object.keys(result.hindi_options).length === 0) && (
                                     <div className="text-sm text-gray-400 italic">No options found.</div>
                                 )}
                             </div>
+
+                            {/* HI Answer & Solution */}
+                            {(result.hindi_correct || result.hindi_solution_status === 'DONE') && (
+                                <div className="mt-6 space-y-3">
+                                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Answer & Solution</h3>
+                                    <div className="p-3 bg-green-50 border border-green-200 rounded-md">
+                                        <div className="flex items-center gap-3 mb-2">
+                                            {result.hindi_correct && (
+                                                <span className="text-sm font-bold text-green-700 bg-green-100 px-2.5 py-0.5 rounded-full">
+                                                    Answer: {result.hindi_correct}
+                                                </span>
+                                            )}
+                                            {result.hindi_difficulty && (
+                                                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${result.hindi_difficulty === 1 ? 'bg-green-100 text-green-700' : result.hindi_difficulty === 2 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                                                    {result.hindi_difficulty === 1 ? 'Easy' : result.hindi_difficulty === 2 ? 'Medium' : 'Hard'}
+                                                </span>
+                                            )}
+                                            <span className={`text-xs px-2 py-0.5 rounded-full ${result.hindi_solution_status === 'DONE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                                                {result.hindi_solution_status || 'PENDING'}
+                                            </span>
+                                        </div>
+                                        {result.hindi_solution_json?.answer_outcome?.core_answer_basis && (
+                                            <div className="text-xs text-gray-700 mb-2">
+                                                <span className="font-semibold text-gray-500">Core Basis: </span>
+                                                <Latex>{result.hindi_solution_json.answer_outcome.core_answer_basis}</Latex>
+                                            </div>
+                                        )}
+                                        {(result.hindi_solution_json?.display_sections || []).map((sec, i) => (
+                                            <div key={i} className="mb-2">
+                                                <div className="text-xs font-bold text-gray-600 uppercase mb-0.5">{(sec.key || '').replace(/_/g, ' ')}</div>
+                                                <div className="text-xs text-gray-700"><Latex>{sec.content || ''}</Latex></div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                     </div>

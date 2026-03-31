@@ -29,11 +29,20 @@ export async function GET(request) {
                 en.language              AS english_language,
                 en.question_number_int   AS english_qno,
                 en.body_json->>'text'    AS english_question_stem,
+                en.correct_option_label  AS english_correct,
+                en.difficulty            AS english_difficulty,
+                en.subtype               AS english_subtype,
+                en.solution_status       AS english_solution_status,
+                en.solution_json         AS english_solution_json,
 
                 hi.paper_session_id      AS hindi_paper_session_id,
                 hi.language              AS hindi_language,
                 hi.question_number_int   AS hindi_qno,
                 hi.body_json->>'text'    AS hindi_question_stem,
+                hi.correct_option_label  AS hindi_correct,
+                hi.difficulty            AS hindi_difficulty,
+                hi.solution_status       AS hindi_solution_status,
+                hi.solution_json         AS hindi_solution_json,
 
                 -- English options (key -> text), ordered by option_key
                 (
