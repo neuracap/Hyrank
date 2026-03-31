@@ -70,8 +70,14 @@ const Latex = ({ children }) => {
 
     const ImageRenderer = ({ src, alt, ...props }) => {
         let realSrc = src;
-        if (src && (src.startsWith('./images/') || src.startsWith('images/') || src.includes('/images/'))) {
-            const filename = src.split('/').pop();
+        if (src && src.startsWith('http')) {
+            // Already a full URL (Cloudinary etc.) — use as-is
+        } else if (src && (
+            src.startsWith('./images/') || src.startsWith('images/') ||
+            src.includes('/images/') || src.includes('\\images\\') ||
+            /\.(jpg|jpeg|png|gif|svg|webp)$/i.test(src)
+        )) {
+            const filename = src.split(/[/\\]/).pop();
             realSrc = `/api/assets?name=${encodeURIComponent(filename)}`;
         }
 
