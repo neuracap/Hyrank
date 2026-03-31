@@ -208,6 +208,13 @@ export default function QuestionReviewPage() {
                                                 <div className="text-xs text-gray-700"><Latex>{sec.content || ''}</Latex></div>
                                             </div>
                                         ))}
+                                        {result.english_solution_json?.answer_outcome?.figure_url && (
+                                            <div className="mt-2">
+                                                <div className="text-xs font-bold text-gray-600 uppercase mb-1">Figure</div>
+                                                <img src={result.english_solution_json.answer_outcome.figure_url} alt="Solution figure"
+                                                    className="max-h-48 rounded border border-gray-300 object-contain" />
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             )}
@@ -278,6 +285,13 @@ export default function QuestionReviewPage() {
                                                 <div className="text-xs text-gray-700"><Latex>{sec.content || ''}</Latex></div>
                                             </div>
                                         ))}
+                                        {result.hindi_solution_json?.answer_outcome?.figure_url && (
+                                            <div className="mt-2">
+                                                <div className="text-xs font-bold text-gray-600 uppercase mb-1">Figure</div>
+                                                <img src={result.hindi_solution_json.answer_outcome.figure_url} alt="Solution figure"
+                                                    className="max-h-48 rounded border border-gray-300 object-contain" />
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             )}
