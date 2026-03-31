@@ -517,26 +517,11 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                             </div>
                         )}
 
-                        {/* Tabs */}
+                        {/* Tab label */}
                         <div className="bg-gray-100 p-1 rounded-lg flex gap-1 whitespace-nowrap">
-                            <button
-                                onClick={() => setActiveTab('test-paper')}
-                                className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${activeTab === 'test-paper'
-                                    ? 'bg-white text-blue-600 shadow-sm'
-                                    : 'text-gray-500 hover:text-gray-700'
-                                    }`}
-                            >
+                            <span className="px-4 py-2 text-sm font-medium rounded-md bg-white text-blue-600 shadow-sm">
                                 Test Paper
-                            </button>
-                            <button
-                                onClick={() => setActiveTab('solution-checker')}
-                                className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${activeTab === 'solution-checker'
-                                    ? 'bg-white text-blue-600 shadow-sm'
-                                    : 'text-gray-500 hover:text-gray-700'
-                                    }`}
-                            >
-                                Solution Checker
-                            </button>
+                            </span>
                         </div>
                     </div>
                 </div>
