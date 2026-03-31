@@ -63,6 +63,7 @@ export default function Navigation({ user }) {
     if (user?.isAdmin) {
         reviewItems.push({ href: '/question-review', label: 'Question Review' });
         reviewItems.push({ href: '/image-audit', label: 'Image Audit' });
+        reviewItems.push({ href: '/blank-options', label: 'Blank Options' });
     }
     if (user?.isAdmin || [2, 3].includes(user?.id)) {
         reviewItems.push({ href: '/verify-unlink', label: 'Verify UnLink' });
