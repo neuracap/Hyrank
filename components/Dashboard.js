@@ -913,6 +913,30 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                                     >
                                         Not Production Worthy
                                     </button>
+                                    <button
+                                        onClick={async () => {
+                                            if (!confirm('Mark this paper as TEAM REVIEWED?')) return;
+                                            try {
+                                                const res = await fetch('/api/paper/advance-status', {
+                                                    method: 'POST',
+                                                    headers: { 'Content-Type': 'application/json' },
+                                                    body: JSON.stringify({ paper_session_id: selectedTestId, next_status: 'TEAM_REVIEWED' }),
+                                                });
+                                                if (res.ok) {
+                                                    alert('Marked as Team Reviewed.');
+                                                    router.refresh();
+                                                } else {
+                                                    const data = await res.json();
+                                                    alert(data.error || 'Failed');
+                                                }
+                                            } catch (e) {
+                                                alert('Error: ' + e.message);
+                                            }
+                                        }}
+                                        className="px-6 py-3 rounded-lg shadow text-purple-600 font-bold text-sm bg-purple-50 border border-purple-200 hover:bg-purple-100 transition-colors"
+                                    >
+                                        Mark as Team Reviewed
+                                    </button>
                                     {isAdmin && <button
                                         onClick={async () => {
                                             if (!confirm('Split this paper into EN + HI and translate Reasoning/Quant/GK to Hindi?\n\nThis will create a new EN paper_session and translate the 3 sections.')) return;
