@@ -928,7 +928,7 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                                     >
                                         Not Production Worthy
                                     </button>
-                                    <button
+                                    {isAdmin && <button
                                         onClick={async () => {
                                             if (!confirm('Split this paper into EN + HI and translate Reasoning/Quant/GK to Hindi?\n\nThis will create a new EN paper_session and translate the 3 sections.')) return;
                                             try {
@@ -951,7 +951,7 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                                         className="px-6 py-3 rounded-lg shadow text-purple-600 font-bold text-sm bg-purple-50 border border-purple-200 hover:bg-purple-100 transition-colors"
                                     >
                                         Split & Translate (EN/HI)
-                                    </button>
+                                    </button>}
                                 </div>
                             )}
                         </div>
