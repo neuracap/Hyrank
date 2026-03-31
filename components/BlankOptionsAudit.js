@@ -96,6 +96,21 @@ function BlankCard({ q }) {
                         className="px-2.5 py-1 text-xs font-semibold bg-teal-50 text-teal-600 border border-teal-200 rounded hover:bg-teal-100">
                         Open Paper
                     </Link>
+                    <button onClick={async () => {
+                            try {
+                                const res = await fetch('/api/question/save', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ id: q.id, version_no: q.version_no, language: q.language, question_text: q.question_text || '', status: 'FLAGGED' }),
+                                });
+                                if (res.ok) setMsg('Flagged!');
+                                else setMsg('Error');
+                            } catch { setMsg('Error'); }
+                            setTimeout(() => setMsg(null), 2000);
+                        }}
+                        className="px-2.5 py-1 text-xs font-semibold bg-amber-50 text-amber-600 border border-amber-200 rounded hover:bg-amber-100">
+                        Flag
+                    </button>
                 </div>
             </div>
 
