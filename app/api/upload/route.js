@@ -125,8 +125,15 @@ export async function POST(request) {
             `, [questionId, assetId, role, optionKey, versionNo, language]);
         }
 
-        // 5. Return Response
-        // Return full Cloudinary URL as latexPath so frontend renders it directly
+        // 5. Update has_image on question_version if this is a question image
+        if (questionId && role !== 'solution_figure') {
+            await client.query(`
+                UPDATE question_version SET has_image = true, updated_at = NOW()
+                WHERE question_id = $1 AND version_no = COALESCE($2, 1)
+            `, [questionId, versionNo || 1]);
+        }
+
+        // 6. Return Response
         return NextResponse.json({
             success: true,
             latexPath: secureUrl,

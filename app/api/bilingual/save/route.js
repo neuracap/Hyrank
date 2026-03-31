@@ -15,12 +15,14 @@ export async function POST(request) {
         await client.query('BEGIN');
 
         // 1. Update English Question
+        const enHasImage = /\\includegraphics|!\[.*?\]\(/.test(english.question_text || '');
         await client.query(`
-            UPDATE question_version 
+            UPDATE question_version
             SET body_json = jsonb_set(body_json, '{text}', to_jsonb($1::text)),
+                has_image = $4,
                 updated_at = NOW()
             WHERE question_id = $2 AND version_no = $3
-        `, [english.question_text, english.id, english.version]);
+        `, [english.question_text, english.id, english.version, enHasImage]);
 
         // 2. Upsert English Options (INSERT if row missing, UPDATE if exists)
         for (const opt of english.options) {
@@ -33,12 +35,14 @@ export async function POST(request) {
         }
 
         // 3. Update Hindi Question
+        const hiHasImage = /\\includegraphics|!\[.*?\]\(/.test(hindi.question_text || '');
         await client.query(`
-            UPDATE question_version 
+            UPDATE question_version
             SET body_json = jsonb_set(body_json, '{text}', to_jsonb($1::text)),
+                has_image = $4,
                 updated_at = NOW()
             WHERE question_id = $2 AND version_no = $3
-        `, [hindi.question_text, hindi.id, hindi.version]);
+        `, [hindi.question_text, hindi.id, hindi.version, hiHasImage]);
 
         // 4. Upsert Hindi Options (INSERT if row missing, UPDATE if exists)
         for (const opt of hindi.options) {

@@ -31,7 +31,8 @@ export async function POST(req) {
 
         await client.query('BEGIN');
 
-        // 1. Update Question Text & Source Question No + question_number_int + difficulty
+        // 1. Update Question Text & Source Question No + question_number_int + difficulty + has_image
+        const hasImage = /\\includegraphics|!\[.*?\]\(/.test(question_text || '');
         await client.query(`
             UPDATE question_version
             SET
@@ -39,10 +40,11 @@ export async function POST(req) {
                 source_question_no = COALESCE($5, source_question_no),
                 question_number_int = COALESCE($7, question_number_int),
                 difficulty = COALESCE($8, difficulty),
+                has_image = $9,
                 status = $6,
                 updated_at = NOW()
             WHERE question_id = $2 AND version_no = $3 AND language = $4
-        `, [question_text, id, version_no, language, normalizedQNo, statusToSet, qNoInt, difficulty || null]);
+        `, [question_text, id, version_no, language, normalizedQNo, statusToSet, qNoInt, difficulty || null, hasImage]);
 
 
         // 2. Update/Insert Options

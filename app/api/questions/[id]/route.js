@@ -85,14 +85,16 @@ export async function PUT(request, { params }) {
         // Simplified: Update all versions for this question_id for text? Or just latest?
         // Let's assume updating the text updates the current version.
 
+        const hasImage = /\\includegraphics|!\[.*?\]\(/.test(question_text || '');
         await client.query(`
-            UPDATE question_version 
-            SET 
+            UPDATE question_version
+            SET
                 body_json = jsonb_set(body_json, '{text}', to_jsonb($1::text)),
                 status = $2,
+                has_image = $4,
                 updated_at = NOW()
             WHERE question_id = $3
-        `, [question_text, review_status, id]);
+        `, [question_text, review_status, id, hasImage]);
 
         if (options && Array.isArray(options)) {
             const updateOptionQuery = `
