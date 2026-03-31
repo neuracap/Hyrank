@@ -227,7 +227,7 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
     const [translatingEn, setTranslatingEn] = useState(false);
     const [translatingHi, setTranslatingHi] = useState(false);
     const [figureUrl, setFigureUrl] = useState(
-        pair.en?.solution_json?.figure_url || pair.en?.solution_json?.answer_outcome?.figure_url || ''
+        pair.en?.solution_json?.answer_outcome?.figure_url || ''
     );
     const [uploadingFigure, setUploadingFigure] = useState(false);
     const [figureNeeded, setFigureNeeded] = useState(!!(pair.en?.figure_helpful || pair.en?.figure_prompt));
@@ -296,7 +296,6 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
                 if (!solJson.answer_outcome) solJson.answer_outcome = {};
                 solJson.answer_outcome.core_answer_basis = editState.coreBasis || '';
                 if (figureUrl) {
-                    solJson.figure_url = figureUrl;
                     solJson.answer_outcome.figure_url = figureUrl;
                 }
                 return {
@@ -482,7 +481,6 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
                                                                 const saveFigure = (qData, lang) => {
                                                                     if (!qData?.question_id) return null;
                                                                     const sj = { ...(qData.solution_json || {}) };
-                                                                    sj.figure_url = url;
                                                                     if (!sj.answer_outcome) sj.answer_outcome = {};
                                                                     sj.answer_outcome.figure_url = url;
                                                                     return { question_id: qData.question_id, version_no: qData.version_no || 1, solution_json: sj };
@@ -550,7 +548,6 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
                                         const saveFigure = (qData) => {
                                             if (!qData?.question_id) return null;
                                             const sj = { ...(qData.solution_json || {}) };
-                                            sj.figure_url = url;
                                             if (!sj.answer_outcome) sj.answer_outcome = {};
                                             sj.answer_outcome.figure_url = url;
                                             return { question_id: qData.question_id, version_no: qData.version_no || 1, solution_json: sj };

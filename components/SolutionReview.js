@@ -504,7 +504,7 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
     const [coreBasisText, setCoreBasisText] = useState(coreBasis || '');
     const [isSaving, setIsSaving] = useState(false);
     const [saveMsg, setSaveMsg] = useState(null);
-    const [figureUrl, setFigureUrl] = useState(sj.figure_url || sj.answer_outcome?.figure_url || '');
+    const [figureUrl, setFigureUrl] = useState(sj.answer_outcome?.figure_url || '');
     const [uploadingFigure, setUploadingFigure] = useState(false);
     const [figureNeeded, setFigureNeeded] = useState(!!(figureHelpful || figurePrompt));
     const [editingFigure, setEditingFigure] = useState(false);
@@ -562,7 +562,6 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
                 updatedSj.display_sections = { exam_craft: { approach: explanationText } };
             }
             if (figureUrl) {
-                updatedSj.figure_url = figureUrl;
                 if (updatedSj.answer_outcome) updatedSj.answer_outcome.figure_url = figureUrl;
             }
             // Update core_answer_basis
@@ -790,7 +789,6 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
                                                                         setFigureUrl(url);
                                                                         // Auto-save figure URL to solution_json
                                                                         const updatedSj = { ...sj };
-                                                                        updatedSj.figure_url = url;
                                                                         if (!updatedSj.answer_outcome) updatedSj.answer_outcome = {};
                                                                         updatedSj.answer_outcome.figure_url = url;
                                                                         fetch('/api/solution-review/save', {
@@ -854,7 +852,7 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
                                     const url = data.url || data.secure_url || data.latexPath;
                                     if (url) {
                                         setFigureUrl(url);
-                                        const updatedSj = { ...sj, figure_url: url };
+                                        const updatedSj = { ...sj };
                                         if (!updatedSj.answer_outcome) updatedSj.answer_outcome = {};
                                         updatedSj.answer_outcome.figure_url = url;
                                         fetch('/api/solution-review/save', {
