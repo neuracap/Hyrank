@@ -79,7 +79,7 @@ export default async function ImageAuditPage({ searchParams }) {
             LEFT JOIN paper_session ps ON qv.paper_session_id = ps.paper_session_id
             LEFT JOIN exam e ON ps.exam_id = e.exam_id
             LEFT JOIN exam_section es ON es.section_id = qv.exam_section_id
-            WHERE 1=1 ${examClause}
+            WHERE qv.status = 'MANUALLY_CORRECTED' ${examClause}
             ORDER BY e.name ASC NULLS LAST,
                      ps.session_label ASC,
                      qv.question_number_int ASC NULLS LAST
@@ -114,7 +114,7 @@ export default async function ImageAuditPage({ searchParams }) {
                 AND qv.language = oic.language
             LEFT JOIN paper_session ps ON qv.paper_session_id = ps.paper_session_id
             LEFT JOIN exam e ON ps.exam_id = e.exam_id
-            WHERE 1=1 ${countExamClause}
+            WHERE qv.status = 'MANUALLY_CORRECTED' ${countExamClause}
         `, countParams);
 
         const total = parseInt(countRes.rows[0].c);
