@@ -94,6 +94,34 @@ export default async function AnalyticsPage() {
         ORDER BY e.name ASC, paper_year DESC, qv.language ASC
     `);
 
+    // 5. Unallotted papers — not in review_assignments, grouped by exam
+    const unallottedRes = await client.query(`
+        SELECT
+            COALESCE(e.name, 'Unknown') AS exam_name,
+            ps.language,
+            ps.status AS pipeline_status,
+            COUNT(*) AS paper_count
+        FROM paper_session ps
+        LEFT JOIN exam e ON e.exam_id = ps.exam_id
+        WHERE NOT EXISTS (
+            SELECT 1 FROM review_assignments ra WHERE ra.paper_session_id = ps.paper_session_id
+        )
+        AND ps.status NOT IN ('NOT_WORTHY')
+        GROUP BY e.name, ps.language, ps.status
+        ORDER BY e.name, ps.language, ps.status
+    `);
+
+    // Build unallotted grouped: { examName: { language: { status: count } } }
+    const unallottedMap = {};
+    let totalUnallotted = 0;
+    for (const row of unallottedRes.rows) {
+        if (!unallottedMap[row.exam_name]) unallottedMap[row.exam_name] = {};
+        if (!unallottedMap[row.exam_name][row.language]) unallottedMap[row.exam_name][row.language] = {};
+        const cnt = parseInt(row.paper_count);
+        unallottedMap[row.exam_name][row.language][row.pipeline_status] = cnt;
+        totalUnallotted += cnt;
+    }
+
     client.release();
 
     const stats = statsRes.rows;
@@ -187,6 +215,48 @@ export default async function AnalyticsPage() {
                     </table>
                 </div>
             </div>
+
+            {/* Unallotted Papers */}
+            {totalUnallotted > 0 && (
+                <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden mb-12">
+                    <div className="px-6 py-4 border-b border-gray-200 bg-amber-50">
+                        <h2 className="text-lg font-bold text-gray-800">
+                            Unallotted Papers
+                            <span className="ml-2 text-sm font-normal text-gray-500">({totalUnallotted} papers not assigned to any reviewer)</span>
+                        </h2>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left text-gray-500">
+                            <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+                                <tr>
+                                    <th className="px-6 py-3">Exam</th>
+                                    <th className="px-6 py-3">Language</th>
+                                    <th className="px-6 py-3">Status</th>
+                                    <th className="px-6 py-3">Papers</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {unallottedRes.rows.map((row, idx) => (
+                                    <tr key={idx} className="bg-white border-b hover:bg-gray-50">
+                                        <td className="px-6 py-3 font-medium text-gray-900">{row.exam_name}</td>
+                                        <td className="px-6 py-3">
+                                            <span className={`px-2 py-0.5 rounded text-xs font-bold ${row.language === 'EN' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'}`}>
+                                                {row.language || '?'}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-3">
+                                            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
+                                                {(row.pipeline_status || 'UNKNOWN').replace(/_/g, ' ')}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-3 font-bold text-amber-600">{parseInt(row.paper_count)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
 
             {/* Exam-Year-Language Breakdown */}
             <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden mb-12">
