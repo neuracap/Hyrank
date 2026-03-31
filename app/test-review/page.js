@@ -121,6 +121,31 @@ export default async function TestReviewPage({ searchParams }) {
         papers = res.rows;
     }
 
+    // Fetch exam-wise status summary (always, regardless of filters)
+    const statsRes = await client.query(`
+        SELECT
+            COALESCE(e.name, 'Unknown') AS exam_name,
+            ps.status,
+            COUNT(*) AS cnt
+        FROM paper_session ps
+        LEFT JOIN exam e ON e.exam_id = ps.exam_id
+        GROUP BY e.name, ps.status
+        ORDER BY e.name, ps.status
+    `);
+
+    // Build stats table: { examName: { status: count, ... }, ... }
+    const statsMap = {};
+    const allStatuses = new Set();
+    for (const row of statsRes.rows) {
+        if (!statsMap[row.exam_name]) statsMap[row.exam_name] = {};
+        statsMap[row.exam_name][row.status] = parseInt(row.cnt);
+        allStatuses.add(row.status);
+    }
+    const statusList = [
+        'NOT_REVIEWED', 'TEAM_REVIEWED', 'ADMIN_REVIEWED', 'MISSING_ADDED',
+        'PRE_PUBLISH_READY', 'SOLUTION_REVIEW', 'PRODUCTION', 'NOT_WORTHY'
+    ].filter(s => allStatuses.has(s));
+
     client.release();
 
     // Apply question count filter in JS (since it's on a subquery count)
@@ -163,6 +188,56 @@ export default async function TestReviewPage({ searchParams }) {
                     </p>
                 </div>
             </header>
+
+            {/* Exam-wise Status Summary */}
+            {user.isAdmin && Object.keys(statsMap).length > 0 && (
+                <div className="bg-white shadow rounded-lg border border-gray-200 overflow-hidden mb-6">
+                    <div className="px-6 py-3 border-b border-gray-200 bg-gray-50">
+                        <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Exam-wise Paper Status Summary</h2>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                            <thead>
+                                <tr className="bg-gray-50 border-b">
+                                    <th className="text-left px-3 py-2 font-bold text-gray-600">Exam</th>
+                                    {statusList.map(s => (
+                                        <th key={s} className="text-center px-2 py-2 font-bold text-gray-600 whitespace-nowrap">
+                                            {s.replace(/_/g, ' ')}
+                                        </th>
+                                    ))}
+                                    <th className="text-center px-3 py-2 font-bold text-gray-800">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {Object.entries(statsMap).sort((a, b) => a[0].localeCompare(b[0])).map(([examName, counts]) => {
+                                    const total = Object.values(counts).reduce((s, c) => s + c, 0);
+                                    return (
+                                        <tr key={examName} className="border-b border-gray-100 hover:bg-gray-50">
+                                            <td className="px-3 py-1.5 font-semibold text-gray-800 whitespace-nowrap">{examName}</td>
+                                            {statusList.map(s => (
+                                                <td key={s} className="text-center px-2 py-1.5">
+                                                    {counts[s] ? <span className="font-bold">{counts[s]}</span> : <span className="text-gray-300">-</span>}
+                                                </td>
+                                            ))}
+                                            <td className="text-center px-3 py-1.5 font-bold text-gray-800">{total}</td>
+                                        </tr>
+                                    );
+                                })}
+                                <tr className="bg-gray-50 border-t-2 border-gray-300 font-bold">
+                                    <td className="px-3 py-2 text-gray-800">Total</td>
+                                    {statusList.map(s => {
+                                        const colTotal = Object.values(statsMap).reduce((sum, counts) => sum + (counts[s] || 0), 0);
+                                        return <td key={s} className="text-center px-2 py-2">{colTotal || '-'}</td>;
+                                    })}
+                                    <td className="text-center px-3 py-2">
+                                        {Object.values(statsMap).reduce((sum, counts) => sum + Object.values(counts).reduce((s, c) => s + c, 0), 0)}
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
 
             <div className="bg-white shadow rounded-lg border border-gray-200 overflow-hidden">
                 <TestReviewFilters exams={availableExams} />
