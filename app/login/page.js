@@ -30,8 +30,8 @@ export default function LoginPage() {
                 return;
             }
 
-            // Redirect to dashboard on success
-            router.push('/dashboard');
+            // Redirect — root page handles role-based routing
+            router.push('/');
             router.refresh();
         } catch (err) {
             setError('An error occurred. Please try again.');

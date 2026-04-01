@@ -144,6 +144,21 @@ export default async function MyReviewsPage() {
                     </p>
                 </header>
 
+                {/* Important Tasks from Admin */}
+                <div className="mb-8 bg-blue-50 border border-blue-200 rounded-xl p-5 shadow-sm">
+                    <h2 className="text-sm font-bold text-blue-800 uppercase tracking-wide mb-3 flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" />
+                        </svg>
+                        Important Tasks
+                    </h2>
+                    <ol className="list-decimal list-inside space-y-1.5 text-sm text-blue-900">
+                        <li className="font-medium">Add Missing questions to papers</li>
+                        <li className="font-medium">Complete review of pending questions</li>
+                        <li className="font-medium">Focus on Flagged questions of reviewed papers</li>
+                    </ol>
+                </div>
+
                 {/* Top Pane: Missing Questions */}
                 <div className="bg-white shadow rounded-lg border border-gray-200 overflow-hidden mb-8">
                     <div className="px-6 py-4 border-b border-gray-200 bg-red-50">

@@ -12,7 +12,7 @@ export default async function Home() {
     }
 
     if (user) {
-        redirect('/dashboard');
+        redirect(user.isAdmin ? '/dashboard' : '/my-reviews');
     } else {
         redirect('/login');
     }
