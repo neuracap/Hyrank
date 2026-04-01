@@ -50,6 +50,9 @@ async function fetchLinkedFlagged(page = 1, limit = 100) {
                 -- Reviewer assigned to this paper
                 u.name as reviewer_name,
 
+                -- Paper status for categorization
+                pe.status as paper_status,
+
                 ql.translated_debug
             FROM question_links ql
             JOIN question_version qe ON (ql.english_question_id = qe.question_id AND ql.english_version_no = qe.version_no)

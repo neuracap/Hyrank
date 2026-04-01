@@ -353,7 +353,12 @@ function SoloFlaggedList({ questions: initialQuestions }) {
 // ─── Tabs Wrapper ───
 
 export default function FlaggedTabs({ linkedQuestions, linkedTotal, linkedPage, linkedTotalPages, soloQuestions, soloTotal }) {
-    const [tab, setTab] = useState('linked');
+    const [tab, setTab] = useState('reviewed');
+
+    // Split linked questions by paper status
+    const REVIEWED_STATUSES = ['TEAM_REVIEWED', 'ADMIN_REVIEWED', 'MISSING_ADDED', 'PRE_PUBLISH_READY', 'SOLUTION_REVIEW', 'PRODUCTION'];
+    const reviewedLinked = linkedQuestions.filter(q => REVIEWED_STATUSES.includes(q.paper_status));
+    const unreviewedLinked = linkedQuestions.filter(q => !REVIEWED_STATUSES.includes(q.paper_status));
 
     return (
         <>
@@ -362,19 +367,52 @@ export default function FlaggedTabs({ linkedQuestions, linkedTotal, linkedPage, 
                 <p className="text-sm text-gray-500 mb-4">
                     Questions marked for review across the platform. Edit and save to mark them as corrected.
                 </p>
-                <div className="flex gap-2">
-                    <button onClick={() => setTab('linked')}
-                        className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${tab === 'linked' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                        Linked ({linkedTotal})
+                <div className="flex gap-2 flex-wrap">
+                    <button onClick={() => setTab('reviewed')}
+                        className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${tab === 'reviewed' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                        Reviewed Papers ({reviewedLinked.length})
+                    </button>
+                    <button onClick={() => setTab('unreviewed')}
+                        className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${tab === 'unreviewed' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                        Unreviewed Papers ({unreviewedLinked.length})
+                    </button>
+                    <button onClick={() => setTab('all')}
+                        className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${tab === 'all' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                        All Linked ({linkedTotal})
                     </button>
                     <button onClick={() => setTab('solo')}
                         className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${tab === 'solo' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
                         Solo ({soloTotal})
                     </button>
                 </div>
+                {tab === 'reviewed' && (
+                    <p className="text-xs text-red-600 font-semibold mt-2">
+                        Critical: These are from TEAM_REVIEWED / ADMIN_REVIEWED / MISSING_ADDED papers — resolve first for solutions pipeline.
+                    </p>
+                )}
             </header>
 
-            {tab === 'linked' ? (
+            {tab === 'reviewed' ? (
+                <BilingualList
+                    initialQuestions={reviewedLinked}
+                    total={reviewedLinked.length}
+                    currentPage={1}
+                    totalPages={1}
+                    isReviewMode={false}
+                    isGlobalFlaggedMode={true}
+                    paperSessionId="FLAGGED_REVIEWED"
+                />
+            ) : tab === 'unreviewed' ? (
+                <BilingualList
+                    initialQuestions={unreviewedLinked}
+                    total={unreviewedLinked.length}
+                    currentPage={1}
+                    totalPages={1}
+                    isReviewMode={false}
+                    isGlobalFlaggedMode={true}
+                    paperSessionId="FLAGGED_UNREVIEWED"
+                />
+            ) : tab === 'all' ? (
                 <BilingualList
                     initialQuestions={linkedQuestions}
                     total={linkedTotal}
