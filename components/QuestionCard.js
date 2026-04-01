@@ -20,7 +20,7 @@ export default function QuestionCard({ question, onSave, onImagePaste, onAddImag
     const [aiFixing, setAiFixing] = useState(false);
     const [aiSuggestion, setAiSuggestion] = useState(null);
     const [savedStatus, setSavedStatus] = useState(
-        question.is_manually_corrected ? 'MANUALLY_CORRECTED' : null
+        question.qv_status || (question.is_manually_corrected ? 'MANUALLY_CORRECTED' : null)
     );
 
     const handleSave = async (status = 'MANUALLY_CORRECTED') => {

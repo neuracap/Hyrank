@@ -87,6 +87,7 @@ async function fetchData(testId, page = 1, limit = 200) {
                 has_figure: q.has_figure,
                 is_unlinked: q.is_unlinked,
                 is_manually_corrected: (q.link_status === 'MANUALLY_CORRECTED' || q.qv_status === 'MANUALLY_CORRECTED'),
+                qv_status: q.qv_status,
                 figure_path: null,
                 options: []
             }));
