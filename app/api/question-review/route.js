@@ -78,8 +78,78 @@ export async function GET(request) {
         const res = await client.query(query, [questionId]);
 
         if (res.rows.length === 0) {
-            // Also attempt to check if question exists in question_version alone if link not found
-            return Response.json({ success: false, data: null, error: 'Question link not found for the provided ID. Note: Only questions that are linked translated pairs (English & Hindi) will appear.' }, { status: 404 });
+            // Fallback: fetch as solo question from question_version
+            const soloRes = await client.query(`
+                SELECT
+                    qv.question_id,
+                    qv.version_no,
+                    qv.language,
+                    qv.body_json->>'text' AS question_stem,
+                    qv.paper_session_id,
+                    qv.source_question_no,
+                    qv.question_number_int,
+                    qv.difficulty,
+                    qv.subtype,
+                    qv.correct_option_label,
+                    qv.final_answer_text,
+                    qv.solution_status,
+                    qv.solution_json,
+                    qv.status AS qv_status,
+                    es.code AS section_code,
+                    e.name AS exam_name,
+                    ps.session_label,
+                    (
+                        SELECT jsonb_object_agg(qo.option_key, qo.option_json->>'text' ORDER BY qo.option_key)
+                        FROM question_option qo
+                        WHERE qo.question_id = qv.question_id
+                        AND qo.version_no = qv.version_no
+                        AND qo.language = qv.language
+                    ) AS options
+                FROM question_version qv
+                LEFT JOIN exam_section es ON es.section_id = qv.exam_section_id
+                LEFT JOIN paper_session ps ON ps.paper_session_id = qv.paper_session_id
+                LEFT JOIN exam e ON e.exam_id = ps.exam_id
+                WHERE qv.question_id = $1
+                LIMIT 1
+            `, [questionId]);
+
+            if (soloRes.rows.length === 0) {
+                return Response.json({ success: false, data: null, error: 'Question not found.' }, { status: 404 });
+            }
+
+            const solo = soloRes.rows[0];
+            const isEn = solo.language === 'EN';
+
+            // Return in the same shape as linked data, with one side populated
+            return Response.json({
+                success: true,
+                solo: true,
+                data: {
+                    english_question_id: isEn ? solo.question_id : null,
+                    hindi_question_id: !isEn ? solo.question_id : null,
+                    english_paper_session_id: isEn ? solo.paper_session_id : null,
+                    hindi_paper_session_id: !isEn ? solo.paper_session_id : null,
+                    english_qno: isEn ? solo.question_number_int : null,
+                    hindi_qno: !isEn ? solo.question_number_int : null,
+                    english_question_stem: isEn ? solo.question_stem : null,
+                    hindi_question_stem: !isEn ? solo.question_stem : null,
+                    english_options: isEn ? solo.options : null,
+                    hindi_options: !isEn ? solo.options : null,
+                    english_correct: isEn ? solo.correct_option_label : null,
+                    hindi_correct: !isEn ? solo.correct_option_label : null,
+                    english_difficulty: isEn ? solo.difficulty : null,
+                    hindi_difficulty: !isEn ? solo.difficulty : null,
+                    english_subtype: isEn ? solo.subtype : null,
+                    english_solution_status: isEn ? solo.solution_status : null,
+                    hindi_solution_status: !isEn ? solo.solution_status : null,
+                    english_solution_json: isEn ? solo.solution_json : null,
+                    hindi_solution_json: !isEn ? solo.solution_json : null,
+                    exam_name: solo.exam_name,
+                    session_label: solo.session_label,
+                    section_code: solo.section_code,
+                    language: solo.language,
+                },
+            });
         }
 
         return Response.json({ success: true, data: res.rows[0] });

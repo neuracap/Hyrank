@@ -112,9 +112,16 @@ export default function QuestionReviewPage() {
             {result && (
                 <div className="space-y-6 animate-fade-in">
 
+                    {/* Solo indicator */}
+                    {(!result.english_question_id || !result.hindi_question_id) && (
+                        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 font-medium">
+                            This question is not linked to a bilingual pair. Showing {result.english_question_id ? 'English' : 'Hindi'} only.
+                        </div>
+                    )}
+
                     {/* Top Metadata row */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 flex justify-between items-center">
+                    <div className={`grid grid-cols-1 ${result.english_question_id && result.hindi_question_id ? 'md:grid-cols-2' : ''} gap-6`}>
+                        {result.english_question_id && <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 flex justify-between items-center">
                             <div>
                                 <span className="text-xs font-bold text-blue-800 uppercase tracking-wider mb-1 block">English Metadata</span>
                                 <div className="text-sm text-gray-700 font-mono">
@@ -123,9 +130,9 @@ export default function QuestionReviewPage() {
                                     Q.No: {result.english_qno}
                                 </div>
                             </div>
-                        </div>
+                        </div>}
 
-                        <div className="bg-orange-50 p-4 rounded-lg border border-orange-100 flex justify-between items-center">
+                        {result.hindi_question_id && <div className="bg-orange-50 p-4 rounded-lg border border-orange-100 flex justify-between items-center">
                             <div>
                                 <span className="text-xs font-bold text-orange-800 uppercase tracking-wider mb-1 block">Hindi Metadata</span>
                                 <div className="text-sm text-gray-700 font-mono">
@@ -134,14 +141,14 @@ export default function QuestionReviewPage() {
                                     Q.No: {result.hindi_qno}
                                 </div>
                             </div>
-                        </div>
+                        </div>}
                     </div>
 
                     {/* Question Body Row side by side */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                    <div className={`grid grid-cols-1 ${result.english_question_id && result.hindi_question_id ? 'md:grid-cols-2' : ''} gap-6 bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden`}>
 
                         {/* English Side */}
-                        <div className="p-6 border-r border-gray-200">
+                        {result.english_question_id && <div className="p-6 border-r border-gray-200">
                             <div className="mb-4 pb-2 border-b border-gray-100 flex items-center justify-between">
                                 <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                                     <span className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-sm">EN</span>
@@ -218,10 +225,10 @@ export default function QuestionReviewPage() {
                                     </div>
                                 </div>
                             )}
-                        </div>
+                        </div>}
 
                         {/* Hindi Side */}
-                        <div className="p-6">
+                        {result.hindi_question_id && <div className="p-6">
                             <div className="mb-4 pb-2 border-b border-gray-100 flex items-center justify-between">
                                 <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                                     <span className="w-8 h-8 rounded-full bg-orange-100 text-orange-700 flex items-center justify-center text-sm">HI</span>
@@ -295,7 +302,7 @@ export default function QuestionReviewPage() {
                                     </div>
                                 </div>
                             )}
-                        </div>
+                        </div>}
 
                     </div>
                 </div>
