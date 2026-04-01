@@ -50,7 +50,8 @@ export default async function MyReviewsPage() {
         const allPapers = res.rows;
 
         const missingPapers = allPapers.filter(p => parseInt(p.total_q || 0) < 100);
-        const completePapers = allPapers.filter(p => parseInt(p.total_q || 0) >= 100);
+        const correctionsRemain = allPapers.filter(p => parseInt(p.total_q || 0) >= 100 && parseInt(p.corrected_count || 0) < parseInt(p.total_q || 0));
+        const fullyDone = allPapers.filter(p => parseInt(p.total_q || 0) >= 100 && parseInt(p.corrected_count || 0) >= parseInt(p.total_q || 0));
 
         const renderTable = (papers, emptyMsg) => {
             if (papers.length === 0) {
@@ -157,18 +158,32 @@ export default async function MyReviewsPage() {
                     {renderTable(missingPapers, 'All papers have 100+ questions!')}
                 </div>
 
-                {/* Bottom Pane: Complete Papers */}
+                {/* Middle Pane: Corrections Remaining */}
+                <div className="bg-white shadow rounded-lg border border-gray-200 overflow-hidden mb-8">
+                    <div className="px-6 py-4 border-b border-gray-200 bg-amber-50">
+                        <h2 className="text-lg font-bold text-amber-800">
+                            Corrections Remaining
+                            <span className="ml-2 bg-amber-100 text-amber-700 text-sm font-semibold px-2.5 py-0.5 rounded-full">
+                                {correctionsRemain.length} papers
+                            </span>
+                        </h2>
+                        <p className="text-sm text-amber-600 mt-1">Papers with 100+ questions but not all are MANUALLY_CORRECTED yet.</p>
+                    </div>
+                    {renderTable(correctionsRemain, 'No papers with pending corrections!')}
+                </div>
+
+                {/* Bottom Pane: Fully Complete */}
                 <div className="bg-white shadow rounded-lg border border-gray-200 overflow-hidden">
                     <div className="px-6 py-4 border-b border-gray-200 bg-green-50">
                         <h2 className="text-lg font-bold text-green-800">
-                            Complete Papers
+                            Fully Completed
                             <span className="ml-2 bg-green-100 text-green-700 text-sm font-semibold px-2.5 py-0.5 rounded-full">
-                                {completePapers.length} papers
+                                {fullyDone.length} papers
                             </span>
                         </h2>
-                        <p className="text-sm text-green-600 mt-1">These papers have 100 or more questions.</p>
+                        <p className="text-sm text-green-600 mt-1">All questions are MANUALLY_CORRECTED.</p>
                     </div>
-                    {renderTable(completePapers, 'No complete papers yet.')}
+                    {renderTable(fullyDone, 'No fully completed papers yet.')}
                 </div>
             </div>
         );
