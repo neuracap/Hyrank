@@ -63,6 +63,16 @@ export async function POST(request) {
             WHERE id = $1
         `, [link_id, newStatus]);
 
+        // 6. Also update question_version.status for both EN and HI
+        await client.query(`
+            UPDATE question_version SET status = $1, updated_at = NOW()
+            WHERE question_id = $2 AND version_no = $3
+        `, [newStatus, english.id, english.version]);
+        await client.query(`
+            UPDATE question_version SET status = $1, updated_at = NOW()
+            WHERE question_id = $2 AND version_no = $3
+        `, [newStatus, hindi.id, hindi.version]);
+
         await client.query('COMMIT');
 
         return NextResponse.json({ success: true });
