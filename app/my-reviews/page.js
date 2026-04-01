@@ -53,7 +53,7 @@ export default async function MyReviewsPage() {
         const correctionsRemain = allPapers.filter(p => parseInt(p.total_q || 0) >= 100 && parseInt(p.corrected_count || 0) < parseInt(p.total_q || 0));
         const fullyDone = allPapers.filter(p => parseInt(p.total_q || 0) >= 100 && parseInt(p.corrected_count || 0) >= parseInt(p.total_q || 0));
 
-        const renderTable = (papers, emptyMsg) => {
+        const renderTable = (papers, emptyMsg, highlightPending = false) => {
             if (papers.length === 0) {
                 return <div className="p-8 text-center text-gray-400">{emptyMsg}</div>;
             }
@@ -77,8 +77,9 @@ export default async function MyReviewsPage() {
                                 const totalQ = parseInt(paper.total_q || 0);
                                 const corrected = parseInt(paper.corrected_count || 0);
                                 const flagged = parseInt(paper.flagged_count || 0);
+                                const hasPending = highlightPending && (corrected + flagged) < totalQ;
                                 return (
-                                    <tr key={paper.paper_session_id} className="bg-white border-b hover:bg-gray-50">
+                                    <tr key={paper.paper_session_id} className={`border-b ${hasPending ? 'bg-pink-100 hover:bg-pink-200' : 'bg-white hover:bg-gray-50'}`}>
                                         <td className="px-6 py-4 whitespace-nowrap text-gray-600">
                                             {paper.paper_date ? new Date(paper.paper_date).toLocaleDateString() : 'N/A'}
                                         </td>
@@ -125,6 +126,9 @@ export default async function MyReviewsPage() {
                                             >
                                                 View Paper
                                             </Link>
+                                            {hasPending && (
+                                                <div className="text-xs font-bold text-pink-700 mt-1">Take Action</div>
+                                            )}
                                         </td>
                                     </tr>
                                 );
@@ -184,7 +188,7 @@ export default async function MyReviewsPage() {
                         </h2>
                         <p className="text-sm text-amber-600 mt-1">Papers with 100+ questions but not all are MANUALLY_CORRECTED yet.</p>
                     </div>
-                    {renderTable(correctionsRemain, 'No papers with pending corrections!')}
+                    {renderTable(correctionsRemain, 'No papers with pending corrections!', true)}
                 </div>
 
                 {/* Bottom Pane: Fully Complete */}

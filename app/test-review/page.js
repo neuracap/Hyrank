@@ -244,7 +244,7 @@ export default async function TestReviewPage({ searchParams }) {
 
                 <div className="px-6 py-4 border-b border-gray-200 bg-white">
                     <h2 className="text-lg font-bold text-gray-800">
-                        {user.isAdmin ? 'All Papers' : 'Your Assigned Papers (Not Yet Linked)'}
+                        {user.isAdmin ? 'All Papers' : 'Your Assigned Papers (Do Individually, Cannot be Linked)'}
                         <span className="ml-2 bg-gray-100 text-gray-600 text-sm font-semibold px-2.5 py-0.5 rounded-full">{papers.length} papers</span>
                     </h2>
                 </div>
