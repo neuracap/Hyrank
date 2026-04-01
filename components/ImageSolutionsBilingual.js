@@ -581,7 +581,9 @@ function PairCard({ pair, idx, selectedOptionEn, onSelectOptionEn, selectedOptio
             <div className={`px-5 py-3 border-b flex items-center justify-between ${isFlagged ? 'bg-red-50 border-red-200' : isSolved ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-100'}`}>
                 <div className="flex items-center gap-2">
                     <span className="text-sm font-bold text-gray-700">Q.{pair.eng_source_no || idx + 1}</span>
-                    <span className="text-xs text-gray-400 font-mono" title={`EN: ${pair.eng_id}\nHI: ${pair.hin_id || 'N/A'}`}>
+                    <span className="text-xs text-gray-400 font-mono cursor-pointer hover:text-gray-600"
+                        onClick={() => { navigator.clipboard.writeText(`EN: ${pair.eng_id}\nHI: ${pair.hin_id || 'N/A'}`); }}
+                        title="Click to copy full IDs">
                         EN:{pair.eng_id.slice(0, 8)} {pair.hin_id ? `HI:${pair.hin_id.slice(0, 8)}` : ''}
                     </span>
                     {isSolved && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-semibold">Solved</span>}
