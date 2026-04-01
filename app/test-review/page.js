@@ -13,7 +13,10 @@ export default async function TestReviewPage({ searchParams }) {
         redirect('/login');
     }
 
-    const { exam = 'ALL', qcount = 'ALL', status = 'ALL' } = await searchParams || {};
+    const { exam = 'ALL', qcount = 'ALL', status = 'ALL', page = '1' } = await searchParams || {};
+    const currentPage = parseInt(page, 10);
+    const PAGE_SIZE = 100;
+    const offset = (currentPage - 1) * PAGE_SIZE;
 
     const client = await db.connect();
 
@@ -65,9 +68,19 @@ export default async function TestReviewPage({ searchParams }) {
             LEFT JOIN exam e ON ps.exam_id = e.exam_id
             ${whereClause}
             ORDER BY ps.paper_date DESC
-            LIMIT 200
+            LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
         `;
+        queryParams.push(PAGE_SIZE, offset);
         const res = await client.query(query, queryParams);
+
+        // Count total for pagination
+        const countQuery = `
+            SELECT COUNT(*) AS c FROM paper_session ps
+            LEFT JOIN exam e ON ps.exam_id = e.exam_id
+            ${whereClause}
+        `;
+        const countRes = await client.query(countQuery, queryParams.slice(0, -2));
+        var totalPapers = parseInt(countRes.rows[0].c);
         papers = res.rows;
     } else {
         const whereConditions = [`ra.reviewer_id = $1`];
@@ -115,10 +128,20 @@ export default async function TestReviewPage({ searchParams }) {
             LEFT JOIN exam e ON ps.exam_id = e.exam_id
             ${whereClause}
             ORDER BY ra.assigned_at DESC, ps.paper_date DESC
-            LIMIT 100
+            LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
         `;
+        queryParams.push(PAGE_SIZE, offset);
         const res = await client.query(query, queryParams);
         papers = res.rows;
+
+        const countQuery = `
+            SELECT COUNT(*) AS c FROM review_assignments ra
+            JOIN paper_session ps ON ra.paper_session_id = ps.paper_session_id
+            LEFT JOIN exam e ON ps.exam_id = e.exam_id
+            ${whereClause}
+        `;
+        const countRes = await client.query(countQuery, queryParams.slice(0, -2));
+        var totalPapers = parseInt(countRes.rows[0].c);
     }
 
     // Fetch exam-wise status summary (always, regardless of filters)
@@ -325,6 +348,45 @@ export default async function TestReviewPage({ searchParams }) {
                         </table>
                     </div>
                 )}
+
+                {/* Pagination */}
+                {(() => {
+                    const totalPages = Math.ceil(totalPapers / PAGE_SIZE);
+                    if (totalPages <= 1) return null;
+                    const buildUrl = (p) => {
+                        const params = new URLSearchParams();
+                        if (exam !== 'ALL') params.set('exam', exam);
+                        if (qcount !== 'ALL') params.set('qcount', qcount);
+                        if (status !== 'ALL') params.set('status', status);
+                        params.set('page', p);
+                        return `/test-review?${params.toString()}`;
+                    };
+                    return (
+                        <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
+                            <span className="text-sm text-gray-500">
+                                Showing {offset + 1}–{Math.min(offset + PAGE_SIZE, totalPapers)} of {totalPapers} papers
+                            </span>
+                            <div className="flex gap-2">
+                                {currentPage > 1 && (
+                                    <Link href={buildUrl(currentPage - 1)} className="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50">
+                                        Previous
+                                    </Link>
+                                )}
+                                {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                                    <Link key={p} href={buildUrl(p)}
+                                        className={`px-3 py-1.5 text-sm rounded ${p === currentPage ? 'bg-blue-600 text-white' : 'bg-white border border-gray-300 hover:bg-gray-50'}`}>
+                                        {p}
+                                    </Link>
+                                ))}
+                                {currentPage < totalPages && (
+                                    <Link href={buildUrl(currentPage + 1)} className="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50">
+                                        Next
+                                    </Link>
+                                )}
+                            </div>
+                        </div>
+                    );
+                })()}
             </div>
         </div>
     );
