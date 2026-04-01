@@ -121,24 +121,38 @@ export default function QuestionReviewPage() {
 
                     {/* Top Metadata row */}
                     <div className={`grid grid-cols-1 ${result.english_question_id && result.hindi_question_id ? 'md:grid-cols-2' : ''} gap-6`}>
-                        {result.english_question_id && <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 flex justify-between items-center">
-                            <div>
-                                <span className="text-xs font-bold text-blue-800 uppercase tracking-wider mb-1 block">English Metadata</span>
-                                <div className="text-sm text-gray-700 font-mono">
-                                    ID: <span className="font-semibold">{result.english_question_id}</span><br />
-                                    Paper Session: {result.english_paper_session_id}<br />
-                                    Q.No: {result.english_qno}
+                        {result.english_question_id && <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-bold text-blue-800 uppercase tracking-wider">English</span>
+                                <span className="text-xs font-mono text-gray-400">{result.english_question_id}</span>
+                            </div>
+                            <div className="text-sm text-gray-700 space-y-1">
+                                {result.english_exam_name && <div><span className="font-semibold text-blue-700">{result.english_exam_name}</span></div>}
+                                {result.english_session_label && <div className="text-xs">{result.english_session_label}</div>}
+                                <div className="flex gap-3 text-xs text-gray-500">
+                                    {result.english_paper_date && <span>{new Date(result.english_paper_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>}
+                                    {result.english_shift_label && <span>Shift: {result.english_shift_label}</span>}
+                                    {result.english_section_code && <span className="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">{result.english_section_code}</span>}
+                                    {result.english_source_qno && <span>Q.{result.english_source_qno}</span>}
+                                    {!result.english_source_qno && result.english_qno && <span>Q.{result.english_qno}</span>}
                                 </div>
                             </div>
                         </div>}
 
-                        {result.hindi_question_id && <div className="bg-orange-50 p-4 rounded-lg border border-orange-100 flex justify-between items-center">
-                            <div>
-                                <span className="text-xs font-bold text-orange-800 uppercase tracking-wider mb-1 block">Hindi Metadata</span>
-                                <div className="text-sm text-gray-700 font-mono">
-                                    ID: <span className="font-semibold">{result.hindi_question_id}</span><br />
-                                    Paper Session: {result.hindi_paper_session_id}<br />
-                                    Q.No: {result.hindi_qno}
+                        {result.hindi_question_id && <div className="bg-orange-50 p-4 rounded-lg border border-orange-100">
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-bold text-orange-800 uppercase tracking-wider">Hindi</span>
+                                <span className="text-xs font-mono text-gray-400">{result.hindi_question_id}</span>
+                            </div>
+                            <div className="text-sm text-gray-700 space-y-1">
+                                {result.hindi_exam_name && <div><span className="font-semibold text-orange-700">{result.hindi_exam_name}</span></div>}
+                                {result.hindi_session_label && <div className="text-xs">{result.hindi_session_label}</div>}
+                                <div className="flex gap-3 text-xs text-gray-500">
+                                    {result.hindi_paper_date && <span>{new Date(result.hindi_paper_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>}
+                                    {result.hindi_shift_label && <span>Shift: {result.hindi_shift_label}</span>}
+                                    {result.hindi_section_code && <span className="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">{result.hindi_section_code}</span>}
+                                    {result.hindi_source_qno && <span>Q.{result.hindi_source_qno}</span>}
+                                    {!result.hindi_source_qno && result.hindi_qno && <span>Q.{result.hindi_qno}</span>}
                                 </div>
                             </div>
                         </div>}

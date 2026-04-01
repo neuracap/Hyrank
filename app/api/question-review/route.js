@@ -60,7 +60,25 @@ export async function GET(request) {
                     WHERE ho.question_id = ql.hindi_question_id
                     AND ho.version_no  = ql.hindi_version_no
                     AND ho.language    = ql.hindi_language
-                ) AS hindi_options
+                ) AS hindi_options,
+
+                -- Paper details (English)
+                pe.session_label AS english_session_label,
+                pe.paper_date AS english_paper_date,
+                pe.shift_label AS english_shift_label,
+                pe.language AS english_paper_language,
+                ee.name AS english_exam_name,
+                en.source_question_no AS english_source_qno,
+                ese.code AS english_section_code,
+
+                -- Paper details (Hindi)
+                ph.session_label AS hindi_session_label,
+                ph.paper_date AS hindi_paper_date,
+                ph.shift_label AS hindi_shift_label,
+                ph.language AS hindi_paper_language,
+                eh.name AS hindi_exam_name,
+                hi.source_question_no AS hindi_source_qno,
+                esh.code AS hindi_section_code
 
             FROM public.question_links ql
             JOIN public.question_version en
@@ -71,6 +89,12 @@ export async function GET(request) {
                 ON hi.question_id = ql.hindi_question_id
                AND hi.version_no  = ql.hindi_version_no
                AND hi.language    = ql.hindi_language
+            LEFT JOIN paper_session pe ON en.paper_session_id = pe.paper_session_id
+            LEFT JOIN exam ee ON pe.exam_id = ee.exam_id
+            LEFT JOIN exam_section ese ON en.exam_section_id = ese.section_id
+            LEFT JOIN paper_session ph ON hi.paper_session_id = ph.paper_session_id
+            LEFT JOIN exam eh ON ph.exam_id = eh.exam_id
+            LEFT JOIN exam_section esh ON hi.exam_section_id = esh.section_id
             WHERE ql.english_question_id = $1 OR ql.hindi_question_id = $1
             LIMIT 1;
         `;
@@ -98,6 +122,9 @@ export async function GET(request) {
                     es.code AS section_code,
                     e.name AS exam_name,
                     ps.session_label,
+                    ps.paper_date,
+                    ps.shift_label,
+                    ps.language AS paper_language,
                     (
                         SELECT jsonb_object_agg(qo.option_key, qo.option_json->>'text' ORDER BY qo.option_key)
                         FROM question_option qo
@@ -146,8 +173,17 @@ export async function GET(request) {
                     hindi_solution_json: !isEn ? solo.solution_json : null,
                     exam_name: solo.exam_name,
                     session_label: solo.session_label,
+                    paper_date: solo.paper_date,
+                    shift_label: solo.shift_label,
                     section_code: solo.section_code,
                     language: solo.language,
+                    // Map into the same shape as linked for the available side
+                    [`${isEn ? 'english' : 'hindi'}_session_label`]: solo.session_label,
+                    [`${isEn ? 'english' : 'hindi'}_paper_date`]: solo.paper_date,
+                    [`${isEn ? 'english' : 'hindi'}_shift_label`]: solo.shift_label,
+                    [`${isEn ? 'english' : 'hindi'}_exam_name`]: solo.exam_name,
+                    [`${isEn ? 'english' : 'hindi'}_section_code`]: solo.section_code,
+                    [`${isEn ? 'english' : 'hindi'}_source_qno`]: solo.source_question_no,
                 },
             });
         }
