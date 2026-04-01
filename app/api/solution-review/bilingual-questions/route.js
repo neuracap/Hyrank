@@ -43,6 +43,7 @@ export async function GET(req) {
                 qe.solution_json AS en_solution_json,
                 qe.solution_figure_helpful AS en_figure_helpful,
                 qe.solution_figure_prompt AS en_figure_prompt,
+                qe.mock_worthiness AS en_mock_worthiness,
 
                 -- Hindi
                 qh.question_id AS hi_question_id,
@@ -127,6 +128,7 @@ export async function GET(req) {
                     solution_json: enSolution,
                     figure_helpful: p.en_figure_helpful,
                     figure_prompt: p.en_figure_prompt,
+                    mock_worthiness: p.en_mock_worthiness,
                     options: optionsMap[`${p.en_question_id}|EN`] || [],
                 },
                 hi: p.hi_question_id ? {

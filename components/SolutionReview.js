@@ -504,6 +504,7 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
     const [coreBasisText, setCoreBasisText] = useState(coreBasis || '');
     const [isSaving, setIsSaving] = useState(false);
     const [saveMsg, setSaveMsg] = useState(null);
+    const [mockWorthiness, setMockWorthiness] = useState(q.mock_worthiness || null);
     const [figureUrl, setFigureUrl] = useState(sj.answer_outcome?.figure_url || '');
     const [uploadingFigure, setUploadingFigure] = useState(false);
     const [figureNeeded, setFigureNeeded] = useState(!!(figureHelpful || figurePrompt));
@@ -581,6 +582,7 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
                         difficulty: q.difficulty || '',
                         tags: '',
                         full_json: updatedSj,
+                        mock_worthiness: mockWorthiness,
                     }],
                 }),
             });
@@ -691,6 +693,18 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
                                     title="Add line breaks after sentences (. and ।)">
                                     Format
                                 </button>
+                                <div className="flex gap-0.5 border border-gray-300 rounded-md overflow-hidden">
+                                    {[{ val: 'ANCHOR', label: 'A', color: 'bg-green-600 text-white', title: 'Anchor — must include in mock' },
+                                      { val: 'ADAPTABLE', label: 'Ad', color: 'bg-blue-500 text-white', title: 'Adaptable — can include' },
+                                      { val: 'REJECT', label: 'R', color: 'bg-red-500 text-white', title: 'Reject — not mock worthy' },
+                                    ].map(w => (
+                                        <button key={w.val} onClick={() => setMockWorthiness(mockWorthiness === w.val ? null : w.val)}
+                                            className={`px-1.5 py-1 text-[10px] font-bold transition-colors ${mockWorthiness === w.val ? w.color : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                                            title={w.title}>
+                                            {w.label}
+                                        </button>
+                                    ))}
+                                </div>
                                 <button onClick={handleSaveExplanation} disabled={isSaving}
                                     className="px-3 py-1 text-xs font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors">
                                     {isSaving ? 'Saving...' : 'Save'}

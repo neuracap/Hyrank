@@ -22,7 +22,7 @@ export async function POST(req) {
         return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
     }
 
-    const { link_id, en, hi, difficulty } = body;
+    const { link_id, en, hi, difficulty, mock_worthiness } = body;
     if (!en && !hi) {
         return NextResponse.json({ error: 'At least one of en or hi is required' }, { status: 400 });
     }
@@ -45,11 +45,12 @@ export async function POST(req) {
                     solution_json = $1::jsonb,
                     correct_option_label = COALESCE(NULLIF($2, ''), correct_option_label),
                     difficulty = COALESCE($5, difficulty),
+                    mock_worthiness = COALESCE($6, mock_worthiness),
                     solution_status = 'DONE',
                     solution_generated_at = COALESCE(solution_generated_at, NOW()),
                     updated_at = NOW()
                 WHERE question_id = $3 AND version_no = $4 AND language = 'EN'
-            `, [solutionJson, en.correct_option_label || '', en.question_id, en.version_no || 1, difficulty || null]);
+            `, [solutionJson, en.correct_option_label || '', en.question_id, en.version_no || 1, difficulty || null, mock_worthiness || null]);
 
             // Update is_correct on options
             if (en.correct_option_label) {
@@ -73,11 +74,12 @@ export async function POST(req) {
                     solution_json = $1::jsonb,
                     correct_option_label = COALESCE(NULLIF($2, ''), correct_option_label),
                     difficulty = COALESCE($5, difficulty),
+                    mock_worthiness = COALESCE($6, mock_worthiness),
                     solution_status = 'DONE',
                     solution_generated_at = COALESCE(solution_generated_at, NOW()),
                     updated_at = NOW()
                 WHERE question_id = $3 AND version_no = $4 AND language = 'HI'
-            `, [solutionJson, hi.correct_option_label || '', hi.question_id, hi.version_no || 1, difficulty || null]);
+            `, [solutionJson, hi.correct_option_label || '', hi.question_id, hi.version_no || 1, difficulty || null, mock_worthiness || null]);
 
             if (hi.correct_option_label) {
                 await client.query(`

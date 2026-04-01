@@ -28,7 +28,7 @@ export async function POST(request) {
         let saved = 0;
 
         for (const sol of solutions) {
-            const { question_id, version_no, answer_label, solution_text, difficulty, tags, full_json } = sol;
+            const { question_id, version_no, answer_label, solution_text, difficulty, tags, full_json, mock_worthiness } = sol;
             if (!question_id || version_no == null) continue;
 
             if (full_json) {
@@ -43,9 +43,10 @@ export async function POST(request) {
                     UPDATE question_version SET
                         solution_json = $1::jsonb,
                         difficulty = COALESCE($4, difficulty),
+                        mock_worthiness = COALESCE($5, mock_worthiness),
                         updated_at = NOW()
                     WHERE question_id = $2 AND version_no = $3 AND language = 'EN'
-                `, [solutionJson, question_id, version_no, difficulty || null]);
+                `, [solutionJson, question_id, version_no, difficulty || null, mock_worthiness || null]);
             } else {
                 // Legacy format: basic solution_json
                 const solutionJson = JSON.stringify({

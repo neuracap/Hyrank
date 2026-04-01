@@ -32,6 +32,7 @@ export async function GET(request) {
                 qv.solution_status,
                 qv.solution_figure_helpful,
                 qv.solution_figure_prompt,
+                qv.mock_worthiness,
                 qv.solution_json,
                 qv.solution_json->>'answer_label' AS answer_label,
                 qv.solution_json->>'solution_text' AS solution_text,

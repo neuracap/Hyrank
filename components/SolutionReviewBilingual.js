@@ -223,6 +223,7 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
     });
 
     const [saving, setSaving] = useState(false);
+    const [mockWorthiness, setMockWorthiness] = useState(pair.en?.mock_worthiness || null);
     const [saveMsg, setSaveMsg] = useState(null);
     const [translatingEn, setTranslatingEn] = useState(false);
     const [translatingHi, setTranslatingHi] = useState(false);
@@ -314,6 +315,7 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
                     en: buildPayload(pair.en, enEdit),
                     hi: buildPayload(pair.hi, hiEdit),
                     difficulty: pair.en?.difficulty || null,
+                    mock_worthiness: mockWorthiness,
                 }),
             });
             const data = await res.json();
@@ -373,6 +375,18 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
                             {saveMsg}
                         </span>
                     )}
+                    <div className="flex gap-0.5 border border-gray-300 rounded overflow-hidden">
+                        {[{ val: 'ANCHOR', label: 'A', color: 'bg-green-600 text-white', title: 'Anchor' },
+                          { val: 'ADAPTABLE', label: 'Ad', color: 'bg-blue-500 text-white', title: 'Adaptable' },
+                          { val: 'REJECT', label: 'R', color: 'bg-red-500 text-white', title: 'Reject' },
+                        ].map(w => (
+                            <button key={w.val} onClick={() => setMockWorthiness(mockWorthiness === w.val ? null : w.val)}
+                                className={`px-1.5 py-1 text-[10px] font-bold transition-colors ${mockWorthiness === w.val ? w.color : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                                title={w.title}>
+                                {w.label}
+                            </button>
+                        ))}
+                    </div>
                     <button onClick={handleSave} disabled={saving}
                         className="px-3 py-1 text-xs font-semibold bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
                         {saving ? 'Saving...' : 'Save Both'}
