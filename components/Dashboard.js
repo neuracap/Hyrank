@@ -321,6 +321,10 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
         return acc;
     }, {});
 
+    // Only show unlinked highlighting if the paper has SOME linked questions
+    // (i.e., linking was started). If zero links, unlinked is the normal state.
+    const hasAnyLinked = questions.some(q => !q.is_unlinked);
+
     // Calculate Stats
     const expectedPerSection = (sections.length > 0 && docInfo?.num_questions)
         ? Math.round(parseInt(docInfo.num_questions) / sections.length)
@@ -747,15 +751,17 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                                                                 }}
                                                                 className={`flex items-center justify-center w-full aspect-square text-xs font-medium rounded border transition-colors ${duplicateQuestionIds.has(q.id)
                                                                     ? 'bg-red-800 text-white border-red-900 hover:bg-red-700 ring-2 ring-red-400'
-                                                                    : q.is_unlinked
+                                                                    : (q.is_unlinked && hasAnyLinked)
                                                                         ? 'bg-red-900 text-white border-red-950 hover:bg-red-800'
                                                                         : hasError
                                                                             ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
-                                                                            : !q.is_manually_corrected
-                                                                                ? 'bg-pink-100 text-pink-700 border-pink-300 hover:bg-pink-200'
-                                                                                : 'text-gray-600 bg-gray-50 hover:bg-blue-100 hover:text-blue-600 border-gray-200'
+                                                                            : q.qv_status === 'FLAGGED'
+                                                                                ? 'bg-orange-100 text-orange-700 border-orange-300 hover:bg-orange-200'
+                                                                                : !q.is_manually_corrected
+                                                                                    ? 'bg-pink-100 text-pink-700 border-pink-300 hover:bg-pink-200'
+                                                                                    : 'text-gray-600 bg-gray-50 hover:bg-blue-100 hover:text-blue-600 border-gray-200'
                                                                     }`}
-                                                                title={duplicateQuestionIds.has(q.id) ? 'Duplicate Q.No — needs reclassification' : q.is_unlinked ? 'Unlinked (No Bilingual Match)' : (hasError ? 'Less than 4 options' : '')}
+                                                                title={duplicateQuestionIds.has(q.id) ? 'Duplicate Q.No — needs reclassification' : (q.is_unlinked && hasAnyLinked) ? 'Unlinked (No Bilingual Match)' : q.qv_status === 'FLAGGED' ? 'Flagged for review' : (hasError ? 'Less than 4 options or suspicious content' : '')}
                                                             >
                                                                 {q.source_q_no ? q.source_q_no.replace(/Q\.\s*/, '').trim() : q.q_no}
                                                             </a>
