@@ -357,8 +357,10 @@ export default function FlaggedTabs({ linkedQuestions, linkedTotal, linkedPage, 
 
     // Split linked questions by paper status
     const REVIEWED_STATUSES = ['TEAM_REVIEWED', 'ADMIN_REVIEWED', 'MISSING_ADDED', 'PRE_PUBLISH_READY', 'SOLUTION_REVIEW', 'PRODUCTION'];
-    const reviewedLinked = linkedQuestions.filter(q => REVIEWED_STATUSES.includes(q.paper_status));
-    const unreviewedLinked = linkedQuestions.filter(q => !REVIEWED_STATUSES.includes(q.paper_status));
+    const activeLinked = linkedQuestions.filter(q => q.paper_status !== 'NOT_WORTHY');
+    const notWorthyLinked = linkedQuestions.filter(q => q.paper_status === 'NOT_WORTHY');
+    const reviewedLinked = activeLinked.filter(q => REVIEWED_STATUSES.includes(q.paper_status));
+    const unreviewedLinked = activeLinked.filter(q => !REVIEWED_STATUSES.includes(q.paper_status));
 
     return (
         <>
@@ -378,12 +380,18 @@ export default function FlaggedTabs({ linkedQuestions, linkedTotal, linkedPage, 
                     </button>
                     <button onClick={() => setTab('all')}
                         className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${tab === 'all' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                        All Linked ({linkedTotal})
+                        All Linked ({activeLinked.length})
                     </button>
                     <button onClick={() => setTab('solo')}
                         className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${tab === 'solo' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
                         Solo ({soloTotal})
                     </button>
+                    {notWorthyLinked.length > 0 && (
+                        <button onClick={() => setTab('not_worthy')}
+                            className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${tab === 'not_worthy' ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}>
+                            Not Worthy ({notWorthyLinked.length})
+                        </button>
+                    )}
                 </div>
                 {tab === 'reviewed' && (
                     <p className="text-xs text-red-600 font-semibold mt-2">
@@ -414,13 +422,23 @@ export default function FlaggedTabs({ linkedQuestions, linkedTotal, linkedPage, 
                 />
             ) : tab === 'all' ? (
                 <BilingualList
-                    initialQuestions={linkedQuestions}
-                    total={linkedTotal}
-                    currentPage={linkedPage}
-                    totalPages={linkedTotalPages}
+                    initialQuestions={activeLinked}
+                    total={activeLinked.length}
+                    currentPage={1}
+                    totalPages={1}
                     isReviewMode={false}
                     isGlobalFlaggedMode={true}
                     paperSessionId="FLAGGED_GLOBAL"
+                />
+            ) : tab === 'not_worthy' ? (
+                <BilingualList
+                    initialQuestions={notWorthyLinked}
+                    total={notWorthyLinked.length}
+                    currentPage={1}
+                    totalPages={1}
+                    isReviewMode={false}
+                    isGlobalFlaggedMode={true}
+                    paperSessionId="FLAGGED_NOT_WORTHY"
                 />
             ) : (
                 <SoloFlaggedList questions={soloQuestions} />
