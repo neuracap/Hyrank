@@ -29,15 +29,15 @@ export default async function MyReviewsPage() {
                 ) as total_q,
                 (
                     SELECT COUNT(*)
-                    FROM question_links ql
-                    WHERE (ql.paper_session_id_english = ps.paper_session_id OR ql.paper_session_id_hindi = ps.paper_session_id)
-                    AND ql.status = 'MANUALLY_CORRECTED'
+                    FROM question_version qv
+                    WHERE qv.paper_session_id = ps.paper_session_id
+                    AND qv.status = 'MANUALLY_CORRECTED'
                 ) as corrected_count,
                 (
                     SELECT COUNT(*)
-                    FROM question_links ql
-                    WHERE (ql.paper_session_id_english = ps.paper_session_id OR ql.paper_session_id_hindi = ps.paper_session_id)
-                    AND ql.status = 'FLAGGED'
+                    FROM question_version qv
+                    WHERE qv.paper_session_id = ps.paper_session_id
+                    AND qv.status = 'FLAGGED'
                 ) as flagged_count
             FROM review_assignments ra
             JOIN paper_session ps ON ra.paper_session_id = ps.paper_session_id
