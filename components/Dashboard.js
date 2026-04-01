@@ -817,7 +817,8 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                                                         language: updatedQ.language || 'EN',
                                                         question_text: updatedQ.question_text,
                                                         options: updatedQ.options,
-                                                        source_question_no: updatedQ.source_q_no
+                                                        source_question_no: updatedQ.source_q_no,
+                                                        status: updatedQ.saveStatus || 'MANUALLY_CORRECTED'
                                                     })
                                                 });
                                                 const data = await res.json();
