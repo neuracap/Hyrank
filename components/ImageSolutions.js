@@ -30,8 +30,13 @@ function DifficultyBadge({ level }) {
     return <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${cls}`}>{label}</span>;
 }
 
-export default function ImageSolutions({ papers }) {
-    const [selectedPaper, setSelectedPaper] = useState(null);
+export default function ImageSolutions({ papers, sections = [] }) {
+    const [selectedPaperId, setSelectedPaperId] = useState('');
+    const [selectedSection, setSelectedSection] = useState('ALL');
+    const [solvedFilter, setSolvedFilter] = useState('unsolved');
+    const [currentPage, setCurrentPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(0);
+    const [totalCount, setTotalCount] = useState(0);
     const [questions, setQuestions] = useState([]);
     const [selectedOptions, setSelectedOptions] = useState({});
     const [subtypes, setSubtypes] = useState({});
@@ -48,9 +53,7 @@ export default function ImageSolutions({ papers }) {
     const [filter, setFilter] = useState('unsolved');
     const [sourcePdfPath, setSourcePdfPath] = useState(null);
 
-    const handlePaperClick = async (paper) => {
-        setSelectedPaper(paper);
-        setSourcePdfPath(null);
+    const fetchQuestions = async (paperId, section, solved, page) => {
         setQuestions([]);
         setSelectedOptions({});
         setSubtypes({});
@@ -58,14 +61,24 @@ export default function ImageSolutions({ papers }) {
         setSolutionsEn({});
         setSolutionsHi({});
         setAiResults({});
+        setSourcePdfPath(null);
         setFeedback(null);
         setLoadingQuestions(true);
 
         try {
-            const res = await fetch(`/api/image-solutions/questions?paperId=${paper.paper_session_id}`);
+            const params = new URLSearchParams();
+            if (paperId) params.set('paperId', paperId);
+            if (section && section !== 'ALL') params.set('section', section);
+            params.set('solved', solved);
+            params.set('page', page);
+            params.set('limit', '100');
+
+            const res = await fetch(`/api/image-solutions/questions?${params.toString()}`);
             const data = await res.json();
             if (res.ok && data.questions) {
                 setQuestions(data.questions);
+                setTotalPages(data.totalPages || 0);
+                setTotalCount(data.total || 0);
                 if (data.source_pdf_path) setSourcePdfPath(data.source_pdf_path);
                 const opts = {}, subs = {}, diffs = {}, solEn = {}, solHi = {}, results = {};
                 for (const q of data.questions) {
@@ -77,7 +90,6 @@ export default function ImageSolutions({ papers }) {
                         const dm = { 1: 'easy', 2: 'medium', 3: 'hard' };
                         diffs[q.question_id] = dm[q.difficulty] || '';
                     }
-                    // Pre-populate exam_craft from saved solution
                     if (q.solution_json?.display_sections) {
                         const ds = q.solution_json.display_sections;
                         if (Array.isArray(ds)) {
@@ -108,6 +120,14 @@ export default function ImageSolutions({ papers }) {
         } finally {
             setLoadingQuestions(false);
         }
+    };
+
+    const handleFilterChange = (paperId, section, solved, page) => {
+        setSelectedPaperId(paperId);
+        setSelectedSection(section);
+        setSolvedFilter(solved);
+        setCurrentPage(page);
+        fetchQuestions(paperId, section, solved, page);
     };
 
     const handleTranslate = useCallback(async (questionId) => {
@@ -264,140 +284,119 @@ export default function ImageSolutions({ papers }) {
         return new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
     };
 
-    const filteredQuestions = questions.filter(q => {
-        if (filter === 'unsolved') return !q.answer_label && !q.correct_option_label;
-        if (filter === 'solved') return !!q.answer_label || !!q.correct_option_label;
-        return true;
-    });
-
     return (
-        <div className="flex h-screen overflow-hidden bg-white">
-            {/* Left Sidebar */}
-            <aside className="w-72 flex-shrink-0 border-r border-gray-200 bg-white flex flex-col">
-                <div className="px-4 py-4 border-b border-gray-200">
-                    <h1 className="text-lg font-bold text-gray-900">Img Sol (Solo)</h1>
-                    <p className="text-xs text-gray-500 mt-0.5">{papers.length} papers with image questions</p>
-                </div>
-                <div className="flex-1 overflow-y-auto">
-                    {papers.length === 0 ? (
-                        <div className="p-4 text-sm text-gray-400 italic text-center mt-8">No papers with image questions found.</div>
-                    ) : (
-                        <ul className="divide-y divide-gray-100">
-                            {papers.map(paper => {
-                                const isSelected = selectedPaper?.paper_session_id === paper.paper_session_id;
-                                const total = parseInt(paper.image_question_count || 0);
-                                const solved = parseInt(paper.solved_count || 0);
-                                const allDone = total > 0 && solved === total;
-                                return (
-                                    <li key={paper.paper_session_id}>
-                                        <button onClick={() => handlePaperClick(paper)}
-                                            className={`w-full text-left px-4 py-3 transition-colors hover:bg-orange-50 ${isSelected ? 'bg-orange-100 border-l-4 border-orange-500' : 'border-l-4 border-transparent'}`}>
-                                            <div className="text-sm font-semibold text-gray-900 truncate">{paper.session_label}</div>
-                                            {paper.exam_name && <div className="text-xs text-indigo-600 mt-0.5 truncate">{paper.exam_name}</div>}
-                                            <div className="text-xs text-gray-500 mt-0.5">{paper.subject || 'No subject'}</div>
-                                            <div className="flex items-center justify-between mt-1">
-                                                <span className="text-xs text-gray-400">{formatDate(paper.paper_date)}</span>
-                                                <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${allDone ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
-                                                    {solved}/{total} done
-                                                </span>
-                                            </div>
-                                        </button>
-                                    </li>
-                                );
-                            })}
-                        </ul>
+        <div className="min-h-screen bg-gray-50">
+            {/* Top Filter Bar */}
+            <div className="sticky top-0 z-10 bg-white border-b border-gray-200 shadow-sm px-4 py-2 space-y-2">
+                <div className="flex items-center gap-3 flex-wrap">
+                    <h1 className="text-lg font-bold text-gray-900 flex-shrink-0">Image Solutions</h1>
+
+                    <select value={selectedPaperId}
+                        onChange={e => handleFilterChange(e.target.value, selectedSection, solvedFilter, 1)}
+                        className="border border-gray-300 rounded-md px-3 py-1.5 text-sm min-w-[250px]">
+                        <option value="">All Papers</option>
+                        {papers.map(p => (
+                            <option key={p.paper_session_id} value={p.paper_session_id}>
+                                {p.session_label} ({parseInt(p.solved_count||0)}/{parseInt(p.image_count||0)})
+                            </option>
+                        ))}
+                    </select>
+
+                    <select value={selectedSection}
+                        onChange={e => handleFilterChange(selectedPaperId, e.target.value, solvedFilter, 1)}
+                        className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
+                        <option value="ALL">All Sections</option>
+                        {sections.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+
+                    <div className="flex gap-1">
+                        {['unsolved', 'all', 'solved'].map(f => (
+                            <button key={f} onClick={() => handleFilterChange(selectedPaperId, selectedSection, f, 1)}
+                                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${solvedFilter === f ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                                {f.charAt(0).toUpperCase() + f.slice(1)}
+                            </button>
+                        ))}
+                    </div>
+
+                    {totalCount > 0 && <span className="text-xs text-gray-500">{totalCount} questions</span>}
+
+                    {sourcePdfPath && (
+                        <a href={`/api/pdf?path=${encodeURIComponent(sourcePdfPath)}`} target="_blank" rel="noopener noreferrer"
+                            className="text-xs text-red-600 hover:underline flex items-center gap-1 bg-white border border-gray-200 px-2 py-0.5 rounded">
+                            PDF
+                        </a>
+                    )}
+
+                    {feedback && (
+                        <span className={`text-sm px-3 py-1.5 rounded font-medium ${feedback.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-700'}`}>
+                            {feedback.message}
+                        </span>
                     )}
                 </div>
-            </aside>
+            </div>
 
-            {/* Right Main Area */}
-            <main className="flex-1 overflow-y-auto bg-gray-50">
-                {!selectedPaper ? (
-                    <div className="flex items-center justify-center h-full">
-                        <div className="text-center">
-                            <h2 className="text-xl font-semibold text-gray-700">Select a paper to review</h2>
-                            <p className="text-gray-400 mt-2 text-sm">Choose a paper from the left to review image questions.</p>
-                        </div>
+            {/* Questions */}
+            <div className="max-w-5xl mx-auto px-4 py-6 space-y-8">
+                {loadingQuestions ? (
+                    <div className="flex items-center justify-center py-24">
+                        <div className="animate-spin w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full"></div>
+                        <span className="ml-3 text-gray-500">Loading image questions...</span>
+                    </div>
+                ) : questions.length === 0 && (selectedPaperId || selectedSection !== 'ALL') ? (
+                    <div className="text-center py-24 text-gray-400">No image questions found for the selected filters.</div>
+                ) : questions.length === 0 ? (
+                    <div className="text-center py-24 text-gray-400">
+                        Select filters above or click a solved/unsolved filter to load questions.
                     </div>
                 ) : (
-                    <div>
-                        {/* Sticky top bar */}
-                        <div className="sticky top-0 z-10 bg-white border-b border-gray-200 shadow-sm px-6 py-3 flex items-center justify-between gap-4">
-                            <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                    <h2 className="text-base font-bold text-gray-900 truncate">{selectedPaper.session_label}</h2>
-                                    {sourcePdfPath && (
-                                        <a href={`/api/pdf?path=${encodeURIComponent(sourcePdfPath)}`} target="_blank" rel="noopener noreferrer"
-                                            className="text-blue-600 hover:underline flex items-center gap-1 bg-white border border-gray-200 px-2 py-1 rounded shadow-sm text-xs flex-shrink-0" title={sourcePdfPath}>
-                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-gray-500">
-                                                <path d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5H5.625Z" />
-                                                <path d="M12.971 1.816A5.23 5.23 0 0 1 14.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 0 1 3.434 1.279 9.768 9.768 0 0 0-6.963-6.963Z" />
-                                            </svg>
-                                            <span className="truncate max-w-[150px]">Source PDF</span>
-                                        </a>
-                                    )}
-                                </div>
-                                <p className="text-xs text-gray-500">{selectedPaper.subject} &middot; {formatDate(selectedPaper.paper_date)} &middot; {filteredQuestions.length} showing</p>
-                            </div>
-                            {feedback && (
-                                <div className={`text-sm px-3 py-1.5 rounded font-medium ${feedback.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-700'}`}>
-                                    {feedback.message}
-                                </div>
-                            )}
-                            <div className="flex gap-1 flex-shrink-0">
-                                {['unsolved', 'all', 'solved'].map(f => (
-                                    <button key={f} onClick={() => setFilter(f)}
-                                        className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${filter === f ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                                        {f.charAt(0).toUpperCase() + f.slice(1)}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
+                    <>
+                        {questions.map((q, idx) => (
+                            <QuestionCard
+                                key={q.question_id}
+                                q={q}
+                                idx={idx}
+                                selectedOption={selectedOptions[q.question_id]}
+                                onSelectOption={(label) => setSelectedOptions(prev => ({ ...prev, [q.question_id]: label }))}
+                                subtype={subtypes[q.question_id] || ''}
+                                onSubtypeChange={(val) => setSubtypes(prev => ({ ...prev, [q.question_id]: val }))}
+                                difficulty={difficulties[q.question_id] || ''}
+                                onDifficultyChange={(val) => setDifficulties(prev => ({ ...prev, [q.question_id]: val }))}
+                                solutionEn={solutionsEn[q.question_id] || ''}
+                                onSolutionEnChange={(val) => setSolutionsEn(prev => ({ ...prev, [q.question_id]: val }))}
+                                solutionHi={solutionsHi[q.question_id] || ''}
+                                onSolutionHiChange={(val) => setSolutionsHi(prev => ({ ...prev, [q.question_id]: val }))}
+                                aiResult={aiResults[q.question_id]}
+                                isGenerating={generatingId === q.question_id}
+                                isTranslating={translatingId === q.question_id}
+                                isSaving={savingId === q.question_id}
+                                isFlagging={flaggingId === q.question_id}
+                                onTranslate={() => handleTranslate(q.question_id)}
+                                onGenerate={() => handleGenerate(q)}
+                                onSave={() => handleSave(q)}
+                                onFlag={() => handleFlag(q)}
+                                extractImages={extractImages}
+                            />
+                        ))}
 
-                        {/* Questions */}
-                        <div className="max-w-5xl mx-auto px-4 py-6 space-y-8">
-                            {loadingQuestions ? (
-                                <div className="flex items-center justify-center py-24">
-                                    <div className="animate-spin w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full"></div>
-                                    <span className="ml-3 text-gray-500">Loading image questions...</span>
-                                </div>
-                            ) : filteredQuestions.length === 0 ? (
-                                <div className="text-center py-24 text-gray-400">
-                                    {filter === 'unsolved' ? 'All image questions are solved!' : 'No image questions found.'}
-                                </div>
-                            ) : (
-                                filteredQuestions.map((q, idx) => (
-                                    <QuestionCard
-                                        key={q.question_id}
-                                        q={q}
-                                        idx={idx}
-                                        selectedOption={selectedOptions[q.question_id]}
-                                        onSelectOption={(label) => setSelectedOptions(prev => ({ ...prev, [q.question_id]: label }))}
-                                        subtype={subtypes[q.question_id] || ''}
-                                        onSubtypeChange={(val) => setSubtypes(prev => ({ ...prev, [q.question_id]: val }))}
-                                        difficulty={difficulties[q.question_id] || ''}
-                                        onDifficultyChange={(val) => setDifficulties(prev => ({ ...prev, [q.question_id]: val }))}
-                                        solutionEn={solutionsEn[q.question_id] || ''}
-                                        onSolutionEnChange={(val) => setSolutionsEn(prev => ({ ...prev, [q.question_id]: val }))}
-                                        solutionHi={solutionsHi[q.question_id] || ''}
-                                        onSolutionHiChange={(val) => setSolutionsHi(prev => ({ ...prev, [q.question_id]: val }))}
-                                        aiResult={aiResults[q.question_id]}
-                                        isGenerating={generatingId === q.question_id}
-                                        isTranslating={translatingId === q.question_id}
-                                        isSaving={savingId === q.question_id}
-                                        isFlagging={flaggingId === q.question_id}
-                                        onTranslate={() => handleTranslate(q.question_id)}
-                                        onGenerate={() => handleGenerate(q)}
-                                        onSave={() => handleSave(q)}
-                                        onFlag={() => handleFlag(q)}
-                                        extractImages={extractImages}
-                                    />
-                                ))
-                            )}
-                        </div>
-                    </div>
+                        {/* Pagination */}
+                        {totalPages > 1 && (
+                            <div className="flex items-center justify-center gap-2 py-4">
+                                <button onClick={() => handleFilterChange(selectedPaperId, selectedSection, solvedFilter, currentPage - 1)}
+                                    disabled={currentPage <= 1}
+                                    className="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-40">
+                                    Previous
+                                </button>
+                                <span className="text-sm text-gray-600">Page {currentPage} of {totalPages}</span>
+                                <button onClick={() => handleFilterChange(selectedPaperId, selectedSection, solvedFilter, currentPage + 1)}
+                                    disabled={currentPage >= totalPages}
+                                    className="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-40">
+                                    Next
+                                </button>
+                            </div>
+                        )}
+                    </>
                 )}
-            </main>
+            </div>
         </div>
     );
 }
