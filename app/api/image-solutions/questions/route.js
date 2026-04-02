@@ -64,6 +64,8 @@ export async function GET(request) {
             SELECT COUNT(*) AS c
             FROM question_version qv
             LEFT JOIN exam_section es ON es.section_id = qv.exam_section_id
+            LEFT JOIN paper_session ps ON ps.paper_session_id = qv.paper_session_id
+            LEFT JOIN exam e ON e.exam_id = ps.exam_id
             ${whereClause}
         `, params);
         const total = parseInt(countRes.rows[0].c);
