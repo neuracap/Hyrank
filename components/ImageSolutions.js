@@ -174,7 +174,7 @@ export default function ImageSolutions({ papers, sections = [] }) {
                     subtype: subtypes[q.question_id] || 'other',
                     difficulty: difficulties[q.question_id] || 'medium',
                     exam_craft: solutionsEn[q.question_id] || '',
-                    exam_name: selectedPaper?.exam_name || '',
+                    exam_name: q.exam_name || '',
                     section: q.section_code || '',
                 }),
             });
@@ -191,7 +191,7 @@ export default function ImageSolutions({ papers, sections = [] }) {
         } finally {
             setGeneratingId(null);
         }
-    }, [selectedPaper, selectedOptions, subtypes, difficulties, solutionsEn]);
+    }, [selectedOptions, subtypes, difficulties, solutionsEn]);
 
     const handleSave = useCallback(async (q) => {
         const answerLabel = selectedOptions[q.question_id];
