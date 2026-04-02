@@ -30,8 +30,8 @@ function DifficultyBadge({ level }) {
     return <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${cls}`}>{label}</span>;
 }
 
-export default function ImageSolutions({ papers, sections = [] }) {
-    const [selectedPaperId, setSelectedPaperId] = useState('');
+export default function ImageSolutions({ papers: exams, sections = [] }) {
+    const [selectedExam, setSelectedExam] = useState('');
     const [selectedSection, setSelectedSection] = useState('ALL');
     const [solvedFilter, setSolvedFilter] = useState('unsolved');
     const [currentPage, setCurrentPage] = useState(1);
@@ -53,7 +53,7 @@ export default function ImageSolutions({ papers, sections = [] }) {
     const [filter, setFilter] = useState('unsolved');
     const [sourcePdfPath, setSourcePdfPath] = useState(null);
 
-    const fetchQuestions = async (paperId, section, solved, page) => {
+    const fetchQuestions = async (exam, section, solved, page) => {
         setQuestions([]);
         setSelectedOptions({});
         setSubtypes({});
@@ -67,7 +67,7 @@ export default function ImageSolutions({ papers, sections = [] }) {
 
         try {
             const params = new URLSearchParams();
-            if (paperId) params.set('paperId', paperId);
+            if (exam) params.set('exam', exam);
             if (section && section !== 'ALL') params.set('section', section);
             params.set('solved', solved);
             params.set('page', page);
@@ -122,12 +122,12 @@ export default function ImageSolutions({ papers, sections = [] }) {
         }
     };
 
-    const handleFilterChange = (paperId, section, solved, page) => {
-        setSelectedPaperId(paperId);
+    const handleFilterChange = (exam, section, solved, page) => {
+        setSelectedExam(exam);
         setSelectedSection(section);
         setSolvedFilter(solved);
         setCurrentPage(page);
-        fetchQuestions(paperId, section, solved, page);
+        fetchQuestions(exam, section, solved, page);
     };
 
     const handleTranslate = useCallback(async (questionId) => {
@@ -291,19 +291,17 @@ export default function ImageSolutions({ papers, sections = [] }) {
                 <div className="flex items-center gap-3 flex-wrap">
                     <h1 className="text-lg font-bold text-gray-900 flex-shrink-0">Image Solutions</h1>
 
-                    <select value={selectedPaperId}
+                    <select value={selectedExam}
                         onChange={e => handleFilterChange(e.target.value, selectedSection, solvedFilter, 1)}
-                        className="border border-gray-300 rounded-md px-3 py-1.5 text-sm min-w-[250px]">
-                        <option value="">All Papers</option>
-                        {papers.map(p => (
-                            <option key={p.paper_session_id} value={p.paper_session_id}>
-                                {p.session_label} ({parseInt(p.solved_count||0)}/{parseInt(p.image_count||0)})
-                            </option>
+                        className="border border-gray-300 rounded-md px-3 py-1.5 text-sm min-w-[200px]">
+                        <option value="">All Exams</option>
+                        {exams.map(e => (
+                            <option key={e.exam_id} value={e.exam_name}>{e.exam_name}</option>
                         ))}
                     </select>
 
                     <select value={selectedSection}
-                        onChange={e => handleFilterChange(selectedPaperId, e.target.value, solvedFilter, 1)}
+                        onChange={e => handleFilterChange(selectedExam, e.target.value, solvedFilter, 1)}
                         className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
                         <option value="ALL">All Sections</option>
                         {sections.map(s => <option key={s} value={s}>{s}</option>)}
@@ -311,7 +309,7 @@ export default function ImageSolutions({ papers, sections = [] }) {
 
                     <div className="flex gap-1">
                         {['unsolved', 'all', 'solved'].map(f => (
-                            <button key={f} onClick={() => handleFilterChange(selectedPaperId, selectedSection, f, 1)}
+                            <button key={f} onClick={() => handleFilterChange(selectedExam, selectedSection, f, 1)}
                                 className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${solvedFilter === f ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
                                 {f.charAt(0).toUpperCase() + f.slice(1)}
                             </button>
@@ -342,7 +340,7 @@ export default function ImageSolutions({ papers, sections = [] }) {
                         <div className="animate-spin w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full"></div>
                         <span className="ml-3 text-gray-500">Loading image questions...</span>
                     </div>
-                ) : questions.length === 0 && (selectedPaperId || selectedSection !== 'ALL') ? (
+                ) : questions.length === 0 && (selectedExam || selectedSection !== 'ALL') ? (
                     <div className="text-center py-24 text-gray-400">No image questions found for the selected filters.</div>
                 ) : questions.length === 0 ? (
                     <div className="text-center py-24 text-gray-400">
@@ -381,13 +379,13 @@ export default function ImageSolutions({ papers, sections = [] }) {
                         {/* Pagination */}
                         {totalPages > 1 && (
                             <div className="flex items-center justify-center gap-2 py-4">
-                                <button onClick={() => handleFilterChange(selectedPaperId, selectedSection, solvedFilter, currentPage - 1)}
+                                <button onClick={() => handleFilterChange(selectedExam, selectedSection, solvedFilter, currentPage - 1)}
                                     disabled={currentPage <= 1}
                                     className="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-40">
                                     Previous
                                 </button>
                                 <span className="text-sm text-gray-600">Page {currentPage} of {totalPages}</span>
-                                <button onClick={() => handleFilterChange(selectedPaperId, selectedSection, solvedFilter, currentPage + 1)}
+                                <button onClick={() => handleFilterChange(selectedExam, selectedSection, solvedFilter, currentPage + 1)}
                                     disabled={currentPage >= totalPages}
                                     className="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-40">
                                     Next

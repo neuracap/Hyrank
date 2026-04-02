@@ -17,26 +17,18 @@ export default async function ImageSolutionsPage() {
     try {
         client = await db.connect();
 
-        // Papers with image questions
-        const papersRes = await client.query(`
-            SELECT
-                ps.paper_session_id,
-                ps.session_label,
-                ps.paper_date,
-                e.name AS exam_name,
-                COUNT(qv.question_id) AS image_count,
-                COUNT(qv.question_id) FILTER (WHERE qv.solution_status = 'DONE') AS solved_count
-            FROM paper_session ps
-            LEFT JOIN exam e ON ps.exam_id = e.exam_id
-            INNER JOIN question_version qv
-                ON qv.paper_session_id = ps.paper_session_id
-                AND qv.language = 'EN'
-                AND qv.has_image = true
+        // Exams with image questions (from reviewed papers only)
+        const examsRes2 = await client.query(`
+            SELECT DISTINCT e.name AS exam_name, e.exam_id
+            FROM exam e
+            JOIN paper_session ps ON ps.exam_id = e.exam_id
+            JOIN question_version qv ON qv.paper_session_id = ps.paper_session_id
+                AND qv.language = 'EN' AND qv.has_image = true
                 AND qv.status IN ('MANUALLY_CORRECTED', 'FLAGGED')
-            GROUP BY ps.paper_session_id, ps.session_label, ps.paper_date, e.name
-            ORDER BY ps.paper_date DESC NULLS LAST
+            WHERE ps.status != 'NOT_REVIEWED' AND e.name IS NOT NULL
+            ORDER BY e.name
         `);
-        papers = papersRes.rows;
+        papers = examsRes2.rows;
 
         // Distinct sections that have image questions
         const sectionsRes = await client.query(`

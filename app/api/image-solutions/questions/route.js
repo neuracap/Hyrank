@@ -12,8 +12,9 @@ export async function GET(request) {
 
     const { searchParams } = new URL(request.url);
     const paperId = searchParams.get('paperId');
+    const examName = searchParams.get('exam');
     const sectionCode = searchParams.get('section');
-    const solvedFilter = searchParams.get('solved') || 'all'; // all, solved, unsolved
+    const solvedFilter = searchParams.get('solved') || 'all';
     const page = parseInt(searchParams.get('page') || '1', 10);
     const limit = parseInt(searchParams.get('limit') || '100', 10);
     const offset = (page - 1) * limit;
@@ -22,11 +23,12 @@ export async function GET(request) {
     try {
         client = await db.connect();
 
-        // Build dynamic WHERE
+        // Build dynamic WHERE — exclude NOT_REVIEWED papers
         const conditions = [
             `qv.language = 'EN'`,
             `qv.has_image = true`,
             `qv.status IN ('MANUALLY_CORRECTED', 'FLAGGED')`,
+            `ps.status != 'NOT_REVIEWED'`,
         ];
         const params = [];
         let paramIdx = 1;
@@ -34,6 +36,12 @@ export async function GET(request) {
         if (paperId) {
             conditions.push(`qv.paper_session_id = $${paramIdx}`);
             params.push(paperId);
+            paramIdx++;
+        }
+
+        if (examName && examName !== 'ALL') {
+            conditions.push(`e.name = $${paramIdx}`);
+            params.push(examName);
             paramIdx++;
         }
 
