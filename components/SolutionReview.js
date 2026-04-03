@@ -72,7 +72,7 @@ function CollapsibleSection({ title, defaultOpen = false, children, badge }) {
     );
 }
 
-export default function SolutionReview({ exams, paperId: propPaperId, language: propLanguage }) {
+export default function SolutionReview({ exams = [], paperId: propPaperId, language: propLanguage }) {
     const [selectedExamId, setSelectedExamId] = useState('');
     const [selectedLanguage, setSelectedLanguage] = useState(propLanguage || 'EN');
     const [papers, setPapers] = useState([]);
@@ -233,26 +233,30 @@ export default function SolutionReview({ exams, paperId: propPaperId, language: 
                     )}
                     <h1 className="text-lg font-bold text-gray-900 flex-shrink-0">Solution Review</h1>
 
-                    <select value={selectedExamId} onChange={e => handleExamChange(e.target.value)}
-                        className="border border-gray-300 rounded-md px-3 py-1.5 text-sm min-w-[200px]">
-                        <option value="">Select Exam...</option>
-                        {exams.map(e => (
-                            <option key={e.exam_id} value={e.exam_id}>{e.name}</option>
-                        ))}
-                    </select>
+                    {!propPaperId && (
+                        <>
+                            <select value={selectedExamId} onChange={e => handleExamChange(e.target.value)}
+                                className="border border-gray-300 rounded-md px-3 py-1.5 text-sm min-w-[200px]">
+                                <option value="">Select Exam...</option>
+                                {exams.map(e => (
+                                    <option key={e.exam_id} value={e.exam_id}>{e.name}</option>
+                                ))}
+                            </select>
 
-                    {selectedExamId && (
-                        <div className="flex gap-1">
-                            {['EN', 'HI'].map(lang => (
-                                <button key={lang} onClick={() => handleLanguageChange(lang)}
-                                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${selectedLanguage === lang ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                                    {lang === 'EN' ? 'English' : 'Hindi'}
-                                </button>
-                            ))}
-                        </div>
+                            {selectedExamId && (
+                                <div className="flex gap-1">
+                                    {['EN', 'HI'].map(lang => (
+                                        <button key={lang} onClick={() => handleLanguageChange(lang)}
+                                            className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${selectedLanguage === lang ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                                            {lang === 'EN' ? 'English' : 'Hindi'}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </>
                     )}
 
-                    {selectedExamId && (() => {
+                    {!propPaperId && selectedExamId && (() => {
                         const pendingPapers = papers.filter(p => !['SOLUTION_REVIEW', 'PRODUCTION'].includes(p.status));
                         const reviewedPapers = papers.filter(p => ['SOLUTION_REVIEW', 'PRODUCTION'].includes(p.status));
                         return (
