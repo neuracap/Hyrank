@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, lazy, Suspense } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import Latex from '@/components/Latex';
 const FigureEditor = lazy(() => import('@/components/FigureEditor'));
 
@@ -72,9 +72,9 @@ function CollapsibleSection({ title, defaultOpen = false, children, badge }) {
     );
 }
 
-export default function SolutionReview({ exams }) {
+export default function SolutionReview({ exams, paperId: propPaperId, language: propLanguage }) {
     const [selectedExamId, setSelectedExamId] = useState('');
-    const [selectedLanguage, setSelectedLanguage] = useState('EN');
+    const [selectedLanguage, setSelectedLanguage] = useState(propLanguage || 'EN');
     const [papers, setPapers] = useState([]);
     const [loadingPapers, setLoadingPapers] = useState(false);
     const [selectedPaper, setSelectedPaper] = useState(null);
@@ -158,6 +158,19 @@ export default function SolutionReview({ exams }) {
         }
     };
 
+    // Auto-load when paperId is passed via props (from list page)
+    useEffect(() => {
+        if (propPaperId) {
+            setSelectedPaper({ paper_session_id: propPaperId });
+            setLoadingQuestions(true);
+            fetch(`/api/solution-review/questions?paperId=${propPaperId}&language=${propLanguage || 'EN'}`)
+                .then(r => r.json())
+                .then(data => { if (data.questions) setQuestions(data.questions); })
+                .catch(err => setFeedback({ type: 'error', message: err.message }))
+                .finally(() => setLoadingQuestions(false));
+        }
+    }, [propPaperId, propLanguage]);
+
     const filteredQuestions = questions.filter(q => {
         if (filter === 'solved') return q.solution_status === 'DONE';
         if (filter === 'unsolved') return q.solution_status !== 'DONE';
@@ -215,6 +228,9 @@ export default function SolutionReview({ exams }) {
             {/* Top Bar — Row 1: Selectors */}
             <div className="flex-shrink-0 bg-white border-b border-gray-200 shadow-sm px-4 py-2 space-y-2">
                 <div className="flex items-center gap-3">
+                    {propPaperId && (
+                        <a href="/solution-review" className="text-sm text-blue-600 hover:text-blue-800 font-medium flex-shrink-0">&larr; Back</a>
+                    )}
                     <h1 className="text-lg font-bold text-gray-900 flex-shrink-0">Solution Review</h1>
 
                     <select value={selectedExamId} onChange={e => handleExamChange(e.target.value)}
