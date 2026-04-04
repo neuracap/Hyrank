@@ -238,6 +238,15 @@ export default function SocialMediaManager() {
     const [bulkStartTime, setBulkStartTime] = useState('');
     const [bulkScheduling, setBulkScheduling] = useState(false);
 
+    // Current affairs state
+    const [caItems, setCaItems] = useState([]);
+    const [caLoading, setCaLoading] = useState(false);
+    const [caFetching, setCaFetching] = useState(false);
+    const [caFilter, setCaFilter] = useState('NEW');
+    const [caCategoryFilter, setCaCategoryFilter] = useState('ALL');
+    const [caQuizDate, setCaQuizDate] = useState(new Date().toISOString().split('T')[0]);
+    const [caQuizLevel, setCaQuizLevel] = useState('SSC');
+
     useEffect(() => {
         fetch('/api/social/channels').then(r => r.json()).then(d => {
             setChannels(d.channels || []);
@@ -410,6 +419,54 @@ export default function SocialMediaManager() {
         }
     };
 
+    const loadCurrentAffairs = async (status, category) => {
+        setCaLoading(true);
+        const params = new URLSearchParams();
+        if (status !== 'ALL') params.set('status', status);
+        if (category !== 'ALL') params.set('category', category);
+        const res = await fetch(`/api/social/current-affairs?${params.toString()}`);
+        const data = await res.json();
+        setCaItems(data.items || []);
+        setCaLoading(false);
+    };
+
+    const handleFetchNews = async () => {
+        setCaFetching(true);
+        setFeedback(null);
+        try {
+            const res = await fetch('/api/social/fetch-news', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+            const data = await res.json();
+            if (res.ok) {
+                setFeedback({ type: 'success', msg: `Fetched ${data.fetched} items, ${data.relevant} relevant, ${data.saved} saved` });
+                loadCurrentAffairs(caFilter, caCategoryFilter);
+            } else {
+                setFeedback({ type: 'error', msg: data.error });
+            }
+        } catch (e) {
+            setFeedback({ type: 'error', msg: e.message });
+        } finally {
+            setCaFetching(false);
+        }
+    };
+
+    const handleCaAction = async (id, action) => {
+        const body = { id, action };
+        if (action === 'add_to_quiz') {
+            body.quiz_date = caQuizDate;
+            body.level = caQuizLevel;
+        }
+        const res = await fetch('/api/social/current-affairs', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (res.ok) {
+            setFeedback({ type: 'success', msg: action === 'add_to_quiz' ? `Added to ${caQuizLevel} quiz for ${caQuizDate}` : `Marked as ${action}` });
+            setCaItems(prev => prev.filter(item => item.id !== id));
+        } else {
+            setFeedback({ type: 'error', msg: data.error });
+        }
+    };
+
     const scheduledPosts = posts.filter(p => p.status === 'SCHEDULED');
 
     return (
@@ -444,6 +501,7 @@ export default function SocialMediaManager() {
                         { key: 'poll', label: '📊 Poll' },
                         { key: 'bulk', label: '📅 Bulk Series' },
                         { key: 'image', label: '🖼️ Image Generator' },
+                        { key: 'news', label: '📰 Current Affairs' },
                         { key: 'history', label: '📜 History' },
                     ].map(t => (
                         <button key={t.key} onClick={() => setTab(t.key)}
@@ -654,6 +712,106 @@ export default function SocialMediaManager() {
                                 />
                             )}
                         </div>
+                    </div>
+                )}
+
+                {/* ===== CURRENT AFFAIRS ===== */}
+                {tab === 'news' && (
+                    <div className="space-y-4">
+                        <div className="bg-white rounded-lg shadow border p-4">
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="text-sm font-bold text-gray-700">Current Affairs for Competitive Exams</h3>
+                                <button onClick={handleFetchNews} disabled={caFetching}
+                                    className="px-4 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm">
+                                    {caFetching ? '⏳ Fetching...' : '🔄 Fetch Latest News'}
+                                </button>
+                            </div>
+                            <div className="flex gap-2 flex-wrap items-center">
+                                <select value={caFilter} onChange={e => { setCaFilter(e.target.value); loadCurrentAffairs(e.target.value, caCategoryFilter); }}
+                                    className="border rounded px-2 py-1 text-sm">
+                                    <option value="ALL">All Status</option>
+                                    <option value="NEW">New</option>
+                                    <option value="APPROVED">Approved</option>
+                                    <option value="REJECTED">Rejected</option>
+                                    <option value="USED">Used in Quiz</option>
+                                </select>
+                                <select value={caCategoryFilter} onChange={e => { setCaCategoryFilter(e.target.value); loadCurrentAffairs(caFilter, e.target.value); }}
+                                    className="border rounded px-2 py-1 text-sm">
+                                    <option value="ALL">All Categories</option>
+                                    {['POLITY', 'ECONOMY', 'SCIENCE', 'SPORTS', 'AWARDS', 'APPOINTMENTS', 'INTERNATIONAL', 'ENVIRONMENT', 'MISC'].map(c =>
+                                        <option key={c} value={c}>{c}</option>
+                                    )}
+                                </select>
+                                <button onClick={() => loadCurrentAffairs(caFilter, caCategoryFilter)}
+                                    className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
+                                    Load
+                                </button>
+                                <div className="ml-auto flex gap-2 items-center">
+                                    <label className="text-xs font-bold text-gray-500">Quiz Date:</label>
+                                    <input type="date" value={caQuizDate} onChange={e => setCaQuizDate(e.target.value)} className="border rounded px-2 py-1 text-sm" />
+                                    <select value={caQuizLevel} onChange={e => setCaQuizLevel(e.target.value)} className="border rounded px-2 py-1 text-sm">
+                                        <option value="SSC">SSC</option>
+                                        <option value="BANKING">BANKING</option>
+                                        <option value="UPSC">UPSC</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        {caLoading ? (
+                            <div className="text-center py-8 text-gray-400">Loading...</div>
+                        ) : caItems.length === 0 ? (
+                            <div className="text-center py-8 text-gray-400">No items. Click "Fetch Latest News" or change filters.</div>
+                        ) : (
+                            <div className="space-y-3">
+                                {caItems.map(item => (
+                                    <div key={item.id} className={`bg-white rounded-lg shadow border p-4 ${item.status === 'APPROVED' ? 'border-green-300' : item.status === 'REJECTED' ? 'border-red-200 opacity-60' : ''}`}>
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                                    <span className="text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-bold">{item.category}</span>
+                                                    <span className="text-xs text-gray-400">{item.source}</span>
+                                                    {item.published_at && <span className="text-xs text-gray-400">{new Date(item.published_at).toLocaleDateString('en-IN')}</span>}
+                                                    <span className={`text-xs px-1.5 py-0.5 rounded font-bold ${item.status === 'NEW' ? 'bg-blue-100 text-blue-700' : item.status === 'APPROVED' ? 'bg-green-100 text-green-700' : item.status === 'USED' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-500'}`}>
+                                                        {item.status}
+                                                    </span>
+                                                </div>
+                                                <h4 className="text-sm font-bold text-gray-900 mb-1">{item.headline}</h4>
+                                                {item.exam_relevance && (
+                                                    <div className="text-xs text-green-700 bg-green-50 px-2 py-1 rounded mb-1">📌 {item.exam_relevance}</div>
+                                                )}
+                                                {item.mcq_json && (
+                                                    <div className="text-xs bg-gray-50 rounded p-2 mt-1 space-y-0.5">
+                                                        <div className="font-bold text-gray-700">Q: {item.mcq_json.question_en}</div>
+                                                        <div>A) {item.mcq_json.option_a} &nbsp; B) {item.mcq_json.option_b}</div>
+                                                        <div>C) {item.mcq_json.option_c} &nbsp; D) {item.mcq_json.option_d}</div>
+                                                        <div className="text-green-600 font-bold">Answer: {item.mcq_json.correct}</div>
+                                                        {item.mcq_json.explanation && <div className="text-gray-500">{item.mcq_json.explanation}</div>}
+                                                    </div>
+                                                )}
+                                                {item.source_url && (
+                                                    <a href={item.source_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline mt-1 inline-block">Read full article →</a>
+                                                )}
+                                            </div>
+                                            <div className="flex flex-col gap-1 flex-shrink-0">
+                                                {item.status === 'NEW' && (
+                                                    <>
+                                                        <button onClick={() => handleCaAction(item.id, 'approve')}
+                                                            className="px-2 py-1 text-xs font-bold bg-green-600 text-white rounded hover:bg-green-700">✓ Approve</button>
+                                                        <button onClick={() => handleCaAction(item.id, 'reject')}
+                                                            className="px-2 py-1 text-xs font-bold bg-red-500 text-white rounded hover:bg-red-600">✗ Reject</button>
+                                                    </>
+                                                )}
+                                                {(item.status === 'NEW' || item.status === 'APPROVED') && item.mcq_json && (
+                                                    <button onClick={() => handleCaAction(item.id, 'add_to_quiz')}
+                                                        className="px-2 py-1 text-xs font-bold bg-purple-600 text-white rounded hover:bg-purple-700">+ Quiz</button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
 
