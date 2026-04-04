@@ -109,9 +109,15 @@ async function extractArticleText(url) {
 }
 
 export async function POST(req) {
-    const user = await getCurrentUser();
-    if (!user?.isAdmin) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // Allow cron calls via API key OR admin session
+    const cronKey = req.headers.get('x-cron-key');
+    const isValidCron = cronKey && cronKey === process.env.CRON_SECRET;
+
+    if (!isValidCron) {
+        const user = await getCurrentUser();
+        if (!user?.isAdmin) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
     }
 
     const client = await db.connect();
