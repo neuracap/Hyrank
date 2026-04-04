@@ -789,6 +789,12 @@ export default function SocialMediaManager() {
                                                         {item.mcq_json.explanation && <div className="text-gray-500">{item.mcq_json.explanation}</div>}
                                                     </div>
                                                 )}
+                                                {item.article_text && (
+                                                    <details className="mt-1">
+                                                        <summary className="text-xs text-purple-600 cursor-pointer hover:underline font-semibold">📄 View extracted article text</summary>
+                                                        <div className="text-xs text-gray-600 mt-1 p-2 bg-gray-50 rounded max-h-40 overflow-y-auto whitespace-pre-wrap">{item.article_text}</div>
+                                                    </details>
+                                                )}
                                                 {item.source_url && (
                                                     <a href={item.source_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline mt-1 inline-block">Read full article →</a>
                                                 )}
