@@ -587,6 +587,8 @@ Are you sure you want to proceed?`;
     };
 
     const [translatingOptions, setTranslatingOptions] = useState({});
+    const [bulkTranslating, setBulkTranslating] = useState(false);
+    const [bulkTranslateMsg, setBulkTranslateMsg] = useState(null);
 
     const handleTranslateAndCopyOptions = async (index, direction = 'eng-to-hin') => {
         const targetQ = questions[index];
@@ -632,6 +634,59 @@ Are you sure you want to proceed?`;
             setTranslatingOptions(prev => { const n = { ...prev }; delete n[index]; return n; });
         }
     };
+
+    // English section ID — skip these during bulk translate
+    const ENGLISH_SECTION_ID = '1882c0c1-2614-4653-9f41-695dfc773025';
+
+    const handleBulkTranslateHindi = async () => {
+        const eligible = questions.filter(q => q.eng_section_id !== ENGLISH_SECTION_ID);
+        const skipped = questions.length - eligible.length;
+        if (!confirm(`Translate ${eligible.length} questions' Hindi text + options to Hindi using Gemini.\n${skipped > 0 ? `Skipping ${skipped} English section questions.\n` : ''}Proceed?`)) return;
+        setBulkTranslating(true);
+        setBulkTranslateMsg(null);
+        let translated = 0;
+        const BATCH = 3;
+
+        for (let i = 0; i < eligible.length; i += BATCH) {
+            const batch = eligible.slice(i, i + BATCH);
+            await Promise.all(batch.map(async (q) => {
+                const idx = questions.indexOf(q);
+                try {
+                    const res = await fetch('/api/translate-gemini', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            question_text: q.hin_text || '',
+                            options: (q.hin_options || []).map(o => ({ opt_label: o.opt_label, opt_text: o.opt_text || '' })),
+                        }),
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.success) {
+                        const newQs = [...questions];
+                        newQs[idx] = {
+                            ...q,
+                            hin_text: data.question_text,
+                            hin_options: (data.options || []).map((o, oi) => ({
+                                ...(q.hin_options[oi] || {}),
+                                opt_label: o.opt_label,
+                                opt_text: o.opt_text,
+                            })),
+                        };
+                        setQuestions(newQs);
+                        translated++;
+                    }
+                } catch (e) {
+                    console.error(`Translate Q${idx} error:`, e);
+                }
+            }));
+            setBulkTranslateMsg(`Translating... ${Math.min(i + BATCH, eligible.length)}/${eligible.length}`);
+        }
+
+        setBulkTranslateMsg(`Done! Translated ${translated}/${eligible.length} questions${skipped > 0 ? ` (${skipped} English skipped)` : ''}. Click Save on each to persist.`);
+        setBulkTranslating(false);
+    };
+
+    const isSSCGD = (examName || '').toLowerCase().includes('gd') || (examName || '').toLowerCase().includes('constable');
 
     const examName = engDocInfo?.exam_name || hinDocInfo?.exam_name;
     const paperName = engDocInfo?.session_label;
@@ -730,6 +785,19 @@ Are you sure you want to proceed?`;
                             >
                                 📝 Format All
                             </button>
+                            {isSSCGD && (
+                                <button
+                                    onClick={handleBulkTranslateHindi}
+                                    disabled={bulkTranslating}
+                                    className="px-4 py-2 rounded-lg font-bold text-sm uppercase tracking-wide transition-all shadow-md bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white disabled:opacity-50"
+                                    title="Translate all Hindi question text + options from English to Hindi (skips English section)"
+                                >
+                                    {bulkTranslating ? '⏳ Translating...' : '🔄 Translate All to Hindi'}
+                                </button>
+                            )}
+                            {bulkTranslateMsg && (
+                                <span className="text-xs font-semibold text-green-700 bg-green-50 px-2 py-1 rounded">{bulkTranslateMsg}</span>
+                            )}
 
                             {/* Complete Review Button Removed from here */}
                         </div>
