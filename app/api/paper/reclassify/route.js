@@ -29,6 +29,7 @@ function buildPrompt(questions, targetSections) {
             - Advanced Math (Trigonometry, Geometry, Algebra, Mensuration/Volume).
             - Data Interpretation (Bar graphs, pie charts).
             - Number Properties (Divisibility, Remainders).
+        - **Hindi Language:** Questions in Hindi (Devanagari script) about Hindi grammar, vocabulary, muhavare (idioms), vilom shabd (antonyms), paryayvachi (synonyms), sandhi, samas, ras, alankar, or Hindi reading comprehension.
 
         ### CRITICAL TIE-BREAKER (Reasoning vs. Quant):
         - If the question involves numbers but asks to "complete the series," "find the odd pair," "select the related number," or "interchange signs," classify as **Reasoning**.
@@ -107,10 +108,6 @@ export async function POST(req) {
 
         // 2. Smart mode: detect oversized/undersized sections automatically
         if (smart) {
-            const expectedPerSection = numQuestions ? Math.round(numQuestions / allSections.length) : 25;
-            const oversizeThreshold = expectedPerSection * 1.5;
-            const undersizeThreshold = expectedPerSection * 0.5;
-
             // Get current distribution
             const distRes = await client.query(`
                 SELECT es.section_id, es.code, es.name, COUNT(qv.question_id) as count
@@ -121,6 +118,18 @@ export async function POST(req) {
             `, [paper_session_id, examId]);
 
             const distribution = distRes.rows.map(r => ({ ...r, count: parseInt(r.count) }));
+
+            // Use median of non-zero section counts as expected per section
+            // This handles SSC GD (20 per section) and CGL (25 per section) correctly
+            // regardless of how many sections the exam has
+            const nonZeroCounts = distribution.map(d => d.count).filter(c => c > 0).sort((a, b) => a - b);
+            const medianCount = nonZeroCounts.length > 0
+                ? nonZeroCounts[Math.floor(nonZeroCounts.length / 2)]
+                : (numQuestions ? Math.round(numQuestions / allSections.length) : 25);
+            const expectedPerSection = medianCount;
+            const oversizeThreshold = expectedPerSection * 1.5;
+            const undersizeThreshold = expectedPerSection * 0.5;
+
             const oversized = distribution.filter(d => d.count > oversizeThreshold);
             const undersized = distribution.filter(d => d.count < undersizeThreshold);
 
