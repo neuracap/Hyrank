@@ -645,7 +645,7 @@ Are you sure you want to proceed?`;
         setBulkTranslating(true);
         setBulkTranslateMsg(null);
         let translated = 0;
-        const BATCH = 3;
+        const BATCH = 2;
 
         for (let i = 0; i < eligible.length; i += BATCH) {
             const batch = eligible.slice(i, i + BATCH);

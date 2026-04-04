@@ -68,32 +68,40 @@ ${question_text || '(no text)'}
 OPTIONS:
 ${optionsBlock || '(no options)'}`;
 
-    try {
-        const model = genAI.getGenerativeModel({ model: MODEL });
-        const result = await model.generateContent({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-                response_mime_type: 'application/json',
-                temperature: 0.1,
-            },
-        });
-
-        const rawText = result.response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        let parsed;
+    const MAX_RETRIES = 2;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         try {
-            parsed = JSON.parse(rawText);
-        } catch {
-            const cleaned = rawText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-            parsed = JSON.parse(cleaned);
-        }
+            const model = genAI.getGenerativeModel({ model: MODEL });
+            const result = await model.generateContent({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                    response_mime_type: 'application/json',
+                    temperature: 0.1,
+                },
+            });
 
-        return NextResponse.json({
-            success: true,
-            question_text: parsed.question_text || question_text,
-            options: parsed.options || options,
-        });
-    } catch (e) {
-        console.error('translate-gemini error:', e);
-        return NextResponse.json({ error: e.message }, { status: 500 });
+            const rawText = result.response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            let parsed;
+            try {
+                parsed = JSON.parse(rawText);
+            } catch {
+                const cleaned = rawText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+                parsed = JSON.parse(cleaned);
+            }
+
+            return NextResponse.json({
+                success: true,
+                question_text: parsed.question_text || question_text,
+                options: parsed.options || options,
+            });
+        } catch (e) {
+            console.error(`translate-gemini error (attempt ${attempt + 1}):`, e.message);
+            if (attempt < MAX_RETRIES) {
+                // Wait before retry (exponential backoff)
+                await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+                continue;
+            }
+            return NextResponse.json({ error: e.message }, { status: 500 });
+        }
     }
 }
