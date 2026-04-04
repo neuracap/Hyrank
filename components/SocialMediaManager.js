@@ -3,12 +3,64 @@
 import { useState, useEffect, useRef } from 'react';
 
 const DIFF_MAP = { 1: 'Easy', 2: 'Medium', 3: 'Hard' };
+const CHANNEL_TAG = '@yoloprep';
+
+// Convert LaTeX to plain readable text for Telegram
+function stripLatex(text) {
+    if (!text) return '';
+    return text
+        // \underline{\text{...}} → underlined text
+        .replace(/\$\\underline\{\\text\{([^}]*)\}\}\$/g, '<u>$1</u>')
+        .replace(/\\underline\{\\text\{([^}]*)\}\}/g, '<u>$1</u>')
+        .replace(/\\underline\{([^}]*)\}/g, '<u>$1</u>')
+        // \text{...} → plain text
+        .replace(/\\text\{([^}]*)\}/g, '$1')
+        // \textbf{...} → bold
+        .replace(/\\textbf\{([^}]*)\}/g, '<b>$1</b>')
+        // \frac{a}{b} → a/b
+        .replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, '$1/$2')
+        // x^{2} → x² etc.
+        .replace(/\^{2}/g, '²').replace(/\^{3}/g, '³').replace(/\^{n}/g, 'ⁿ')
+        .replace(/\^\{([^}]*)\}/g, '^$1')
+        // x_{n} → x_n
+        .replace(/_\{([^}]*)\}/g, '_$1')
+        // \sqrt{x} → √x
+        .replace(/\\sqrt\{([^}]*)\}/g, '√$1')
+        // \times → ×
+        .replace(/\\times/g, '×')
+        // \div → ÷
+        .replace(/\\div/g, '÷')
+        // \pi → π
+        .replace(/\\pi/g, 'π')
+        // \theta → θ
+        .replace(/\\theta/g, 'θ')
+        // \alpha, \beta, \gamma
+        .replace(/\\alpha/g, 'α').replace(/\\beta/g, 'β').replace(/\\gamma/g, 'γ')
+        // \degree or \circ → °
+        .replace(/\\degree/g, '°').replace(/\\circ/g, '°')
+        // \leq, \geq, \neq
+        .replace(/\\leq/g, '≤').replace(/\\geq/g, '≥').replace(/\\neq/g, '≠')
+        // \rightarrow → →
+        .replace(/\\rightarrow/g, '→').replace(/\\to/g, '→')
+        // \infty → ∞
+        .replace(/\\infty/g, '∞')
+        // \% → %
+        .replace(/\\%/g, '%')
+        // Strip remaining \command
+        .replace(/\\[a-zA-Z]+/g, '')
+        // Strip $ delimiters
+        .replace(/\$/g, '')
+        // Clean up extra spaces
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+}
 
 function formatQuestionAsPost(q) {
-    const opts = (q.options || []).map(o => `${o.option_key}) ${o.opt_text || ''}`).join('\n');
+    const qText = stripLatex(q.question_text);
+    const opts = (q.options || []).map(o => `${o.option_key}) ${stripLatex(o.opt_text || '')}`).join('\n');
     const diff = DIFF_MAP[q.difficulty] || '';
     const section = q.section_code || '';
-    return `📝 <b>${q.exam_name || 'Quiz'} — ${section}${diff ? ` (${diff})` : ''}</b>\n\n<b>Q. ${q.question_text || ''}</b>\n\n${opts}\n\n⏰ Think before you scroll!\n\n👉 @hyrank_quiz`;
+    return `📝 <b>${q.exam_name || 'Quiz'} — ${section}${diff ? ` (${diff})` : ''}</b>\n\n<b>Q. ${qText}</b>\n\n${opts}\n\n⏰ Think before you scroll!\n\n👉 ${CHANNEL_TAG}`;
 }
 
 function formatAnswerReveal(q) {
@@ -16,7 +68,7 @@ function formatAnswerReveal(q) {
     const sections = Array.isArray(sj.display_sections) ? sj.display_sections : [];
     const examCraft = sections.find(s => s.key === 'exam_craft')?.content || '';
     const basis = sj.answer_outcome?.core_answer_basis || '';
-    return `✅ <b>Answer: ${q.correct_option_label}</b>\n\n💡 <b>Explanation:</b>\n${basis || examCraft}\n\n📊 Difficulty: ${DIFF_MAP[q.difficulty] || 'N/A'}\n\n👉 @hyrank_quiz`;
+    return `✅ <b>Answer: ${q.correct_option_label}</b>\n\n💡 <b>Explanation:</b>\n${stripLatex(basis || examCraft)}\n\n📊 Difficulty: ${DIFF_MAP[q.difficulty] || 'N/A'}\n\n👉 ${CHANNEL_TAG}`;
 }
 
 // =========================================================
@@ -43,7 +95,7 @@ function QuestionImageGenerator({ question, onGenerated }) {
         ctx.fillRect(0, 0, W, 100);
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 36px sans-serif';
-        ctx.fillText('HYRANK DAILY QUIZ', 40, 65);
+        ctx.fillText('YOLOPREP DAILY QUIZ', 40, 65);
 
         // Section badge
         const section = question.section_code || '';
@@ -55,7 +107,7 @@ function QuestionImageGenerator({ question, onGenerated }) {
         // Question text (word wrap)
         ctx.fillStyle = '#ffffff';
         ctx.font = '32px sans-serif';
-        const qText = (question.question_text || '').replace(/\$/g, '').replace(/\\[a-zA-Z]+\{([^}]*)\}/g, '$1');
+        const qText = stripLatex(question.question_text);
         const words = qText.split(' ');
         let line = '';
         let y = 220;
@@ -92,7 +144,7 @@ function QuestionImageGenerator({ question, onGenerated }) {
             // Option text
             ctx.fillStyle = '#ffffff';
             ctx.font = isCorrect ? 'bold 28px sans-serif' : '28px sans-serif';
-            const optText = (opt.opt_text || '').replace(/\$/g, '').substring(0, 60);
+            const optText = stripLatex(opt.opt_text).substring(0, 60);
             ctx.fillText(`${opt.option_key})  ${optText}`, 60, y);
             y += 70;
         }
@@ -102,7 +154,7 @@ function QuestionImageGenerator({ question, onGenerated }) {
         ctx.fillRect(0, H - 70, W, 70);
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 28px sans-serif';
-        ctx.fillText('hyrank.com  •  @hyrank_quiz', 40, H - 25);
+        ctx.fillText(`yoloprep.com  •  ${CHANNEL_TAG}`, 40, H - 25);
 
         setGenerated(true);
     };
@@ -230,7 +282,7 @@ export default function SocialMediaManager() {
         setFeedback(null);
         try {
             const q = selectedQuestion;
-            const opts = (q.options || []).map(o => `${o.option_key}) ${o.opt_text || ''}`.substring(0, 100));
+            const opts = (q.options || []).map(o => `${o.option_key}) ${stripLatex(o.opt_text)}`.substring(0, 100));
             const correctIdx = ['A', 'B', 'C', 'D'].indexOf(q.correct_option_label);
             const sj = q.solution_json || {};
             const explanation = sj.answer_outcome?.core_answer_basis || '';
@@ -240,7 +292,7 @@ export default function SocialMediaManager() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     channel_id: selectedChannel,
-                    question_text: (q.question_text || '').substring(0, 300),
+                    question_text: stripLatex(q.question_text).substring(0, 300),
                     options: opts,
                     correct_option_index: correctIdx >= 0 ? correctIdx : 0,
                     explanation: explanation.substring(0, 200),
