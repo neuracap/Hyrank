@@ -639,7 +639,8 @@ Are you sure you want to proceed?`;
     const ENGLISH_SECTION_ID = '1882c0c1-2614-4653-9f41-695dfc773025';
 
     const handleBulkTranslateHindi = async () => {
-        const eligible = questions.filter(q => q.eng_section_id !== ENGLISH_SECTION_ID);
+        const allEligible = questions.filter(q => q.eng_section_id !== ENGLISH_SECTION_ID);
+        const eligible = allEligible.slice(0, 10); // Limit to 10 for testing
         const skipped = questions.length - eligible.length;
         if (!confirm(`Translate ${eligible.length} questions' Hindi text + options to Hindi using Gemini.\n${skipped > 0 ? `Skipping ${skipped} English section questions.\n` : ''}Proceed?`)) return;
         setBulkTranslating(true);
