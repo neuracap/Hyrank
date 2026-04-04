@@ -150,68 +150,33 @@ export async function POST(req) {
 
         const toProcess = allItems.slice(0, 30);
 
-        // 3. Step 1: Send headlines to Gemini to identify relevant ones
-        const headlinesList = toProcess.map((item, i) =>
-            `${i + 1}. ${item.headline}${item.description ? ' — ' + item.description.substring(0, 150) : ''}`
-        ).join('\n');
-
-        const filterPrompt = `You are an expert on Indian competitive exams (SSC, Banking, UPSC).
-From these news headlines, return ONLY the index numbers of items relevant for competitive exam current affairs.
-
-RELEVANT: Government schemes, appointments, awards, sports achievements, science/tech, economy/RBI, international summits, books/authors, environment, important days.
-NOT RELEVANT: Crime, entertainment, opinions, stock market daily, lifestyle, local news.
-
-Return a JSON array of index numbers only, e.g. [1, 3, 5, 8]
-
-Headlines:
-${headlinesList}`;
-
-        const model = genAI.getGenerativeModel({ model: MODEL });
-        const filterResult = await model.generateContent({
-            contents: [{ parts: [{ text: filterPrompt }] }],
-            generationConfig: { response_mime_type: 'application/json', temperature: 0.1 },
-        });
-
-        let relevantIndices;
-        try {
-            relevantIndices = JSON.parse(filterResult.response?.candidates?.[0]?.content?.parts?.[0]?.text || '[]');
-        } catch {
-            relevantIndices = [];
-        }
-
-        if (!Array.isArray(relevantIndices) || relevantIndices.length === 0) {
-            return NextResponse.json({ success: true, fetched: allItems.length, relevant: 0, saved: 0, message: 'No relevant items found' });
-        }
-
-        // 4. Step 2: For each relevant item, fetch article text
-        const relevantItems = relevantIndices
-            .map(i => ({ ...toProcess[i - 1], originalIndex: i }))
-            .filter(Boolean);
-
-        // Fetch articles in batches of 3
-        for (let i = 0; i < relevantItems.length; i += 3) {
-            const batch = relevantItems.slice(i, i + 3);
+        // 3. Fetch article text for all items (in parallel batches of 5)
+        for (let i = 0; i < toProcess.length; i += 5) {
+            const batch = toProcess.slice(i, i + 5);
             await Promise.all(batch.map(async (item) => {
                 item.article_text = await extractArticleText(item.source_url);
             }));
         }
 
-        // 5. Step 3: Send relevant items WITH article text to Gemini for MCQ generation
-        const detailedList = relevantItems.map((item, i) => {
+        // 4. Send all items to Gemini — filter + categorize + generate MCQs in one call
+        const detailedList = toProcess.map((item, i) => {
             const articleSnippet = item.article_text
                 ? `\nArticle: ${item.article_text.substring(0, 800)}`
                 : '';
-            return `${i + 1}. HEADLINE: ${item.headline}${articleSnippet}`;
+            return `${i + 1}. HEADLINE: ${item.headline}${item.description ? ' — ' + item.description.substring(0, 150) : ''}${articleSnippet}`;
         }).join('\n\n');
 
+        const model = genAI.getGenerativeModel({ model: MODEL });
         const mcqPrompt = `You are an expert on Indian competitive exams (SSC, Banking, UPSC).
 
-For each news item below, generate:
+From the news items below, SKIP irrelevant ones (crime, entertainment, opinions, stock market, lifestyle, local news).
+
+For each RELEVANT item, generate:
 1. Category: POLITY, ECONOMY, SCIENCE, SPORTS, AWARDS, APPOINTMENTS, INTERNATIONAL, ENVIRONMENT, MISC
 2. A one-line exam-relevant fact for quick revision
 3. An MCQ with 4 options and correct answer, using the full article context
 
-Return a JSON array:
+Return a JSON array (only relevant items, skip the rest):
 [
   {
     "index": 1,
@@ -242,12 +207,12 @@ ${detailedList}`;
         }
         if (!Array.isArray(mcqData)) mcqData = [];
 
-        // 6. Save to DB
+        // 5. Save to DB
         let saved = 0;
         for (const item of mcqData) {
             const idx = item.index - 1;
-            if (idx < 0 || idx >= relevantItems.length) continue;
-            const source = relevantItems[idx];
+            if (idx < 0 || idx >= toProcess.length) continue;
+            const source = toProcess[idx];
 
             try {
                 await client.query(`
@@ -276,8 +241,8 @@ ${detailedList}`;
             success: true,
             fetched: allItems.length,
             processed: toProcess.length,
-            relevant: relevantItems.length,
-            articles_extracted: relevantItems.filter(i => i.article_text).length,
+            relevant: mcqData.length,
+            articles_extracted: toProcess.filter(i => i.article_text).length,
             saved,
         });
 
