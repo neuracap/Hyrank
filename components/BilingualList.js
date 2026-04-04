@@ -686,9 +686,8 @@ Are you sure you want to proceed?`;
         setBulkTranslating(false);
     };
 
-    const isSSCGD = (examName || '').toLowerCase().includes('gd') || (examName || '').toLowerCase().includes('constable');
-
     const examName = engDocInfo?.exam_name || hinDocInfo?.exam_name;
+    const isSSCGD = (examName || '').toLowerCase().includes('gd') || (examName || '').toLowerCase().includes('constable');
     const paperName = engDocInfo?.session_label;
     const examDate = engDocInfo?.exam_date || hinDocInfo?.exam_date;
     const shift = engDocInfo?.shift || hinDocInfo?.shift;
