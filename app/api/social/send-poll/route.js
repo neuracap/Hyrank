@@ -81,7 +81,8 @@ export async function POST(req) {
 
         return NextResponse.json({ success: true, message_id: telegramData.result?.message_id });
     } catch (e) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        console.error('social/send-poll error:', e.message);
+        return NextResponse.json({ error: e.message, detail: e.stack?.split('\n')[0] }, { status: 500 });
     } finally {
         client.release();
     }
