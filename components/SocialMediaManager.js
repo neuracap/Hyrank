@@ -287,11 +287,26 @@ export default function SocialMediaManager() {
 
     const handleSendPoll = async () => {
         if (!selectedQuestion) return;
+
+        // Validate poll limits before sending
+        const q = selectedQuestion;
+        const pollQuestion = stripLatex(q.question_text);
+        const pollOpts = (q.options || []).map(o => `${o.option_key}) ${stripLatex(o.opt_text)}`);
+        const longOpts = pollOpts.filter(o => o.length > 100);
+
+        if (pollQuestion.length > 300) {
+            setFeedback({ type: 'error', msg: `Question too long for poll (${pollQuestion.length}/300 chars). Use "Send as Post" instead.` });
+            return;
+        }
+        if (longOpts.length > 0) {
+            setFeedback({ type: 'error', msg: `Option(s) ${longOpts.map((_, i) => ['A','B','C','D'][i]).join(', ')} exceed 100 chars. Use "Send as Post" instead.` });
+            return;
+        }
+
         setSending(true);
         setFeedback(null);
         try {
-            const q = selectedQuestion;
-            const opts = (q.options || []).map(o => `${o.option_key}) ${stripLatex(o.opt_text)}`.substring(0, 100));
+            const opts = pollOpts.map(o => o.substring(0, 100));
             const correctIdx = ['A', 'B', 'C', 'D'].indexOf(q.correct_option_label);
             const sj = q.solution_json || {};
             const explanation = sj.answer_outcome?.core_answer_basis || '';
@@ -301,7 +316,7 @@ export default function SocialMediaManager() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     channel_id: selectedChannel,
-                    question_text: stripLatex(q.question_text).substring(0, 300),
+                    question_text: pollQuestion.substring(0, 300),
                     options: opts,
                     correct_option_index: correctIdx >= 0 ? correctIdx : 0,
                     explanation: explanation.substring(0, 200),
@@ -585,10 +600,20 @@ export default function SocialMediaManager() {
                                         className="px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm">
                                         📤 Send as Post
                                     </button>
-                                    <button onClick={handleSendPoll} disabled={sending}
-                                        className="px-4 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm">
-                                        📊 Send as Poll
-                                    </button>
+                                    {(() => {
+                                        const pq = stripLatex(selectedQuestion.question_text);
+                                        const po = (selectedQuestion.options || []).map(o => `${o.option_key}) ${stripLatex(o.opt_text)}`);
+                                        const qTooLong = pq.length > 300;
+                                        const optsTooLong = po.some(o => o.length > 100);
+                                        const canPoll = !qTooLong && !optsTooLong;
+                                        return (
+                                            <button onClick={handleSendPoll} disabled={sending || !canPoll}
+                                                className={`px-4 py-2 font-bold rounded-lg text-sm ${canPoll ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
+                                                title={!canPoll ? `Poll limit exceeded: Q=${pq.length}/300 chars${optsTooLong ? ', some options >100 chars' : ''}` : ''}>
+                                                📊 Send as Poll {!canPoll && '(too long)'}
+                                            </button>
+                                        );
+                                    })()}
                                     <button onClick={() => { setMessageText(formatAnswerReveal(selectedQuestion)); }}
                                         className="px-4 py-2 bg-amber-500 text-white font-bold rounded-lg hover:bg-amber-600 text-sm">
                                         ✅ Load Answer Reveal
