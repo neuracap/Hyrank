@@ -111,9 +111,14 @@ async function extractArticleText(url) {
 export async function POST(req) {
     // Allow cron calls via API key OR admin session
     const cronKey = req.headers.get('x-cron-key');
-    const isValidCron = cronKey && cronKey === process.env.CRON_SECRET;
+    const envSecret = process.env.CRON_SECRET;
+    const isValidCron = cronKey && envSecret && cronKey === envSecret;
 
     if (!isValidCron) {
+        // If cron key was provided but didn't match, log it
+        if (cronKey) {
+            console.log('Cron key mismatch. Received:', cronKey?.substring(0, 10) + '...', 'Env set:', !!envSecret);
+        }
         const user = await getCurrentUser();
         if (!user?.isAdmin) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
