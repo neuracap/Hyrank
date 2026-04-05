@@ -805,15 +805,19 @@ export default function SocialMediaManager() {
                                                 {item.exam_relevance && (
                                                     <div className="text-xs text-green-700 bg-green-50 px-2 py-1 rounded mb-1">📌 {item.exam_relevance}</div>
                                                 )}
-                                                {item.mcq_json && (
-                                                    <div className="text-xs bg-gray-50 rounded p-2 mt-1 space-y-0.5">
-                                                        <div className="font-bold text-gray-700">Q: {item.mcq_json.question_en}</div>
-                                                        <div>A) {item.mcq_json.option_a} &nbsp; B) {item.mcq_json.option_b}</div>
-                                                        <div>C) {item.mcq_json.option_c} &nbsp; D) {item.mcq_json.option_d}</div>
-                                                        <div className="text-green-600 font-bold">Answer: {item.mcq_json.correct}</div>
-                                                        {item.mcq_json.explanation && <div className="text-gray-500">{item.mcq_json.explanation}</div>}
-                                                    </div>
-                                                )}
+                                                {item.mcq_json && (() => {
+                                                    // Support both array format (new) and single object (old)
+                                                    const mcqs = Array.isArray(item.mcq_json) ? item.mcq_json : [item.mcq_json];
+                                                    return mcqs.map((mcq, mi) => (
+                                                        <div key={mi} className="text-xs bg-gray-50 rounded p-2 mt-1 space-y-0.5">
+                                                            <div className="font-bold text-gray-700">Q{mcqs.length > 1 ? mi + 1 : ''}: {mcq.question_en}</div>
+                                                            <div>A) {mcq.option_a} &nbsp; B) {mcq.option_b}</div>
+                                                            <div>C) {mcq.option_c} &nbsp; D) {mcq.option_d}</div>
+                                                            <div className="text-green-600 font-bold">Answer: {mcq.correct}</div>
+                                                            {mcq.explanation && <div className="text-gray-500">{mcq.explanation}</div>}
+                                                        </div>
+                                                    ));
+                                                })()}
                                                 {item.article_text && (
                                                     <details className="mt-1">
                                                         <summary className="text-xs text-purple-600 cursor-pointer hover:underline font-semibold">📄 View extracted article text</summary>

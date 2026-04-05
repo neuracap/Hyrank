@@ -89,7 +89,9 @@ export async function POST(req) {
                 return NextResponse.json({ error: 'Item not found' }, { status: 404 });
             }
             const item = itemRes.rows[0];
-            const mcq = item.mcq_json || {};
+            // Support both array format (new) and single object (old)
+            const mcqRaw = item.mcq_json || {};
+            const mcqs = Array.isArray(mcqRaw) ? mcqRaw : [mcqRaw];
 
             await client.query('BEGIN');
 
@@ -110,33 +112,37 @@ export async function POST(req) {
                 quizId = newQuiz.rows[0].quiz_id;
             }
 
-            // Get next question_order
-            const orderRes = await client.query(
-                `SELECT COALESCE(MAX(question_order), 0) + 1 AS next_order FROM daily_quiz_question WHERE quiz_id = $1`,
-                [quizId]
-            );
-            const nextOrder = orderRes.rows[0].next_order;
+            // Insert all MCQs from this item
+            let insertedCount = 0;
+            for (const mcq of mcqs) {
+                if (!mcq.question_en) continue;
+                const orderRes = await client.query(
+                    `SELECT COALESCE(MAX(question_order), 0) + 1 AS next_order FROM daily_quiz_question WHERE quiz_id = $1`,
+                    [quizId]
+                );
+                const nextOrder = orderRes.rows[0].next_order;
 
-            // Insert question
-            await client.query(`
-                INSERT INTO daily_quiz_question
-                (quiz_id, question_order, question_text_en, option_a_en, option_b_en, option_c_en, option_d_en,
-                 correct_option, explanation_en)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            `, [
-                quizId, nextOrder,
-                mcq.question_en || item.headline,
-                mcq.option_a || '', mcq.option_b || '', mcq.option_c || '', mcq.option_d || '',
-                mcq.correct || 'A',
-                mcq.explanation || item.exam_relevance || '',
-            ]);
+                await client.query(`
+                    INSERT INTO daily_quiz_question
+                    (quiz_id, question_order, question_text_en, option_a_en, option_b_en, option_c_en, option_d_en,
+                     correct_option, explanation_en)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                `, [
+                    quizId, nextOrder,
+                    mcq.question_en,
+                    mcq.option_a || '', mcq.option_b || '', mcq.option_c || '', mcq.option_d || '',
+                    mcq.correct || 'A',
+                    mcq.explanation || item.exam_relevance || '',
+                ]);
+                insertedCount++;
+            }
 
             // Mark as used
             await client.query(`UPDATE current_affairs SET status = 'USED', is_selected = true WHERE id = $1`, [id]);
 
             await client.query('COMMIT');
 
-            return NextResponse.json({ success: true, quiz_id: quizId, question_order: nextOrder });
+            return NextResponse.json({ success: true, quiz_id: quizId, questions_added: insertedCount });
         }
 
         return NextResponse.json({ error: 'Unknown action' }, { status: 400 });

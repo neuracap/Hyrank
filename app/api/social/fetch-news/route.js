@@ -178,27 +178,63 @@ export async function POST(req) {
         }).join('\n\n');
 
         const model = genAI.getGenerativeModel({ model: MODEL });
-        const mcqPrompt = `You are an expert on Indian competitive exams (SSC, Banking, UPSC).
+        const mcqPrompt = `You are an expert curator for Indian competitive exam current affairs (UPSC/SSC/Banking/Railways/State PSC).
 
-From the news items below, SKIP irrelevant ones (crime, entertainment, opinions, stock market, lifestyle, local news).
+Your job: Given raw news items, decide if each deserves a question in an exam conducted 6–18 months from now.
 
-For each RELEVANT item, generate:
-1. Category: POLITY, ECONOMY, SCIENCE, SPORTS, AWARDS, APPOINTMENTS, INTERNATIONAL, ENVIRONMENT, MISC
-2. A one-line exam-relevant fact for quick revision
-3. An MCQ with 4 options and correct answer, using the full article context
+MENTAL MODEL — The "One-Pager Test":
+Imagine a well-read IAS officer preparing a one-page briefing note on this topic, a year from now.
+Would this news item be cited as a key data point, milestone, or turning point?
+If YES → WORTHY. If NO → SKIP.
 
-Return a JSON array (only relevant items, skip the rest):
+━━━ WORTHY TRIGGERS (pass if ANY one applies) ━━━
+1. FIRST / RECORD — India's first X, world's first Y, new record
+2. POLICY / LAW / SCHEME — Act passed/amended, scheme launched, RBI/SEBI regulation, court ruling with precedent
+3. APPOINTMENT — CJI, CEC, CAG, RBI Governor, Army Chief, UN agency heads, BRICS/SCO/G20 chairs
+4. TREATY / AGREEMENT — Bilateral/multilateral trade, defence, climate, tech MoUs
+5. RANKING / INDEX / REPORT — HDI, Press Freedom, Global Hunger, WHO/WEF/IPCC/RBI reports
+6. INTERNATIONAL ORG ACTION — IMF/WTO/WHO decision, new member to SCO/BRICS, India elected to a body
+7. GEOGRAPHY IN NEWS — Conflict, summit, disaster, new district, strategic corridor
+8. SCIENCE / SPACE / TECH — ISRO/NASA launch, new species, disease outbreak, AI/quantum breakthrough
+9. SPORTS MILESTONE — World championship, India's first medal, Olympic host, Arjuna/Khel Ratna awards
+10. OBITUARY — Serving/former PM/President/CJI, Nobel laureate, legendary sportsperson
+11. ECONOMIC DATA — GDP, RBI rate decision, inflation, fiscal deficit, Budget key allocations
+12. AWARDS — Padma awards, Nobel, Booker, Bharat Ratna, Gallantry awards, Sahitya Akademi
+13. ENVIRONMENT — New Ramsar/UNESCO site, IUCN update, COP decision, new national park
+14. DEFENCE — New missile/weapon tested, military exercise, warship commissioned
+15. ECONOMIC CONCEPT IN NEWS — Stagflation, CBDC, yield curve, new price index
+16. STATIC GK HOOK — News unlocks high-frequency concept (Art 371, AFSPA, GST Art 279A, etc.)
+
+━━━ SKIP ━━━
+- Political statements, rallies, party feuds, opinion polls
+- Minor admin reshuffles, crime/accident without policy angle
+- Corporate earnings, rebranding, celebrity news
+- Repetitive updates on already-captured stories
+- Regional events with no national significance
+- Sports match results (not milestones)
+
+━━━ BORDERLINE RULE ━━━
+"Would Vajiram/Vision IAS include this in their monthly magazine?" If yes → WORTHY.
+
+━━━ OUTPUT ━━━
+For each WORTHY item, generate 1 or 2 MCQs. Skip unworthy items entirely.
+
+Category: POLITY, ECONOMY, SCIENCE, SPORTS, AWARDS, APPOINTMENTS, INTERNATIONAL, ENVIRONMENT, DEFENCE, MISC
+
+Return a JSON array:
 [
   {
     "index": 1,
     "category": "APPOINTMENTS",
-    "exam_relevance": "One-line fact",
-    "mcq": {
-      "question_en": "Who was appointed as...?",
-      "option_a": "...", "option_b": "...", "option_c": "...", "option_d": "...",
-      "correct": "A",
-      "explanation": "Brief explanation with key fact from article"
-    }
+    "exam_relevance": "One-line exam fact for quick revision",
+    "mcqs": [
+      {
+        "question_en": "Who was appointed as the new Chief Justice of India in April 2026?",
+        "option_a": "...", "option_b": "...", "option_c": "...", "option_d": "...",
+        "correct": "A",
+        "explanation": "Key fact + constitutional provision (Art 124)"
+      }
+    ]
   }
 ]
 
@@ -218,12 +254,15 @@ ${detailedList}`;
         }
         if (!Array.isArray(mcqData)) mcqData = [];
 
-        // 5. Save to DB
+        // 5. Save to DB — each news item may have 1-2 MCQs stored as array
         let saved = 0;
         for (const item of mcqData) {
             const idx = item.index - 1;
             if (idx < 0 || idx >= toProcess.length) continue;
             const source = toProcess[idx];
+
+            // Support both old format (item.mcq) and new format (item.mcqs array)
+            const mcqs = item.mcqs || (item.mcq ? [item.mcq] : []);
 
             try {
                 await client.query(`
@@ -239,7 +278,7 @@ ${detailedList}`;
                     source.published_at || null,
                     item.category || 'MISC',
                     item.exam_relevance || null,
-                    item.mcq || null,
+                    mcqs, // Store as array of MCQs
                     source.article_text || null,
                 ]);
                 saved++;
