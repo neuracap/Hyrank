@@ -4,11 +4,6 @@ import { getCurrentUser } from '@/lib/auth-edge';
 
 export const dynamic = 'force-dynamic';
 
-/**
- * POST /api/social/send
- * Send a message to a Telegram channel.
- * Body: { channel_id?, content_text, image_url?, parse_mode? }
- */
 export async function POST(req) {
     const user = await getCurrentUser();
     if (!user?.isAdmin) {
@@ -20,24 +15,27 @@ export async function POST(req) {
         return NextResponse.json({ error: 'content_text or image_url required' }, { status: 400 });
     }
 
-    const client = await db.connect();
     try {
         // Get channel info
-        let chatId, botToken;
+        let chatId = process.env.TELEGRAM_CHAT_ID;
+        let botToken = process.env.TELEGRAM_BOT_TOKEN;
+        let resolvedChannelId = null;
+
         if (channel_id) {
-            const chRes = await client.query(
-                `SELECT channel_identifier, config_json FROM social_channel WHERE channel_id = $1 AND is_active = true`,
-                [channel_id]
-            );
-            if (chRes.rows.length === 0) {
-                return NextResponse.json({ error: 'Channel not found' }, { status: 404 });
+            try {
+                const chRes = await db.query(
+                    `SELECT channel_id, channel_identifier, config_json FROM social_channel WHERE channel_id = $1 AND is_active = true`,
+                    [channel_id]
+                );
+                if (chRes.rows.length > 0) {
+                    chatId = chRes.rows[0].channel_identifier || chatId;
+                    const envKey = chRes.rows[0].config_json?.bot_token_env || 'TELEGRAM_BOT_TOKEN';
+                    botToken = process.env[envKey] || botToken;
+                    resolvedChannelId = chRes.rows[0].channel_id;
+                }
+            } catch (dbErr) {
+                console.error('Channel lookup failed, using env vars:', dbErr.message);
             }
-            chatId = chRes.rows[0].channel_identifier;
-            const envKey = chRes.rows[0].config_json?.bot_token_env || 'TELEGRAM_BOT_TOKEN';
-            botToken = process.env[envKey];
-        } else {
-            chatId = process.env.TELEGRAM_CHAT_ID;
-            botToken = process.env.TELEGRAM_BOT_TOKEN;
         }
 
         if (!botToken || !chatId) {
@@ -47,7 +45,6 @@ export async function POST(req) {
         let telegramRes, telegramData;
 
         if (image_url) {
-            // Send photo with caption
             telegramRes = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -59,7 +56,6 @@ export async function POST(req) {
                 }),
             });
         } else {
-            // Send text message
             telegramRes = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -74,33 +70,32 @@ export async function POST(req) {
 
         telegramData = await telegramRes.json();
 
-        // Log the post
-        await client.query(`
-            INSERT INTO social_post (channel_id, content_text, image_url, status, sent_at, created_by, content_json)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-        `, [
-            channel_id || null,
-            content_text,
-            image_url || null,
-            telegramData.ok ? 'SENT' : 'FAILED',
-            telegramData.ok ? new Date().toISOString() : null,
-            user.id,
-            { telegram_response: telegramData, parse_mode: parse_mode || 'HTML' },
-        ]);
+        // Log to DB (non-blocking — don't fail if this errors)
+        try {
+            await db.query(`
+                INSERT INTO social_post (content_text, image_url, status, sent_at, created_by, content_json, channel_id)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+            `, [
+                content_text,
+                image_url || null,
+                telegramData.ok ? 'SENT' : 'FAILED',
+                telegramData.ok ? new Date().toISOString() : null,
+                user.id,
+                { telegram_response: telegramData, parse_mode: parse_mode || 'HTML' },
+                resolvedChannelId,
+            ]);
+        } catch (logErr) {
+            console.error('Post log failed:', logErr.message);
+        }
 
         if (!telegramData.ok) {
-            return NextResponse.json({
-                error: 'Telegram API error',
-                details: telegramData.description,
-            }, { status: 502 });
+            return NextResponse.json({ error: 'Telegram API error', details: telegramData.description }, { status: 502 });
         }
 
         return NextResponse.json({ success: true, message_id: telegramData.result?.message_id });
 
     } catch (e) {
-        console.error('social/send error:', e.message, e.stack);
-        return NextResponse.json({ error: e.message, detail: e.stack?.split('\n')[0] }, { status: 500 });
-    } finally {
-        client.release();
+        console.error('social/send error:', e.message);
+        return NextResponse.json({ error: e.message }, { status: 500 });
     }
 }
