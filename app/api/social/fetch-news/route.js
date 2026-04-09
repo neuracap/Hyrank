@@ -10,13 +10,17 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const MODEL = 'gemini-2.5-flash-lite';
 
 const RSS_FEEDS = [
-    { name: 'Indian Express India', url: 'https://indianexpress.com/section/india/feed/' },
-    { name: 'Indian Express Education', url: 'https://indianexpress.com/section/education/feed/' },
-    { name: 'Indian Express Economy', url: 'https://indianexpress.com/section/business/economy/feed/' },
-    { name: 'Indian Express Sports', url: 'https://indianexpress.com/section/sports/feed/' },
-    { name: 'The Hindu National', url: 'https://www.thehindu.com/news/national/feeder/default.rss' },
-    { name: 'The Hindu Science', url: 'https://www.thehindu.com/sci-tech/science/feeder/default.rss' },
-    { name: 'Google News India', url: 'https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRFZxYUdjU0FtVnVHZ0pKVGlnQVAB?hl=en-IN&gl=IN&ceid=IN:en' },
+    // Curated feeds — policy, governance, economy, science, defence (minimal noise)
+    { name: 'PIB India', url: 'https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3' },
+    { name: 'IE Explained', url: 'https://indianexpress.com/section/explained/feed/' },
+    { name: 'IE Governance', url: 'https://indianexpress.com/section/india/governance/feed/' },
+    { name: 'IE Economy', url: 'https://indianexpress.com/section/business/economy/feed/' },
+    { name: 'IE Education', url: 'https://indianexpress.com/section/education/feed/' },
+    { name: 'IE Science', url: 'https://indianexpress.com/section/technology/science/feed/' },
+    { name: 'Hindu National', url: 'https://www.thehindu.com/news/national/feeder/default.rss' },
+    { name: 'Hindu Science', url: 'https://www.thehindu.com/sci-tech/science/feeder/default.rss' },
+    { name: 'Hindu Economy', url: 'https://www.thehindu.com/business/Economy/feeder/default.rss' },
+    { name: 'Livemint Policy', url: 'https://www.livemint.com/rss/politics' },
 ];
 
 function parseRSS(xml, sourceName) {
@@ -217,14 +221,18 @@ If YES → WORTHY. If NO → SKIP.
 "Would Vajiram/Vision IAS include this in their monthly magazine?" If yes → WORTHY.
 
 ━━━ OUTPUT ━━━
-For each WORTHY item, generate 1 or 2 MCQs. Skip unworthy items entirely.
+You MUST return a verdict for EVERY item — no item should be missing from your output.
+
+For WORTHY items: generate 1 or 2 MCQs.
+For REJECTED items: provide a short rejection reason.
 
 Category: POLITY, ECONOMY, SCIENCE, SPORTS, AWARDS, APPOINTMENTS, INTERNATIONAL, ENVIRONMENT, DEFENCE, MISC
 
-Return a JSON array:
+Return a JSON array (one entry per input item):
 [
   {
     "index": 1,
+    "worthy": true,
     "category": "APPOINTMENTS",
     "exam_relevance": "One-line exam fact for quick revision",
     "mcqs": [
@@ -235,6 +243,11 @@ Return a JSON array:
         "explanation": "Key fact + constitutional provision (Art 124)"
       }
     ]
+  },
+  {
+    "index": 2,
+    "worthy": false,
+    "rejection_reason": "Political statement with no policy outcome"
   }
 ]
 
@@ -254,34 +267,49 @@ ${detailedList}`;
         }
         if (!Array.isArray(mcqData)) mcqData = [];
 
-        // 5. Save to DB — each news item may have 1-2 MCQs stored as array
-        let saved = 0;
+        // 5. Build index of Gemini verdicts by item index
+        const verdictMap = new Map();
         for (const item of mcqData) {
-            const idx = item.index - 1;
-            if (idx < 0 || idx >= toProcess.length) continue;
-            const source = toProcess[idx];
+            if (item.index >= 1 && item.index <= toProcess.length) {
+                verdictMap.set(item.index - 1, item);
+            }
+        }
 
-            // Support both old format (item.mcq) and new format (item.mcqs array)
-            const mcqs = item.mcqs || (item.mcq ? [item.mcq] : []);
+        // 6. Save ALL items to DB — worthy with MCQs, rejected with reason
+        let savedWorthy = 0;
+        let savedRejected = 0;
+        for (let i = 0; i < toProcess.length; i++) {
+            const source = toProcess[i];
+            const verdict = verdictMap.get(i);
+            const isWorthy = verdict?.worthy === true;
+
+            const mcqs = isWorthy
+                ? (verdict.mcqs || (verdict.mcq ? [verdict.mcq] : []))
+                : [];
+            const status = isWorthy ? 'NEW' : 'AUTO_REJECTED';
+            const rejectionReason = !isWorthy ? (verdict?.rejection_reason || 'Not exam-relevant') : null;
 
             try {
                 await client.query(`
                     INSERT INTO current_affairs
                     (headline, summary, source, source_url, published_at, category,
-                     exam_relevance, mcq_json, article_text, status)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'NEW')
+                     exam_relevance, mcq_json, article_text, status, rejection_reason)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                 `, [
                     source.headline,
                     source.description || null,
                     source.source,
                     source.source_url || null,
                     source.published_at || null,
-                    item.category || 'MISC',
-                    item.exam_relevance || null,
-                    mcqs, // Store as array of MCQs
+                    (isWorthy ? verdict.category : null) || 'MISC',
+                    isWorthy ? (verdict.exam_relevance || null) : null,
+                    mcqs.length > 0 ? mcqs : null,
                     source.article_text || null,
+                    status,
+                    rejectionReason,
                 ]);
-                saved++;
+                if (isWorthy) savedWorthy++;
+                else savedRejected++;
             } catch (e) {
                 if (e.code !== '23505') console.error('Save error:', e.message);
             }
@@ -291,9 +319,10 @@ ${detailedList}`;
             success: true,
             fetched: allItems.length,
             processed: toProcess.length,
-            relevant: mcqData.length,
+            worthy: savedWorthy,
+            rejected: savedRejected,
             articles_extracted: toProcess.filter(i => i.article_text).length,
-            saved,
+            saved: savedWorthy + savedRejected,
         });
 
     } catch (e) {

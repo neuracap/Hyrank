@@ -3,7 +3,28 @@ import { getCurrentUser } from '@/lib/auth-edge';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const MODEL = 'gemini-3.1-flash-lite-preview';
+const MODEL = 'gemini-2.5-flash-lite';
+
+function safeParseJSON(raw) {
+    // Try direct parse first
+    try { return JSON.parse(raw); } catch { /* continue */ }
+
+    // Strip markdown fences
+    let cleaned = raw.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    try { return JSON.parse(cleaned); } catch { /* continue */ }
+
+    // Fix invalid escape sequences: \X where X is not a valid JSON escape char
+    cleaned = cleaned.replace(/\\(?!["\\/bfnrtu])/g, '\\\\');
+    try { return JSON.parse(cleaned); } catch { /* continue */ }
+
+    // Last resort: extract JSON object with regex
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) {
+        const extracted = match[0].replace(/\\(?!["\\/bfnrtu])/g, '\\\\');
+        return JSON.parse(extracted);
+    }
+    throw new Error('Could not parse Gemini response as JSON');
+}
 
 /**
  * POST /api/translate-gemini
@@ -81,13 +102,7 @@ ${optionsBlock || '(no options)'}`;
             });
 
             const rawText = result.response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            let parsed;
-            try {
-                parsed = JSON.parse(rawText);
-            } catch {
-                const cleaned = rawText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-                parsed = JSON.parse(cleaned);
-            }
+            const parsed = safeParseJSON(rawText);
 
             return NextResponse.json({
                 success: true,

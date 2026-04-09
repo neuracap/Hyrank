@@ -639,8 +639,7 @@ Are you sure you want to proceed?`;
     const ENGLISH_SECTION_ID = '1882c0c1-2614-4653-9f41-695dfc773025';
 
     const handleBulkTranslateHindi = async () => {
-        const allEligible = questions.filter(q => q.eng_section_id !== ENGLISH_SECTION_ID);
-        const eligible = allEligible.slice(0, 10); // Limit to 10 for testing
+        const eligible = questions.filter(q => q.eng_section_id !== ENGLISH_SECTION_ID);
         const skipped = questions.length - eligible.length;
         if (!confirm(`Translate ${eligible.length} questions' Hindi text + options to Hindi using Gemini.\n${skipped > 0 ? `Skipping ${skipped} English section questions.\n` : ''}Proceed?`)) return;
         setBulkTranslating(true);
@@ -657,23 +656,25 @@ Are you sure you want to proceed?`;
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            question_text: q.hin_text || '',
-                            options: (q.hin_options || []).map(o => ({ opt_label: o.opt_label, opt_text: o.opt_text || '' })),
+                            question_text: q.eng_text || '',
+                            options: (q.eng_options || []).map(o => ({ opt_label: o.opt_label, opt_text: o.opt_text || '' })),
                         }),
                     });
                     const data = await res.json();
                     if (res.ok && data.success) {
-                        const newQs = [...questions];
-                        newQs[idx] = {
-                            ...q,
-                            hin_text: data.question_text,
-                            hin_options: (data.options || []).map((o, oi) => ({
-                                ...(q.hin_options[oi] || {}),
-                                opt_label: o.opt_label,
-                                opt_text: o.opt_text,
-                            })),
-                        };
-                        setQuestions(newQs);
+                        setQuestions(prev => {
+                            const newQs = [...prev];
+                            newQs[idx] = {
+                                ...newQs[idx],
+                                hin_text: data.question_text,
+                                hin_options: (data.options || []).map((o, oi) => ({
+                                    ...(newQs[idx].hin_options?.[oi] || {}),
+                                    opt_label: o.opt_label,
+                                    opt_text: o.opt_text,
+                                })),
+                            };
+                            return newQs;
+                        });
                         translated++;
                     }
                 } catch (e) {

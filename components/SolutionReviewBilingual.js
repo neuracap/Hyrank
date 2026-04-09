@@ -36,7 +36,8 @@ function getCorrectLabel(side) {
     return null;
 }
 
-// Check if bilingual pair has an answer mismatch (compare by option text, fallback to letter)
+// Check if bilingual pair has an answer mismatch
+// Compares by option TEXT across languages (handles jumbled option order)
 function hasAnswerMismatch(en, hi) {
     const enLabel = getCorrectLabel(en);
     const hiLabel = getCorrectLabel(hi);
@@ -44,28 +45,48 @@ function hasAnswerMismatch(en, hi) {
 
     const normalize = (t) => (t || '').replace(/\s+/g, ' ').replace(/\$/g, '').trim().toLowerCase();
 
-    const enCorrectText = (en.options || []).find(o => o.option_key === enLabel)?.opt_text;
-    const hiCorrectText = (hi.options || []).find(o => o.option_key === hiLabel)?.opt_text;
+    const enOpts = en.options || [];
+    const hiOpts = hi.options || [];
+    const enCorrectText = enOpts.find(o => o.option_key === enLabel)?.opt_text;
+    const hiCorrectText = hiOpts.find(o => o.option_key === hiLabel)?.opt_text;
 
-    if (enCorrectText && hiCorrectText) {
-        const enNorm = normalize(enCorrectText);
-        const hiNorm = normalize(hiCorrectText);
+    // If either side has no correct option text, can't compare by text
+    if (!enCorrectText || !hiCorrectText) return enLabel !== hiLabel;
 
-        // Same text = same answer, just different position
-        if (enNorm === hiNorm) return false;
+    const enNorm = normalize(enCorrectText);
+    const hiNorm = normalize(hiCorrectText);
 
-        // Check if EN correct text exists in any HI option
-        const enTextInHi = (hi.options || []).find(o => normalize(o.opt_text) === enNorm);
-        if (enTextInHi && enTextInHi.option_key === hiLabel) return false;
+    // 1. Direct text match (same text, maybe different label) = no mismatch
+    if (enNorm === hiNorm) return false;
 
-        // EN text found in HI but HI picked a different option = true mismatch
-        if (enTextInHi) return true;
-
-        // Options are in different languages (EN text vs HI text) - fall back to letter
-        return enLabel !== hiLabel;
+    // 2. Cross-match: find EN correct text among HI options (handles jumbled + same-language options)
+    const enTextInHi = hiOpts.find(o => normalize(o.opt_text) === enNorm);
+    if (enTextInHi) {
+        // EN's correct text exists in HI — mismatch only if HI picked a different one
+        return enTextInHi.option_key !== hiLabel;
     }
 
-    return enLabel !== hiLabel;
+    // 3. Cross-match the other way: find HI correct text among EN options
+    const hiTextInEn = enOpts.find(o => normalize(o.opt_text) === hiNorm);
+    if (hiTextInEn) {
+        // HI's correct text exists in EN — mismatch only if EN picked a different one
+        return hiTextInEn.option_key !== enLabel;
+    }
+
+    // 4. Texts are in different scripts (EN vs Hindi) — compare numerics/formulas stripped of script
+    //    Extract just numbers/math from both to see if they match
+    const extractNumeric = (t) => t.replace(/[^\d.+\-*/=<>%()^,]/g, '').trim();
+    const enNum = extractNumeric(enNorm);
+    const hiNum = extractNumeric(hiNorm);
+    if (enNum && hiNum && enNum.length >= 1) {
+        if (enNum === hiNum) return false;
+        // Check if EN numeric matches any HI option's numeric
+        const enNumInHi = hiOpts.find(o => extractNumeric(normalize(o.opt_text)) === enNum);
+        if (enNumInHi) return enNumInHi.option_key !== hiLabel;
+    }
+
+    // 5. Can't determine by text — NOT a mismatch (avoid false positives from translations)
+    return false;
 }
 
 // Helper to flatten display_sections into editable text

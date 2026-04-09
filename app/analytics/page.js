@@ -105,6 +105,36 @@ export default async function AnalyticsPage() {
         ORDER BY e.name ASC, paper_year DESC, qv.language ASC
     `);
 
+    // 5b. Exam-wise pipeline metrics (split by language)
+    const examPipelineRes = await client.query(`
+        SELECT
+            COALESCE(e.name, 'Unknown') AS exam_name,
+            qv.language,
+            COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE qv.status = 'MANUALLY_CORRECTED') AS corrected,
+            COUNT(*) FILTER (WHERE qv.solution_status = 'DONE') AS solutions_done,
+            COUNT(*) FILTER (WHERE ps.status = 'PRODUCTION') AS production
+        FROM question_version qv
+        JOIN paper_session ps ON qv.paper_session_id = ps.paper_session_id
+        LEFT JOIN exam e ON ps.exam_id = e.exam_id
+        GROUP BY e.name, qv.language
+        ORDER BY e.name, qv.language
+    `);
+
+    // Pivot: group by exam, nest EN/HI as sub-rows
+    const examPipelineMap = {};
+    for (const row of examPipelineRes.rows) {
+        const key = row.exam_name;
+        if (!examPipelineMap[key]) examPipelineMap[key] = { exam_name: key, langs: {} };
+        examPipelineMap[key].langs[row.language] = {
+            total: parseInt(row.total),
+            corrected: parseInt(row.corrected),
+            solutions_done: parseInt(row.solutions_done),
+            production: parseInt(row.production),
+        };
+    }
+    const examPipelineData = Object.values(examPipelineMap);
+
     // 5. Unallotted papers — not in review_assignments, grouped by exam
     const unallottedRes = await client.query(`
         SELECT
@@ -121,6 +151,61 @@ export default async function AnalyticsPage() {
         GROUP BY e.name, ps.language, ps.status
         ORDER BY e.name, ps.language, ps.status
     `);
+
+    // 6. Daily progress history (last 30 days)
+    const dailyProgressRes = await client.query(`
+        SELECT
+            edp.snapshot_date,
+            u.name,
+            u.email,
+            edp.corrected_questions,
+            edp.flagged_questions,
+            edp.papers_reviewed
+        FROM editor_daily_progress edp
+        JOIN users u ON u.id = edp.user_id
+        WHERE edp.snapshot_date >= CURRENT_DATE - INTERVAL '30 days'
+        ORDER BY edp.snapshot_date DESC, u.name
+    `);
+
+    // Build daily delta: compare each day to the previous day per user
+    const dailyRows = dailyProgressRes.rows;
+    const userDays = {}; // { email: { date: { corrected, flagged, papers_reviewed } } }
+    for (const r of dailyRows) {
+        const dateStr = new Date(r.snapshot_date).toISOString().slice(0, 10);
+        if (!userDays[r.email]) userDays[r.email] = {};
+        userDays[r.email][dateStr] = {
+            name: r.name,
+            corrected: parseInt(r.corrected_questions),
+            flagged: parseInt(r.flagged_questions),
+            papers_reviewed: parseInt(r.papers_reviewed),
+        };
+    }
+
+    // Get unique sorted dates (newest first)
+    const allDates = [...new Set(dailyRows.map(r => new Date(r.snapshot_date).toISOString().slice(0, 10)))].sort().reverse();
+    const allEditors = [...new Set(dailyRows.map(r => r.email))].sort();
+
+    // Compute daily deltas
+    const dailyDeltas = []; // [{ date, editor, name, corrected_delta, flagged_delta, papers_delta }]
+    for (const email of allEditors) {
+        const days = userDays[email];
+        for (let i = 0; i < allDates.length; i++) {
+            const date = allDates[i];
+            const prev = allDates[i + 1];
+            const cur = days[date];
+            if (!cur) continue;
+            const prevData = prev ? days[prev] : null;
+            dailyDeltas.push({
+                date,
+                editor: email,
+                name: cur.name,
+                corrected_delta: prevData ? cur.corrected - prevData.corrected : cur.corrected,
+                flagged_delta: prevData ? cur.flagged - prevData.flagged : 0,
+                papers_delta: prevData ? cur.papers_reviewed - prevData.papers_reviewed : 0,
+                corrected_total: cur.corrected,
+            });
+        }
+    }
 
     // Build unallotted grouped: { examName: { language: { status: count } } }
     const unallottedMap = {};
@@ -166,6 +251,90 @@ export default async function AnalyticsPage() {
                             return total > 0 ? Math.round((corrected / total) * 100) + '%' : '0%';
                         })()}
                     </p>
+                </div>
+            </div>
+
+            {/* Exam-wise Pipeline Metrics */}
+            <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden mb-12">
+                <div className="px-6 py-4 border-b border-gray-200 bg-emerald-50">
+                    <h2 className="text-lg font-bold text-gray-800">Exam-wise Question Pipeline</h2>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left text-gray-500">
+                        <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+                            <tr>
+                                <th className="px-5 py-3">Exam</th>
+                                <th className="px-3 py-3 text-center">Lang</th>
+                                <th className="px-3 py-3 text-center">Total</th>
+                                <th className="px-3 py-3 text-center">Corrected</th>
+                                <th className="px-3 py-3 text-center">Solutions</th>
+                                <th className="px-3 py-3 text-center">Production</th>
+                                <th className="px-3 py-3 text-center">Pipeline</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {examPipelineData.map((exam) => {
+                                const langs = Object.entries(exam.langs);
+                                const examTotal = langs.reduce((s, [, v]) => s + v.total, 0);
+                                const examCorrected = langs.reduce((s, [, v]) => s + v.corrected, 0);
+                                const examSolutions = langs.reduce((s, [, v]) => s + v.solutions_done, 0);
+                                const examProduction = langs.reduce((s, [, v]) => s + v.production, 0);
+
+                                return langs.map(([lang, d], i) => (
+                                    <tr key={`${exam.exam_name}-${lang}`} className={`border-b hover:bg-gray-50 ${i === 0 ? 'border-t-2 border-gray-200' : ''}`}>
+                                        {i === 0 && (
+                                            <td className="px-5 py-3 font-bold text-gray-900 align-top" rowSpan={langs.length + 1}>
+                                                {exam.exam_name}
+                                            </td>
+                                        )}
+                                        <td className="px-3 py-2 text-center">
+                                            <span className={`px-2 py-0.5 rounded text-xs font-bold ${lang === 'EN' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'}`}>
+                                                {lang}
+                                            </span>
+                                        </td>
+                                        <td className="px-3 py-2 text-center font-medium">{d.total}</td>
+                                        <td className="px-3 py-2 text-center">
+                                            <span className="font-bold text-green-600">{d.corrected}</span>
+                                            <span className="text-gray-400 text-xs ml-1">({d.total > 0 ? Math.round(d.corrected / d.total * 100) : 0}%)</span>
+                                        </td>
+                                        <td className="px-3 py-2 text-center">
+                                            <span className="font-bold text-indigo-600">{d.solutions_done}</span>
+                                            <span className="text-gray-400 text-xs ml-1">({d.total > 0 ? Math.round(d.solutions_done / d.total * 100) : 0}%)</span>
+                                        </td>
+                                        <td className="px-3 py-2 text-center">
+                                            <span className={`font-bold ${d.production > 0 ? 'text-purple-600' : 'text-gray-300'}`}>{d.production}</span>
+                                        </td>
+                                        <td className="px-3 py-2">
+                                            <div className="flex gap-0.5 h-2 rounded-full overflow-hidden bg-gray-200 min-w-[100px]">
+                                                {d.production > 0 && <div className="bg-purple-500" style={{ width: `${d.production / d.total * 100}%` }} title="Production" />}
+                                                {d.solutions_done - d.production > 0 && <div className="bg-indigo-400" style={{ width: `${(d.solutions_done - d.production) / d.total * 100}%` }} title="Solutions Done" />}
+                                                {d.corrected - d.solutions_done > 0 && <div className="bg-green-400" style={{ width: `${(d.corrected - d.solutions_done) / d.total * 100}%` }} title="Corrected" />}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                )).concat(
+                                    <tr key={`${exam.exam_name}-total`} className="bg-gray-50/50 border-b">
+                                        <td className="px-3 py-1.5 text-center text-xs font-bold text-gray-500">ALL</td>
+                                        <td className="px-3 py-1.5 text-center font-bold text-gray-700">{examTotal}</td>
+                                        <td className="px-3 py-1.5 text-center font-bold text-green-700">{examCorrected}</td>
+                                        <td className="px-3 py-1.5 text-center font-bold text-indigo-700">{examSolutions}</td>
+                                        <td className="px-3 py-1.5 text-center font-bold text-purple-700">{examProduction}</td>
+                                        <td className="px-3 py-1.5"></td>
+                                    </tr>
+                                );
+                            })}
+                            {/* Grand total */}
+                            <tr className="bg-gray-100 border-t-2 border-gray-400 font-bold">
+                                <td className="px-5 py-3 text-gray-800">Grand Total</td>
+                                <td className="px-3 py-3"></td>
+                                <td className="px-3 py-3 text-center">{examPipelineData.reduce((s, e) => s + Object.values(e.langs).reduce((ss, v) => ss + v.total, 0), 0)}</td>
+                                <td className="px-3 py-3 text-center text-green-700">{examPipelineData.reduce((s, e) => s + Object.values(e.langs).reduce((ss, v) => ss + v.corrected, 0), 0)}</td>
+                                <td className="px-3 py-3 text-center text-indigo-700">{examPipelineData.reduce((s, e) => s + Object.values(e.langs).reduce((ss, v) => ss + v.solutions_done, 0), 0)}</td>
+                                <td className="px-3 py-3 text-center text-purple-700">{examPipelineData.reduce((s, e) => s + Object.values(e.langs).reduce((ss, v) => ss + v.production, 0), 0)}</td>
+                                <td className="px-3 py-3"></td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
@@ -399,6 +568,93 @@ export default async function AnalyticsPage() {
                     </table>
                 </div>
             </div>
+
+            {/* Daily Editor Progress */}
+            {allDates.length > 0 && (
+                <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden mb-12">
+                    <div className="px-6 py-4 border-b border-gray-200 bg-indigo-50">
+                        <h2 className="text-lg font-bold text-gray-800">Daily Editor Progress (Last 30 Days)</h2>
+                        <p className="text-xs text-gray-500 mt-1">Shows questions corrected per day per editor (delta from previous snapshot)</p>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left text-gray-500">
+                            <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0">
+                                <tr>
+                                    <th className="px-4 py-3 sticky left-0 bg-gray-50 z-10">Date</th>
+                                    {allEditors.map(email => {
+                                        const name = userDays[email]?.[allDates[0]]?.name || email.split('@')[0];
+                                        return (
+                                            <th key={email} className="px-4 py-3 text-center whitespace-nowrap">
+                                                {name}
+                                            </th>
+                                        );
+                                    })}
+                                    <th className="px-4 py-3 text-center font-bold">Team Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {allDates.map(date => {
+                                    const dayDeltas = dailyDeltas.filter(d => d.date === date);
+                                    const teamTotal = dayDeltas.reduce((s, d) => s + d.corrected_delta, 0);
+                                    const isToday = date === new Date().toISOString().slice(0, 10);
+                                    const dateLabel = new Date(date + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', weekday: 'short' });
+
+                                    return (
+                                        <tr key={date} className={`border-b hover:bg-gray-50 ${isToday ? 'bg-indigo-50/50' : 'bg-white'}`}>
+                                            <td className={`px-4 py-3 font-medium whitespace-nowrap sticky left-0 ${isToday ? 'bg-indigo-50 text-indigo-700 font-bold' : 'bg-white text-gray-900'}`}>
+                                                {dateLabel}
+                                            </td>
+                                            {allEditors.map(email => {
+                                                const delta = dayDeltas.find(d => d.editor === email);
+                                                const val = delta?.corrected_delta || 0;
+                                                const flagVal = delta?.flagged_delta || 0;
+                                                return (
+                                                    <td key={email} className="px-4 py-3 text-center">
+                                                        {val > 0 ? (
+                                                            <span className="font-bold text-green-600">+{val}</span>
+                                                        ) : val === 0 ? (
+                                                            <span className="text-gray-300">-</span>
+                                                        ) : (
+                                                            <span className="text-red-500">{val}</span>
+                                                        )}
+                                                        {flagVal > 0 && (
+                                                            <span className="text-orange-500 text-xs ml-1">({flagVal}f)</span>
+                                                        )}
+                                                    </td>
+                                                );
+                                            })}
+                                            <td className="px-4 py-3 text-center font-bold">
+                                                {teamTotal > 0 ? (
+                                                    <span className="text-green-700">+{teamTotal}</span>
+                                                ) : (
+                                                    <span className="text-gray-400">0</span>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                                {/* Cumulative total row */}
+                                <tr className="bg-gray-50 border-t-2 border-gray-300 font-bold">
+                                    <td className="px-4 py-3 sticky left-0 bg-gray-50 text-gray-800">30-Day Total</td>
+                                    {allEditors.map(email => {
+                                        const total = dailyDeltas
+                                            .filter(d => d.editor === email)
+                                            .reduce((s, d) => s + d.corrected_delta, 0);
+                                        return (
+                                            <td key={email} className="px-4 py-3 text-center text-green-700">
+                                                {total > 0 ? `+${total}` : total}
+                                            </td>
+                                        );
+                                    })}
+                                    <td className="px-4 py-3 text-center text-green-700">
+                                        +{dailyDeltas.reduce((s, d) => s + d.corrected_delta, 0)}
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
 
             {/* Detailed List */}
             <DetailedAssignmentsTable details={details} />
