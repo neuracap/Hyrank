@@ -67,7 +67,7 @@ export default async function TestReviewPage({ searchParams }) {
             FROM paper_session ps
             LEFT JOIN exam e ON ps.exam_id = e.exam_id
             ${whereClause}
-            ORDER BY ps.paper_date DESC
+            ORDER BY ps.paper_date DESC NULLS LAST, ps.shift_number NULLS LAST, ps.language
             LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
         `;
         queryParams.push(PAGE_SIZE, offset);
@@ -127,7 +127,7 @@ export default async function TestReviewPage({ searchParams }) {
             JOIN paper_session ps ON ra.paper_session_id = ps.paper_session_id
             LEFT JOIN exam e ON ps.exam_id = e.exam_id
             ${whereClause}
-            ORDER BY ra.assigned_at DESC, ps.paper_date DESC
+            ORDER BY ps.paper_date DESC NULLS LAST, ps.shift_number NULLS LAST, ps.language
             LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
         `;
         queryParams.push(PAGE_SIZE, offset);
