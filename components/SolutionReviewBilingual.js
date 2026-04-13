@@ -2,6 +2,7 @@
 
 import { useState, lazy, Suspense } from 'react';
 import Latex from '@/components/Latex';
+import { checkQuestionQuality, hasQuestionError } from '@/lib/question-checks';
 const FigureEditor = lazy(() => import('@/components/FigureEditor'));
 
 const DIFF_LABELS = { 1: 'Easy', 2: 'Medium', 3: 'Hard' };
@@ -140,14 +141,32 @@ function EditableSolutionPanel({ lang, data, label, editState, onEditChange, onT
             <div className="px-3 py-2 border-b bg-white">
                 <div className="text-sm text-gray-800"><Latex>{data.text || '(No text)'}</Latex></div>
                 <div className="grid grid-cols-2 gap-1.5 mt-2">
-                    {(data.options || []).map(o => (
-                        <div key={o.option_key} className={`text-xs p-1.5 rounded border ${o.option_key === data.correct ? 'bg-green-50 border-green-300 font-semibold' : 'bg-white border-gray-200'}`}>
-                            <span className="font-bold mr-1">{o.option_key})</span>
-                            <Latex>{o.opt_text || ''}</Latex>
-                        </div>
-                    ))}
+                    {(data.options || []).map(o => {
+                        const isBlank = !o.opt_text || !o.opt_text.trim();
+                        return (
+                            <div key={o.option_key} className={`text-xs p-1.5 rounded border ${isBlank ? 'bg-red-50 border-red-300' : o.option_key === data.correct ? 'bg-green-50 border-green-300 font-semibold' : 'bg-white border-gray-200'}`}>
+                                <span className="font-bold mr-1">{o.option_key})</span>
+                                {isBlank ? <span className="text-red-500 italic">BLANK</span> : <Latex>{o.opt_text}</Latex>}
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
+
+            {/* Quality warnings */}
+            {(() => {
+                const issues = checkQuestionQuality(data.text, data.options, data.correct);
+                if (issues.length === 0) return null;
+                return (
+                    <div className="px-3 py-1.5 border-b bg-pink-50 text-xs">
+                        {issues.map((w, i) => (
+                            <div key={i} className={`flex items-center gap-1.5 ${w.severity === 'error' ? 'text-red-700 font-semibold' : 'text-orange-700'}`}>
+                                <span>{w.severity === 'error' ? '\u26D4' : '\u26A0\uFE0F'}</span> {w.message}
+                            </div>
+                        ))}
+                    </div>
+                );
+            })()}
 
             {/* Correct answer editor */}
             <div className="px-3 py-1.5 border-b bg-gray-50 flex items-center gap-2">
@@ -761,6 +780,7 @@ export default function SolutionReviewBilingual({ exams }) {
         if (filter === 'both_solved') return enDone && hiDone;
         if (filter === 'unsolved') return !enDone || !hiDone;
         if (filter === 'mismatch') return hasAnswerMismatch(q.en, q.hi);
+        if (filter === 'issues') return (q.en && hasQuestionError(q.en.text, q.en.options, q.en.correct)) || (q.hi && hasQuestionError(q.hi.text, q.hi.options, q.hi.correct));
         if (filter === 'figures') return !!(q.en?.figure_prompt || q.en?.figure_helpful);
         return true;
     });
@@ -768,6 +788,10 @@ export default function SolutionReviewBilingual({ exams }) {
     const bothSolvedCount = questions.filter(q => q.en?.solution_status === 'DONE' && q.hi?.solution_status === 'DONE').length;
     const mismatchCount = questions.filter(q => hasAnswerMismatch(q.en, q.hi)).length;
     const figuresCount = questions.filter(q => q.en?.figure_prompt || q.en?.figure_helpful).length;
+    const issueCount = questions.filter(q =>
+        (q.en && hasQuestionError(q.en.text, q.en.options, q.en.correct)) ||
+        (q.hi && hasQuestionError(q.hi.text, q.hi.options, q.hi.correct))
+    ).length;
 
     // Group by section for sidebar
     const groupedQuestions = questions.reduce((acc, q) => {
@@ -852,6 +876,7 @@ export default function SolutionReviewBilingual({ exams }) {
                         <span className="text-xs text-gray-500">
                             {bothSolvedCount}/{questions.length} both solved
                             {mismatchCount > 0 && <span className="text-red-600 ml-1">({mismatchCount} mismatches)</span>}
+                            {issueCount > 0 && <span className="text-pink-600 ml-1">({issueCount} quality issues)</span>}
                         </span>
                         {selectedPair?.en_pdf_path && (
                             <a href={`/api/pdf?path=${encodeURIComponent(selectedPair.en_pdf_path)}`}
@@ -890,6 +915,7 @@ export default function SolutionReviewBilingual({ exams }) {
                                 { key: 'both_solved', label: 'Both Solved' },
                                 { key: 'unsolved', label: 'Unsolved' },
                                 { key: 'mismatch', label: 'Mismatches' },
+                                { key: 'issues', label: `Issues (${issueCount})` },
                                 { key: 'figures', label: `Figures (${figuresCount})` },
                             ].map(f => (
                                 <button key={f.key} onClick={() => setFilter(f.key)}
@@ -972,10 +998,14 @@ export default function SolutionReviewBilingual({ exams }) {
                                                 const hiDone = q.hi?.solution_status === 'DONE';
                                                 const bothDone = enDone && hiDone;
                                                 const mismatch = hasAnswerMismatch(q.en, q.hi);
+                                                const enHasError = q.en ? hasQuestionError(q.en.text, q.en.options, q.en.correct) : false;
+                                                const hiHasError = q.hi ? hasQuestionError(q.hi.text, q.hi.options, q.hi.correct) : false;
+                                                const hasQIssue = enHasError || hiHasError;
                                                 const qLabel = q.en?.q_no ? q.en.q_no.replace(/Q\.\s*/, '').trim() : '?';
 
                                                 let colorClass;
-                                                if (mismatch) colorClass = 'text-white bg-red-600 border-red-700';
+                                                if (hasQIssue) colorClass = 'text-white bg-pink-600 border-pink-700 ring-1 ring-pink-400';
+                                                else if (mismatch) colorClass = 'text-white bg-red-600 border-red-700';
                                                 else if (bothDone) colorClass = 'text-gray-600 bg-green-50 border-green-200 hover:bg-green-100';
                                                 else if (enDone || hiDone) colorClass = 'text-amber-700 bg-amber-50 border-amber-300 hover:bg-amber-100';
                                                 else colorClass = 'text-red-700 bg-red-50 border-red-300 hover:bg-red-100';
@@ -985,7 +1015,7 @@ export default function SolutionReviewBilingual({ exams }) {
                                                         href={`#bp-${q.link_id}`}
                                                         onClick={e => { e.preventDefault(); document.getElementById(`bp-${q.link_id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
                                                         className={`flex items-center justify-center aspect-square text-xs font-medium rounded border transition-colors ${colorClass}`}
-                                                        title={`Q.${qLabel} EN:${enDone ? 'DONE' : 'PENDING'} HI:${hiDone ? 'DONE' : 'PENDING'}${mismatch ? ' MISMATCH!' : ''}`}
+                                                        title={`Q.${qLabel} EN:${enDone ? 'DONE' : 'PENDING'} HI:${hiDone ? 'DONE' : 'PENDING'}${mismatch ? ' MISMATCH!' : ''}${hasQIssue ? ' ⚠ QUALITY ISSUE' : ''}`}
                                                     >
                                                         {qLabel}
                                                     </a>

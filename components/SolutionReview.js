@@ -2,6 +2,7 @@
 
 import { useState, useEffect, lazy, Suspense } from 'react';
 import Latex from '@/components/Latex';
+import { checkQuestionQuality, hasQuestionError } from '@/lib/question-checks';
 const FigureEditor = lazy(() => import('@/components/FigureEditor'));
 
 const DIFFICULTY_MAP = {
@@ -408,6 +409,11 @@ export default function SolutionReview({ exams = [], paperId: propPaperId, langu
                                             {qs.map(q => {
                                                 const hasSolution = q.solution_status === 'DONE';
                                                 const qLabel = q.source_q_no ? q.source_q_no.replace(/Q\.\s*/, '').trim() : '?';
+                                                const hasQIssue = hasQuestionError(q.question_text, q.options?.map(o => ({ ...o, option_key: o.opt_label })), q.correct_option_label);
+                                                let colorClass;
+                                                if (hasQIssue) colorClass = 'text-white bg-pink-600 border-pink-700 ring-1 ring-pink-400';
+                                                else if (hasSolution) colorClass = 'text-gray-600 bg-green-50 border-green-200 hover:bg-green-100';
+                                                else colorClass = 'text-red-700 bg-red-50 border-red-300 hover:bg-red-100';
                                                 return (
                                                     <a
                                                         key={q.question_id}
@@ -417,12 +423,8 @@ export default function SolutionReview({ exams = [], paperId: propPaperId, langu
                                                             const el = document.getElementById(`sq-${q.question_id}`);
                                                             if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                                                         }}
-                                                        className={`flex items-center justify-center aspect-square text-xs font-medium rounded border transition-colors ${
-                                                            hasSolution
-                                                                ? 'text-gray-600 bg-green-50 border-green-200 hover:bg-green-100'
-                                                                : 'text-red-700 bg-red-50 border-red-300 hover:bg-red-100'
-                                                        }`}
-                                                        title={`Q.${qLabel} — ${hasSolution ? 'DONE' : q.solution_status || 'PENDING'}`}
+                                                        className={`flex items-center justify-center aspect-square text-xs font-medium rounded border transition-colors ${colorClass}`}
+                                                        title={`Q.${qLabel} — ${hasSolution ? 'DONE' : q.solution_status || 'PENDING'}${hasQIssue ? ' ⚠ QUALITY ISSUE' : ''}`}
                                                     >
                                                         {qLabel}
                                                     </a>
@@ -664,18 +666,36 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
                 <div className="grid grid-cols-2 gap-3">
                     {(q.options || []).map(opt => {
                         const isCorrect = answer === opt.opt_label;
+                        const isBlank = !opt.opt_text || !opt.opt_text.trim();
                         return (
                             <div key={opt.opt_label}
-                                className={`flex gap-2 items-start p-3 rounded-md border ${isCorrect ? 'bg-green-50 border-green-400' : 'bg-white border-gray-200'}`}>
+                                className={`flex gap-2 items-start p-3 rounded-md border ${isBlank ? 'bg-red-50 border-red-300' : isCorrect ? 'bg-green-50 border-green-400' : 'bg-white border-gray-200'}`}>
                                 <span className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border ${isCorrect ? 'bg-green-500 text-white border-green-500' : 'bg-gray-100 text-gray-600 border-gray-300'}`}>
                                     {opt.opt_label}
                                 </span>
-                                <div className="text-sm text-gray-700 pt-0.5 flex-1"><Latex>{opt.opt_text || ''}</Latex></div>
+                                <div className="text-sm text-gray-700 pt-0.5 flex-1">
+                                    {isBlank ? <span className="text-red-500 italic font-semibold">BLANK</span> : <Latex>{opt.opt_text}</Latex>}
+                                </div>
                             </div>
                         );
                     })}
                 </div>
             </div>
+
+            {/* Quality warnings */}
+            {(() => {
+                const issues = checkQuestionQuality(q.question_text, q.options?.map(o => ({ ...o, option_key: o.opt_label })), answer);
+                if (issues.length === 0) return null;
+                return (
+                    <div className="px-5 py-2 border-b border-pink-200 bg-pink-50">
+                        {issues.map((w, i) => (
+                            <div key={i} className={`flex items-center gap-1.5 text-xs ${w.severity === 'error' ? 'text-red-700 font-semibold' : 'text-orange-700'}`}>
+                                <span>{w.severity === 'error' ? '\u26D4' : '\u26A0\uFE0F'}</span> {w.message}
+                            </div>
+                        ))}
+                    </div>
+                );
+            })()}
 
             {/* Solution content — only show if solution exists */}
             {hasSolution && (
