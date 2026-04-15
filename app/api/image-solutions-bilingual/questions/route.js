@@ -119,9 +119,11 @@ export async function GET(request) {
 
         const assetsMap = {};
         for (const asset of assetsRes.rows) {
-            // Convert local_path to /api/assets proxy URL
-            const filename = asset.original_name
-                || (asset.local_path ? asset.local_path.split(/[/\\]/).pop() : null);
+            // Use the unique filename from local_path (UUID-based names are unique)
+            // Prefer extracting from local_path to get the actual file on disk/Cloudinary
+            const filename = asset.local_path
+                ? asset.local_path.split(/[/\\]/).pop()
+                : asset.original_name;
             asset.image_url = filename
                 ? `/api/assets?name=${encodeURIComponent(filename)}`
                 : null;

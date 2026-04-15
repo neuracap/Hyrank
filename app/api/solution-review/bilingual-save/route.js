@@ -1,6 +1,7 @@
 import db from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-edge';
 import { NextResponse } from 'next/server';
+import { canAccessSolutionReview } from '@/lib/permissions';
 
 /**
  * POST /api/solution-review/bilingual-save
@@ -13,7 +14,7 @@ import { NextResponse } from 'next/server';
  */
 export async function POST(req) {
     const user = await getCurrentUser();
-    if (!user?.isAdmin) {
+    if (!canAccessSolutionReview(user)) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

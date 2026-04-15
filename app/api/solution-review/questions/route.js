@@ -1,11 +1,12 @@
 import db from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-edge';
 import { NextResponse } from 'next/server';
+import { canAccessSolutionReview } from '@/lib/permissions';
 
 export async function GET(request) {
     const user = await getCurrentUser();
-    if (!user || !user.isAdmin) {
-        return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+    if (!canAccessSolutionReview(user)) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { searchParams } = new URL(request.url);

@@ -2,12 +2,13 @@ import db from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-edge';
 import { redirect } from 'next/navigation';
 import SolutionReviewBilingual from '@/components/SolutionReviewBilingual';
+import { canAccessSolutionReview } from '@/lib/permissions';
 
 export const dynamic = 'force-dynamic';
 
 export default async function SolutionReviewBilingualPage() {
     const user = await getCurrentUser();
-    if (!user || !user.isAdmin) {
+    if (!canAccessSolutionReview(user)) {
         redirect('/login');
     }
 

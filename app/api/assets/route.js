@@ -36,11 +36,16 @@ export async function GET(request) {
 
         const client = await db.connect();
         try {
-            // Find asset by original name or local_path match
+            // Find asset — prefer exact filename match at end of local_path, then original_name
+            // Using exact suffix match avoids returning wrong assets with similar names
             const res = await client.query(`
                 SELECT local_path, mime_type
                 FROM asset
-                WHERE local_path LIKE '%' || $1 || '%' OR original_name = $1
+                WHERE local_path LIKE '%/' || $1
+                   OR local_path LIKE '%\\' || $1
+                   OR original_name = $1
+                ORDER BY
+                    CASE WHEN local_path LIKE '%/' || $1 OR local_path LIKE '%\\' || $1 THEN 0 ELSE 1 END
                 LIMIT 1
             `, [name]);
 

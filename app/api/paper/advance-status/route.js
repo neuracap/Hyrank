@@ -76,12 +76,26 @@ export async function POST(request) {
             }
         }
 
-        // Update the status
+        // Get current status before changing it
+        const currentRes = await client.query(
+            `SELECT status FROM paper_session WHERE paper_session_id = $1`,
+            [paper_session_id]
+        );
+        const prev_status = currentRes.rows[0]?.status ?? null;
+
+        // Update status and append history entry
         await client.query(`
             UPDATE paper_session
-            SET status = $1
+            SET
+                status = $1,
+                status_history = COALESCE(status_history, '[]'::jsonb) || jsonb_build_object(
+                    'from',       $3::text,
+                    'to',         $1::text,
+                    'changed_by', $4::int,
+                    'at',         to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+                )::jsonb
             WHERE paper_session_id = $2
-        `, [next_status, paper_session_id]);
+        `, [next_status, paper_session_id, prev_status, user.id]);
 
         await client.query('COMMIT');
         return NextResponse.json({ success: true, new_status: next_status });
