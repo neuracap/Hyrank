@@ -325,29 +325,58 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
     // (i.e., linking was started). If zero links, unlinked is the normal state.
     const hasAnyLinked = questions.some(q => !q.is_unlinked);
 
-    // Calculate Stats
-    const expectedPerSection = (sections.length > 0 && docInfo?.num_questions)
-        ? Math.round(parseInt(docInfo.num_questions) / sections.length)
-        : null;
-    const sectionStats = Object.entries(groupedQuestions).map(([subject, qs]) => ({
-        subject,
-        count: qs.length,
-        isOversized: expectedPerSection ? qs.length > expectedPerSection * 1.5 : false,
-        isUndersized: expectedPerSection ? qs.length < expectedPerSection * 0.5 : false
-    }));
-    const hasImbalance = sectionStats.some(s => s.isOversized || s.isUndersized)
-        || (sections.length > 0 && sectionStats.length < sections.length);
-
-    // Determine max questions per section based on exam type
+    // Calculate Stats — use per-section num_questions from exam_section when available
     const examName = (docInfo?.exam_name || '').toUpperCase();
     const examCode = (docInfo?.exam_code || '').toUpperCase();
     const isGD = examCode.includes('GD') || examName.includes('GD') || examName.includes('CONSTABLE');
-    const maxPerSection = isGD ? 20 : 25;
+    const fallbackMaxPerSection = isGD ? 20 : 25;
 
-    // Detect oversized sections
+    const getSectionExpected = (subjectCode) => {
+        const def = sections.find(s => s.code === subjectCode);
+        return def?.num_questions ? parseInt(def.num_questions) : null;
+    };
+
+    const sectionStats = Object.entries(groupedQuestions).map(([subject, qs]) => {
+        const expected = getSectionExpected(subject);
+        const delta = expected !== null ? qs.length - expected : null;
+        return {
+            subject,
+            count: qs.length,
+            expected,
+            delta,
+            isOversized: delta !== null ? delta > 0 : false,
+            isUndersized: delta !== null ? delta < 0 : false,
+        };
+    });
+
+    // Also surface sections defined in exam_section but with zero questions in this paper
+    sections.forEach(s => {
+        if (!groupedQuestions[s.code]) {
+            const expected = s.num_questions ? parseInt(s.num_questions) : null;
+            sectionStats.push({
+                subject: s.code,
+                count: 0,
+                expected,
+                delta: expected !== null ? -expected : null,
+                isOversized: false,
+                isUndersized: true,
+            });
+        }
+    });
+
+    const hasImbalance = sectionStats.some(s => s.delta !== null && s.delta !== 0)
+        || (sections.length > 0 && sectionStats.length < sections.length);
+
+    // Detect oversized sections (use section-specific expected, fall back to hardcoded max)
     const oversizedSections = Object.entries(groupedQuestions)
-        .filter(([, qs]) => qs.length > maxPerSection)
-        .map(([subject, qs]) => ({ subject, count: qs.length, extra: qs.length - maxPerSection }));
+        .filter(([subject, qs]) => {
+            const expected = getSectionExpected(subject) ?? fallbackMaxPerSection;
+            return qs.length > expected;
+        })
+        .map(([subject, qs]) => {
+            const expected = getSectionExpected(subject) ?? fallbackMaxPerSection;
+            return { subject, count: qs.length, extra: qs.length - expected };
+        });
 
     // Detect duplicate Q.Nos within each section (extras to reclassify)
     const duplicateQNos = [];
@@ -383,7 +412,8 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
             .sort((a, b) => a - b);
         if (nums.length === 0) return;
         const min = nums[0];
-        const max = Math.min(nums[nums.length - 1], min + maxPerSection - 1);
+        const sectionMax = getSectionExpected(subject) ?? fallbackMaxPerSection;
+        const max = Math.min(nums[nums.length - 1], min + sectionMax - 1);
         const missing = [];
         for (let i = min; i <= max; i++) {
             if (!nums.includes(i)) missing.push(i);
@@ -542,7 +572,14 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                         {sectionStats.map(stat => (
                             <div key={stat.subject} className="flex items-center gap-2 group">
                                 <span className="text-gray-500">{stat.subject}:</span>
-                                <span className={`font-semibold px-2 py-0.5 rounded ${stat.isOversized ? 'text-red-700 bg-red-50 border border-red-200' : stat.isUndersized ? 'text-amber-700 bg-amber-50 border border-amber-200' : 'text-gray-900 bg-gray-100'}`}>{stat.count}</span>
+                                <span className={`font-semibold px-2 py-0.5 rounded ${stat.isOversized ? 'text-red-700 bg-red-50 border border-red-200' : stat.isUndersized ? 'text-amber-700 bg-amber-50 border border-amber-200' : 'text-gray-900 bg-gray-100'}`}>
+                                    {stat.count}{stat.expected !== null ? ` / ${stat.expected}` : ''}
+                                </span>
+                                {stat.delta !== null && stat.delta !== 0 && (
+                                    <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${stat.delta > 0 ? 'text-red-600 bg-red-50' : 'text-amber-600 bg-amber-50'}`}>
+                                        {stat.delta > 0 ? `+${stat.delta}` : stat.delta}
+                                    </span>
+                                )}
                                 <button
                                     onClick={() => handleReclassify(stat.subject)}
                                     disabled={processingSection === stat.subject}
@@ -607,7 +644,7 @@ export default function Dashboard({ questions, total, tests, selectedTestId, sec
                         {oversizedSections.map(s => (
                             <div key={s.subject} className="flex items-start gap-2 text-red-700">
                                 <span className="font-bold shrink-0">Oversized:</span>
-                                <span><strong>{s.subject}</strong> has {s.count} questions (max {maxPerSection}). {s.extra} extra question{s.extra > 1 ? 's' : ''} need to be reclassified. Look for duplicate Q.Nos.</span>
+                                <span><strong>{s.subject}</strong> has {s.count} questions (expected {s.count - s.extra}). {s.extra} extra question{s.extra > 1 ? 's' : ''} need to be reclassified. Look for duplicate Q.Nos.</span>
                             </div>
                         ))}
                         {duplicateQNos.length > 0 && (

@@ -121,6 +121,25 @@ export async function GET(request) {
                 matchType = 'direct_url';
             }
 
+            // Fallback: local_path is a Windows path that didn't match the known prefix
+            // (e.g. new CPO/CGL pipelines with different source folders).
+            // Search Cloudinary by filename — images are already uploaded there.
+            if (!finalUrl && local_path && !local_path.startsWith('http')) {
+                try {
+                    const nameWithoutExt = name.replace(/\.[^.]+$/, '');
+                    const searchResult = await cloudinary.search
+                        .expression(nameWithoutExt)
+                        .max_results(1)
+                        .execute();
+                    if (searchResult.resources && searchResult.resources.length > 0) {
+                        finalUrl = searchResult.resources[0].secure_url;
+                        matchType = 'cloudinary_search_fallback';
+                    }
+                } catch (searchErr) {
+                    console.error('Cloudinary filename search fallback error:', searchErr);
+                }
+            }
+
             if (isDebug) {
                 return NextResponse.json({
                     debug: true,
