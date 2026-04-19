@@ -125,7 +125,7 @@ async function fetchData(testId, page = 1, limit = 200) {
             const paperRes = await client.query('SELECT exam_id FROM paper_session WHERE paper_session_id = $1', [computedTestId]);
             if (paperRes.rows.length > 0) {
                 const examId = paperRes.rows[0].exam_id;
-                const sectionsRes = await client.query('SELECT section_id, code, name FROM exam_section WHERE exam_id = $1 ORDER BY sort_order ASC', [examId]);
+                const sectionsRes = await client.query('SELECT section_id, code, name, num_questions FROM exam_section WHERE exam_id = $1 ORDER BY sort_order ASC', [examId]);
                 sections = sectionsRes.rows;
             }
         }
