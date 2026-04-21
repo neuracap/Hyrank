@@ -41,7 +41,7 @@ export async function POST(req) {
         threeYearsAgo.setFullYear(threeYearsAgo.getFullYear() - 3);
 
         const eligiblePapersRes = await db.query(`
-            SELECT ps.paper_session_id, ps.session_name, ps.paper_date,
+            SELECT ps.paper_session_id, ps.session_label, ps.paper_date,
                    COUNT(qv.question_id) AS q_count
             FROM paper_session ps
             JOIN question_version qv ON qv.paper_session_id = ps.paper_session_id
@@ -49,7 +49,7 @@ export async function POST(req) {
             WHERE ps.exam_id = $1
               AND ps.language = 'EN'
               AND ps.paper_date >= $2
-            GROUP BY ps.paper_session_id, ps.session_name, ps.paper_date
+            GROUP BY ps.paper_session_id, ps.session_label, ps.paper_date
             HAVING COUNT(qv.question_id) >= 95
             ORDER BY ps.paper_date DESC
         `, [exam_id, threeYearsAgo.toISOString()]);
@@ -165,7 +165,7 @@ export async function POST(req) {
             total_papers: totalPapers,
             eligible_papers: eligiblePapersRes.rows.map(p => ({
                 paper_session_id: p.paper_session_id,
-                session_name: p.session_name,
+                session_label: p.session_label,
                 paper_date: p.paper_date,
                 question_count: parseInt(p.q_count),
             })),

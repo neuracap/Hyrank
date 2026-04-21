@@ -46,7 +46,7 @@ export async function GET(req, { params }) {
                 es_q.code AS question_section_code,
                 es_q.exam_id AS source_exam_id,
                 e_src.name AS source_exam_name,
-                ps.session_name AS source_session_name,
+                ps.session_label AS source_session_name,
                 es_slot.code AS slot_section_code,
                 es_slot.name AS slot_section_name
             FROM mock_test_question mtq

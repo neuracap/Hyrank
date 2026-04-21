@@ -82,7 +82,7 @@ export async function POST(req, { params }) {
                 qv.paper_session_id,
                 es.exam_id AS source_exam_id,
                 e_src.name AS source_exam_name,
-                ps.session_name AS source_session_name
+                ps.session_label AS source_session_name
             FROM question_version qv
             JOIN exam_section es ON es.section_id = qv.exam_section_id
             LEFT JOIN exam e_src ON e_src.exam_id = es.exam_id
