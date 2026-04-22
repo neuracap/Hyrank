@@ -273,45 +273,59 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds }) {
     );
 }
 
-// ─── Right: Accepted + Edit panel ─────────────────────────────────────────────
+// ─── Right: Accepted — scrollable list with inline edit ───────────────────────
 function AcceptedPanel({ mockTestId, sections, accepted, onRemoved, onUpdated }) {
-    const [selectedId, setSelectedId]   = useState(null);
-    const [editState, setEditState]     = useState(null);
-    const [saving, setSaving]           = useState(false);
-    const [removing, setRemoving]       = useState(null);
+    const [expandedId, setExpandedId] = useState(null);
+    const [editStates, setEditStates] = useState({});   // question_id → edit fields
+    const [saving, setSaving]         = useState(null); // question_id currently saving
+    const [removing, setRemoving]     = useState(null);
 
-    // Open the most recently accepted question automatically
+    // Auto-expand the most recently accepted question
     useEffect(() => {
-        if (accepted.length > 0 && !selectedId) {
-            openQuestion(accepted[accepted.length - 1]);
+        if (accepted.length > 0) {
+            const last = accepted[accepted.length - 1];
+            if (!editStates[last.question_id]) initEdit(last);
+            setExpandedId(last.question_id);
         }
-    }, [accepted.length]);
+    }, [accepted.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    function openQuestion(q) {
+    function initEdit(q) {
         const merged = normaliseQ(q);
-        setSelectedId(q.question_id);
-        setEditState({
-            question_text:   merged.question_text   || '',
-            options:         (merged.options || []).map(o => ({ key: o.option_key, text: o.text || '' })),
-            correct_option:  merged.correct_option_label || '',
-            solution_text:   merged.solution_text    || '',
-            difficulty:      merged.difficulty       || null,
-        });
+        setEditStates(prev => ({
+            ...prev,
+            [q.question_id]: {
+                question_text:  merged.question_text  || '',
+                options:        (merged.options || []).map(o => ({ key: o.option_key, text: o.text || '' })),
+                correct_option: merged.correct_option_label || '',
+                solution_text:  merged.solution_text  || '',
+                difficulty:     merged.difficulty     || null,
+            },
+        }));
     }
 
-    const handleSave = async () => {
-        if (!selectedId || !editState) return;
-        setSaving(true);
+    const toggleExpand = (q) => {
+        if (expandedId === q.question_id) { setExpandedId(null); return; }
+        if (!editStates[q.question_id]) initEdit(q);
+        setExpandedId(q.question_id);
+    };
+
+    const setField = (qId, patch) =>
+        setEditStates(prev => ({ ...prev, [qId]: { ...prev[qId], ...patch } }));
+
+    const handleSave = async (questionId) => {
+        const es = editStates[questionId];
+        if (!es) return;
+        setSaving(questionId);
         try {
             const res = await fetch('/api/mock-test/builder/override', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mock_test_id: mockTestId, question_id: selectedId, ...editState }),
+                body: JSON.stringify({ mock_test_id: mockTestId, question_id: questionId, ...es }),
             });
             const data = await res.json();
             if (!res.ok) { alert(data.error || 'Save failed'); return; }
-            onUpdated(selectedId, editState);
-        } finally { setSaving(false); }
+            onUpdated(questionId, es);
+        } finally { setSaving(null); }
     };
 
     const handleRemove = async (questionId) => {
@@ -324,149 +338,150 @@ function AcceptedPanel({ mockTestId, sections, accepted, onRemoved, onUpdated })
                 body: JSON.stringify({ mock_test_id: mockTestId, question_id: questionId }),
             });
             if (res.ok) {
-                if (selectedId === questionId) { setSelectedId(null); setEditState(null); }
+                if (expandedId === questionId) setExpandedId(null);
+                setEditStates(prev => { const n = { ...prev }; delete n[questionId]; return n; });
                 onRemoved(questionId);
             } else alert('Failed to remove');
         } finally { setRemoving(null); }
     };
 
-    const selectedQ = accepted.find(q => q.question_id === selectedId);
-
-    // Group accepted by section
-    const bySectionId = accepted.reduce((acc, q) => {
-        const sid = q.exam_section_id || q.section_id || 'unknown';
-        if (!acc[sid]) acc[sid] = [];
-        acc[sid].push(q);
-        return acc;
-    }, {});
+    if (accepted.length === 0) {
+        return (
+            <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
+                Accept a question to see it here
+            </div>
+        );
+    }
 
     return (
-        <div className="flex flex-col h-full">
-            {/* Accepted question pills — grouped by section */}
-            <div className="border-b border-gray-100 px-3 py-2 overflow-x-auto">
-                {accepted.length === 0 ? (
-                    <span className="text-xs text-gray-400">No questions accepted yet</span>
-                ) : (
-                    <div className="flex flex-wrap gap-1.5">
-                        {accepted.map((q, i) => {
-                            const merged = normaliseQ(q);
-                            const diff = DIFF.find(d => d.value === (merged.difficulty));
-                            return (
-                                <button key={q.question_id}
-                                    onClick={() => openQuestion(q)}
-                                    className={`text-[11px] font-semibold px-2 py-1 rounded border transition-colors ${
-                                        selectedId === q.question_id
-                                            ? 'bg-indigo-600 text-white border-indigo-600'
-                                            : diff ? `${diff.cls} hover:opacity-80` : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'
-                                    }`}
-                                    title={merged.question_text?.substring(0, 80)}
-                                >
-                                    {i + 1}
-                                </button>
-                            );
-                        })}
-                    </div>
-                )}
-            </div>
+        <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
+            {accepted.map((q, i) => {
+                const merged   = normaliseQ(q);
+                const isOpen   = expandedId === q.question_id;
+                const es       = editStates[q.question_id];
+                const diff     = DIFF.find(d => d.value === merged.difficulty);
+                const section  = sections.find(s => s.section_id === (q.exam_section_id || q.section_id));
 
-            {/* Edit form */}
-            {!editState ? (
-                <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
-                    {accepted.length === 0 ? 'Accept a question to edit it here' : 'Select a question above'}
-                </div>
-            ) : (
-                <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-                    {/* Source + section info */}
-                    {selectedQ && (
-                        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
-                            <span className="font-medium text-gray-600">
-                                {sections.find(s => s.section_id === (selectedQ.exam_section_id || selectedQ.section_id))?.code || 'Section'}
-                            </span>
-                            <span>·</span>
-                            <span>From {selectedQ.source_exam} · {selectedQ.source_session}</span>
-                            <button onClick={() => handleRemove(selectedQ.question_id)}
-                                disabled={removing === selectedQ.question_id}
-                                className="ml-auto text-red-400 hover:text-red-600 text-xs disabled:opacity-50">
-                                Remove
-                            </button>
-                        </div>
-                    )}
-
-                    {/* Difficulty */}
-                    <div>
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Difficulty</label>
-                        <div className="flex gap-2">
-                            {DIFF.map(d => (
-                                <button key={d.value}
-                                    onClick={() => setEditState(s => ({ ...s, difficulty: d.value }))}
-                                    className={`px-3 py-1.5 rounded border text-xs font-semibold transition-colors ${
-                                        editState.difficulty === d.value ? d.cls + ' ring-2 ring-offset-1 ring-current' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
-                                    }`}>
-                                    {d.label}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Question text */}
-                    <div>
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Question</label>
-                        <textarea
-                            value={editState.question_text}
-                            onChange={e => setEditState(s => ({ ...s, question_text: e.target.value }))}
-                            rows={4}
-                            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-y font-mono"
-                        />
-                    </div>
-
-                    {/* Options */}
-                    <div>
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Options</label>
-                        <div className="space-y-2">
-                            {editState.options.map((opt, i) => (
-                                <div key={opt.key} className="flex items-center gap-2">
-                                    <button
-                                        onClick={() => setEditState(s => ({ ...s, correct_option: opt.key }))}
-                                        className={`shrink-0 w-6 h-6 rounded-full border-2 text-xs font-bold transition-colors ${
-                                            editState.correct_option === opt.key
-                                                ? 'bg-green-500 border-green-500 text-white'
-                                                : 'border-gray-300 text-gray-400 hover:border-green-400'
-                                        }`}
-                                        title="Mark as correct">
-                                        {opt.key}
-                                    </button>
-                                    <input
-                                        type="text"
-                                        value={opt.text}
-                                        onChange={e => setEditState(s => ({
-                                            ...s,
-                                            options: s.options.map((o, j) => j === i ? { ...o, text: e.target.value } : o)
-                                        }))}
-                                        className="flex-1 text-sm border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                                    />
+                return (
+                    <div key={q.question_id} className={isOpen ? 'bg-indigo-50/40' : ''}>
+                        {/* ── Collapsed row (always visible) ── */}
+                        <div
+                            className="px-4 py-3 flex items-start gap-3 cursor-pointer hover:bg-gray-50 transition-colors"
+                            onClick={() => toggleExpand(q)}
+                        >
+                            <span className="text-xs font-bold text-gray-400 w-5 shrink-0 pt-0.5">{i + 1}</span>
+                            <div className="flex-1 min-w-0">
+                                <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                                    {section && (
+                                        <span className="text-[10px] font-semibold px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">
+                                            {section.code}
+                                        </span>
+                                    )}
+                                    {merged.subtype && (
+                                        <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-600 border border-blue-100 rounded">
+                                            {merged.subtype}
+                                        </span>
+                                    )}
+                                    {diff && (
+                                        <span className={`text-[10px] px-1.5 py-0.5 rounded border ${diff.cls}`}>
+                                            {diff.label}
+                                        </span>
+                                    )}
+                                    {q.source_exam && (
+                                        <span className="text-[10px] text-gray-400">
+                                            {q.source_exam_code || q.source_exam}
+                                        </span>
+                                    )}
                                 </div>
-                            ))}
+                                <p className="text-xs text-gray-700 leading-relaxed line-clamp-2">
+                                    {merged.question_text || '—'}
+                                </p>
+                            </div>
+                            <span className="text-gray-300 text-[10px] shrink-0 pt-1">{isOpen ? '▲' : '▼'}</span>
                         </div>
-                    </div>
 
-                    {/* Solution */}
-                    <div>
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Solution</label>
-                        <textarea
-                            value={editState.solution_text}
-                            onChange={e => setEditState(s => ({ ...s, solution_text: e.target.value }))}
-                            rows={4}
-                            placeholder="Explain the solution..."
-                            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-y"
-                        />
-                    </div>
+                        {/* ── Expanded inline edit form ── */}
+                        {isOpen && es && (
+                            <div className="px-4 pb-5 space-y-4 border-t border-indigo-100">
+                                {/* Meta row */}
+                                <div className="flex items-center gap-2 pt-3 text-xs text-gray-400">
+                                    <span>From {q.source_exam} · {q.source_session}</span>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); handleRemove(q.question_id); }}
+                                        disabled={removing === q.question_id}
+                                        className="ml-auto text-red-400 hover:text-red-600 disabled:opacity-50">
+                                        Remove
+                                    </button>
+                                </div>
 
-                    <button onClick={handleSave} disabled={saving}
-                        className="w-full py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 disabled:opacity-50">
-                        {saving ? 'Saving...' : 'Save Changes'}
-                    </button>
-                </div>
-            )}
+                                {/* Difficulty */}
+                                <div className="flex gap-2">
+                                    {DIFF.map(d => (
+                                        <button key={d.value}
+                                            onClick={() => setField(q.question_id, { difficulty: d.value })}
+                                            className={`px-3 py-1.5 rounded border text-xs font-semibold transition-colors ${
+                                                es.difficulty === d.value
+                                                    ? d.cls + ' ring-2 ring-offset-1 ring-current'
+                                                    : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                                            }`}>
+                                            {d.label}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {/* Question text */}
+                                <textarea
+                                    value={es.question_text}
+                                    onChange={e => setField(q.question_id, { question_text: e.target.value })}
+                                    rows={3}
+                                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-y font-mono"
+                                />
+
+                                {/* Options */}
+                                <div className="space-y-1.5">
+                                    {es.options.map((opt, oi) => (
+                                        <div key={opt.key} className="flex items-center gap-2">
+                                            <button
+                                                onClick={() => setField(q.question_id, { correct_option: opt.key })}
+                                                className={`shrink-0 w-6 h-6 rounded-full border-2 text-xs font-bold transition-colors ${
+                                                    es.correct_option === opt.key
+                                                        ? 'bg-green-500 border-green-500 text-white'
+                                                        : 'border-gray-300 text-gray-400 hover:border-green-400'
+                                                }`}>
+                                                {opt.key}
+                                            </button>
+                                            <input
+                                                type="text"
+                                                value={opt.text}
+                                                onChange={e => setField(q.question_id, {
+                                                    options: es.options.map((o, j) => j === oi ? { ...o, text: e.target.value } : o),
+                                                })}
+                                                className="flex-1 text-sm border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Solution */}
+                                <textarea
+                                    value={es.solution_text}
+                                    onChange={e => setField(q.question_id, { solution_text: e.target.value })}
+                                    rows={3}
+                                    placeholder="Solution explanation..."
+                                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-y"
+                                />
+
+                                <button
+                                    onClick={() => handleSave(q.question_id)}
+                                    disabled={saving === q.question_id}
+                                    className="w-full py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 disabled:opacity-50">
+                                    {saving === q.question_id ? 'Saving...' : 'Save Changes'}
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
         </div>
     );
 }
