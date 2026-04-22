@@ -37,12 +37,12 @@ function BlueprintList({ blueprints, selectedId, onSelect, onNew }) {
 }
 
 // ─── Slot row inside a section card ──────────────────────────────────────────
-function SlotRow({ slot, subtypeOptions, onChange, onRemove }) {
+function SlotRow({ slot, listId, onChange, onRemove }) {
     return (
         <div className="flex items-center gap-2 py-1.5">
             <input
                 type="text"
-                list="subtype-options"
+                list={listId}
                 value={slot.subtype}
                 onChange={e => onChange({ ...slot, subtype: e.target.value })}
                 placeholder="Subtype..."
@@ -70,11 +70,22 @@ function SlotRow({ slot, subtypeOptions, onChange, onRemove }) {
 }
 
 // ─── Section card with its slots ─────────────────────────────────────────────
-function SectionCard({ section, slots, subtypeOptions, onChange }) {
-    const total = slots.reduce((a, s) => a + (s.count || 0), 0);
+function SectionCard({ section, slots, onChange }) {
+    const [subtypeOptions, setSubtypeOptions] = useState([]);
+
+    // Fetch subtypes specific to this section on mount
+    useEffect(() => {
+        fetch(`/api/mock-blueprint/subtypes?section_id=${section.section_id}`)
+            .then(r => r.json())
+            .then(d => setSubtypeOptions(d.subtypes || []))
+            .catch(() => {});
+    }, [section.section_id]);
+
+    const listId = `subtypes-${section.section_id}`;
+    const total  = slots.reduce((a, s) => a + (s.count || 0), 0);
     const target = section.num_questions || 0;
 
-    const addSlot = () => onChange([...slots, { subtype: '', count: 5, difficulty: null }]);
+    const addSlot    = () => onChange([...slots, { subtype: '', count: 5, difficulty: null }]);
     const updateSlot = (i, updated) => onChange(slots.map((s, j) => j === i ? updated : s));
     const removeSlot = (i) => onChange(slots.filter((_, j) => j !== i));
 
@@ -99,8 +110,8 @@ function SectionCard({ section, slots, subtypeOptions, onChange }) {
                     </button>
                 </div>
             </div>
-            {/* datalist for subtype autocomplete */}
-            <datalist id="subtype-options">
+            {/* Per-section datalist so autocomplete is scoped correctly */}
+            <datalist id={listId}>
                 {subtypeOptions.map(s => <option key={s.subtype} value={s.subtype}>{s.subtype} ({s.cnt})</option>)}
             </datalist>
             <div className="px-4 py-2">
@@ -108,7 +119,7 @@ function SectionCard({ section, slots, subtypeOptions, onChange }) {
                     <p className="text-xs text-gray-400 py-2 text-center">No slots yet — click + Slot to add</p>
                 )}
                 {slots.map((slot, i) => (
-                    <SlotRow key={i} slot={slot} subtypeOptions={subtypeOptions}
+                    <SlotRow key={i} slot={slot} listId={listId}
                         onChange={u => updateSlot(i, u)}
                         onRemove={() => removeSlot(i)} />
                 ))}
@@ -123,7 +134,6 @@ function BlueprintEditorPanel({ exams, blueprint, onSaved, onNew }) {
     const [examId, setExamId]   = useState('');
     const [sections, setSections] = useState([]); // exam sections
     const [slotsBySection, setSlotsBySection] = useState({}); // section_id → slots[]
-    const [subtypeOptions, setSubtypeOptions] = useState([]);
     const [saving, setSaving]   = useState(false);
     const [msg, setMsg]         = useState(null);
 
@@ -159,15 +169,6 @@ function BlueprintEditorPanel({ exams, blueprint, onSaved, onNew }) {
         const exam = exams.find(e => e.exam_id === examId);
         setSections(exam?.sections || []);
     }, [examId, exams]);
-
-    // Load pool subtypes when exam changes
-    useEffect(() => {
-        if (!examId) return;
-        fetch(`/api/mock-blueprint/subtypes?exam_id=${examId}`)
-            .then(r => r.json())
-            .then(d => setSubtypeOptions(d.subtypes || []))
-            .catch(() => {});
-    }, [examId]);
 
     const handleSave = async () => {
         if (!name.trim() || !examId) {
@@ -253,7 +254,6 @@ function BlueprintEditorPanel({ exams, blueprint, onSaved, onNew }) {
                         key={s.section_id}
                         section={s}
                         slots={slotsBySection[s.section_id] || []}
-                        subtypeOptions={subtypeOptions}
                         onChange={updated => setSlotsBySection(prev => ({ ...prev, [s.section_id]: updated }))}
                     />
                 ))}
