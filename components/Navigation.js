@@ -171,15 +171,16 @@ export default function Navigation({ user }) {
                             )}
 
                             {user?.isAdmin && (
-                                <Link
-                                    href="/mock-tests"
-                                    className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${isActive('/mock-tests')
-                                        ? 'border-emerald-500 text-gray-900'
-                                        : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                                        }`}
-                                >
-                                    Mock Tests
-                                </Link>
+                                <NavDropdown
+                                    label="Mock"
+                                    items={[
+                                        { href: '/mock-tests',          label: 'Mock Tests' },
+                                        { href: '/mock-blueprint',      label: 'Blueprint Editor' },
+                                        { href: '/mock-test-builder',   label: 'Mock Builder' },
+                                        { href: '/section-test-builder', label: 'Section Builder' },
+                                    ]}
+                                    pathname={pathname}
+                                />
                             )}
 
                             {user?.isAdmin && (

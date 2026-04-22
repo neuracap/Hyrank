@@ -79,9 +79,8 @@ export async function GET(req) {
         }));
 
         // Available subtypes across all OTHER exams (for cross-exam filtering)
-        const subtypeFilter = exam_id
-            ? `AND ps.exam_id != '${exam_id}'`
-            : '';
+        const subtypeParams = exam_id ? [exam_id] : [];
+        const subtypeFilter = exam_id ? `AND ps.exam_id != $1` : '';
         const subtypesRes = await db.query(`
             SELECT DISTINCT qv.subtype, COUNT(*) AS cnt
             FROM question_version qv
@@ -92,7 +91,7 @@ export async function GET(req) {
               ${subtypeFilter}
             GROUP BY qv.subtype
             ORDER BY qv.subtype ASC
-        `);
+        `, subtypeParams);
 
         return NextResponse.json({
             accepted,

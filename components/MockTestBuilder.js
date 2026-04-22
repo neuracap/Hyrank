@@ -36,6 +36,10 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds }) {
     const [seenIds, setSeenIds]             = useState([]);
     const [sectionId, setSectionId]         = useState('');
     const [sections, setSections]           = useState([]);
+    // Blueprint bulk-load
+    const [blueprints, setBlueprints]       = useState([]);
+    const [bulkQueue, setBulkQueue]         = useState([]); // pre-loaded questions
+    const [bulkLoading, setBulkLoading]     = useState(false);
 
     // Load sections for the target exam (to know where to slot the question)
     useEffect(() => {
@@ -46,6 +50,11 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds }) {
                 setSections(d.sections || []);
                 setSectionId(d.sections?.[0]?.section_id || '');
             })
+            .catch(() => {});
+        // Load blueprints for this exam
+        fetch(`/api/mock-test/blueprint/list?exam_id=${targetExamId}`)
+            .then(r => r.json())
+            .then(d => setBlueprints(d.blueprints || []))
             .catch(() => {});
     }, [targetExamId, mockTestId]);
 
@@ -92,6 +101,43 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds }) {
         finally { setLoading(false); }
     }, [targetExamId, mockTestId, subtype, seenIds, acceptedIds]);
 
+    // Load all candidates for a blueprint section in one shot
+    const handleLoadBlueprint = async (blueprintId, targetSectionId) => {
+        const bp = blueprints.find(b => b.blueprint_id === blueprintId);
+        if (!bp) return;
+        const section = (bp.config_json?.sections || []).find(s => s.section_id === targetSectionId);
+        if (!section?.topic_slots?.length) { alert('No slots defined for this section in the blueprint'); return; }
+        setBulkLoading(true);
+        try {
+            const res = await fetch('/api/mock-test/builder/bulk-candidates', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    mock_test_id: mockTestId,
+                    target_exam_id: targetExamId,
+                    slots: section.topic_slots.map(t => ({ subtype: t.subtype, count: t.count, difficulty: t.difficulty || undefined })),
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok) { alert(data.error || 'Load failed'); return; }
+            const allQ = data.results.flatMap(r => r.questions.map(q => ({ ...q, _targetSection: targetSectionId })));
+            setBulkQueue(allQ);
+            if (allQ.length > 0) {
+                setQuestion(allQ[0]);
+                setSectionId(targetSectionId);
+                setSeenIds(allQ.map(q => q.question_id));
+            }
+        } finally { setBulkLoading(false); }
+    };
+
+    // Advance bulk queue to next
+    const advanceBulkQueue = () => {
+        if (bulkQueue.length <= 1) { setBulkQueue([]); setQuestion(null); setDone(true); return; }
+        const [, ...rest] = bulkQueue;
+        setBulkQueue(rest);
+        setQuestion(rest[0]);
+    };
+
     const handleAccept = async () => {
         if (!question || !sectionId) { alert('Select a section first'); return; }
         setAccepting(true);
@@ -105,7 +151,8 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds }) {
             if (!res.ok) { alert(data.error || 'Failed to accept'); return; }
             // Use the new copied question_id returned by the API
             onAccepted({ ...question, question_id: data.new_question_id, section_id: sectionId, exam_section_id: sectionId });
-            fetchNext([question.question_id]);
+            if (bulkQueue.length > 0) advanceBulkQueue();
+            else fetchNext([question.question_id]);
         } finally { setAccepting(false); }
     };
 
@@ -115,22 +162,36 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds }) {
             <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 border-b border-gray-100 bg-gray-50">
                 <div className="flex items-center gap-2">
                     <span className="text-xs text-gray-500">Section</span>
-                    <select value={sectionId} onChange={e => setSectionId(e.target.value)}
+                    <select value={sectionId} onChange={e => { setSectionId(e.target.value); setBulkQueue([]); }}
                         className="text-xs border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
                         {sections.map(s => <option key={s.section_id} value={s.section_id}>{s.code}</option>)}
                     </select>
                 </div>
                 <div className="flex items-center gap-2">
                     <span className="text-xs text-gray-500">Subtype</span>
-                    <select value={subtype} onChange={e => setSubtype(e.target.value)}
+                    <select value={subtype} onChange={e => { setSubtype(e.target.value); setBulkQueue([]); }}
                         className="text-xs border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
                         <option value="">All</option>
                         {subtypes.map(s => <option key={s.subtype} value={s.subtype}>{s.subtype} ({s.cnt})</option>)}
                     </select>
                 </div>
-                {poolRemaining !== null && (
+                {blueprints.length > 0 && sectionId && (
+                    <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-gray-500">Blueprint</span>
+                        <select defaultValue="" onChange={e => e.target.value && handleLoadBlueprint(e.target.value, sectionId)}
+                            className="text-xs border border-indigo-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400 text-indigo-700">
+                            <option value="">Load...</option>
+                            {blueprints.map(b => <option key={b.blueprint_id} value={b.blueprint_id}>{b.name}</option>)}
+                        </select>
+                        {bulkQueue.length > 0 && (
+                            <span className="text-xs text-indigo-600 font-semibold">{bulkQueue.length} queued</span>
+                        )}
+                    </div>
+                )}
+                {poolRemaining !== null && !bulkQueue.length && (
                     <span className="ml-auto text-xs text-gray-400">{poolRemaining} in pool</span>
                 )}
+                {bulkLoading && <span className="ml-auto text-xs text-indigo-400 animate-pulse">Loading blueprint...</span>}
             </div>
 
             {/* Question area */}
@@ -202,7 +263,7 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds }) {
                         className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 disabled:opacity-50">
                         {accepting ? 'Adding...' : '✓ Accept'}
                     </button>
-                    <button onClick={() => fetchNext()} disabled={loading}
+                    <button onClick={() => bulkQueue.length > 0 ? advanceBulkQueue() : fetchNext()} disabled={loading}
                         className="flex-1 py-2.5 bg-white text-gray-700 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50">
                         → Skip
                     </button>
@@ -411,7 +472,7 @@ function AcceptedPanel({ mockTestId, sections, accepted, onRemoved, onUpdated })
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
-export default function MockTestBuilder({ mockTests, exams }) {
+export default function MockTestBuilder({ mockTests, exams, testType = 'MOCK' }) {
     const [selectedMockTestId, setSelectedMockTestId] = useState(mockTests[0]?.mock_test_id || '');
     const [accepted, setAccepted]     = useState([]);
     const [sections, setSections]     = useState([]);
@@ -462,7 +523,7 @@ export default function MockTestBuilder({ mockTests, exams }) {
             const res = await fetch('/api/mock-test/create', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: newTestName.trim(), exam_id: newTestExamId }),
+                body: JSON.stringify({ name: newTestName.trim(), exam_id: newTestExamId, type: testType }),
             });
             const data = await res.json();
             if (!res.ok) { alert(data.error || 'Failed to create'); return; }
@@ -476,7 +537,9 @@ export default function MockTestBuilder({ mockTests, exams }) {
         <div className="flex flex-col h-screen bg-gray-50">
             {/* Top bar */}
             <div className="bg-white border-b border-gray-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
-                <h1 className="text-sm font-bold text-gray-900 shrink-0">Mock Test Builder</h1>
+                <h1 className="text-sm font-bold text-gray-900 shrink-0">
+                {testType === 'SECTION' ? 'Section Test Builder' : 'Mock Test Builder'}
+            </h1>
                 <select value={selectedMockTestId} onChange={e => setSelectedMockTestId(e.target.value)}
                     className="text-sm border border-gray-200 rounded px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400 max-w-xs">
                     {mockTests.length === 0 && <option value="">No draft tests — create one →</option>}

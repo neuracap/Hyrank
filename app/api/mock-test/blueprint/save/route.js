@@ -31,8 +31,8 @@ export async function POST(req) {
         } else {
             // Create new
             const res = await db.query(`
-                INSERT INTO mock_blueprint (exam_id, name, config_json, created_at, updated_at)
-                VALUES ($1, $2, $3, NOW(), NOW())
+                INSERT INTO mock_blueprint (exam_id, name, config_json, is_active, created_at, updated_at)
+                VALUES ($1, $2, $3, true, NOW(), NOW())
                 RETURNING blueprint_id
             `, [exam_id, name, JSON.stringify(config_json)]);
 
