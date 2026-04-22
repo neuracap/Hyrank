@@ -47,8 +47,7 @@ export async function GET(req) {
                 e.name                  AS source_exam,
                 mtq.exam_section_id,
                 mtq.position,
-                mtq.slot_difficulty,
-                mtq.override_json
+                mtq.slot_difficulty
             FROM mock_test_question mtq
             JOIN question_version qv ON qv.question_id = mtq.question_id AND qv.language = 'EN'
             JOIN paper_session ps ON ps.paper_session_id = qv.paper_session_id

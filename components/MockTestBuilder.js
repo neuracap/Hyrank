@@ -14,17 +14,13 @@ function formatDate(d) {
     return new Date(d).toLocaleDateString('en-IN', { year: 'numeric', month: 'short' });
 }
 
-// Merge original question data with any saved overrides
-function mergeOverride(q) {
+// Normalise a question for the edit form — solution_text may be nested in solution_json
+function normaliseQ(q) {
     if (!q) return q;
-    const ov = q.override_json || {};
     return {
         ...q,
-        question_text:        ov.question_text    ?? q.question_text,
-        options:              ov.options           ? q.options.map(o => ({ ...o, text: ov.options.find(x => x.key === o.option_key)?.text ?? o.text })) : q.options,
-        correct_option_label: ov.correct_option    ?? q.correct_option_label,
-        solution_text:        ov.solution_text     ?? (q.solution_json?.solution_text ?? q.solution_json?.explanation ?? ''),
-        difficulty:           ov.difficulty        ?? q.slot_difficulty ?? q.difficulty,
+        solution_text: q.solution_json?.solution_text ?? q.solution_json?.explanation ?? '',
+        difficulty:    q.slot_difficulty ?? q.difficulty,
     };
 }
 
@@ -103,11 +99,12 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds }) {
             const res = await fetch('/api/mock-test/builder/accept', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mock_test_id: mockTestId, question_id: question.question_id, section_id: sectionId }),
+                body: JSON.stringify({ mock_test_id: mockTestId, source_question_id: question.question_id, section_id: sectionId }),
             });
             const data = await res.json();
             if (!res.ok) { alert(data.error || 'Failed to accept'); return; }
-            onAccepted({ ...question, section_id: sectionId });
+            // Use the new copied question_id returned by the API
+            onAccepted({ ...question, question_id: data.new_question_id, section_id: sectionId, exam_section_id: sectionId });
             fetchNext([question.question_id]);
         } finally { setAccepting(false); }
     };
@@ -230,7 +227,7 @@ function AcceptedPanel({ mockTestId, sections, accepted, onRemoved, onUpdated })
     }, [accepted.length]);
 
     function openQuestion(q) {
-        const merged = mergeOverride(q);
+        const merged = normaliseQ(q);
         setSelectedId(q.question_id);
         setEditState({
             question_text:   merged.question_text   || '',
@@ -291,7 +288,7 @@ function AcceptedPanel({ mockTestId, sections, accepted, onRemoved, onUpdated })
                 ) : (
                     <div className="flex flex-wrap gap-1.5">
                         {accepted.map((q, i) => {
-                            const merged = mergeOverride(q);
+                            const merged = normaliseQ(q);
                             const diff = DIFF.find(d => d.value === (merged.difficulty));
                             return (
                                 <button key={q.question_id}
@@ -453,7 +450,7 @@ export default function MockTestBuilder({ mockTests, exams }) {
 
     const handleUpdated = (questionId, edits) => {
         setAccepted(prev => prev.map(q => q.question_id === questionId
-            ? { ...q, override_json: edits }
+            ? { ...q, ...edits, solution_json: { ...(q.solution_json || {}), solution_text: edits.solution_text } }
             : q
         ));
     };
