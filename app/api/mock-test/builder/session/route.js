@@ -4,10 +4,9 @@ import { NextResponse } from 'next/server';
 
 /**
  * GET /api/mock-test/builder/session
- * Load builder session data for a mock test + section:
- *   - Already accepted questions for the section (with text)
- *   - Available subtypes in the candidate pool for this section
- * Params: mock_test_id, section_id, exam_id
+ * Load builder session data for a mock test + section.
+ * Returns accepted questions (with options + solution + overrides) and available subtypes.
+ * Params: mock_test_id, section_id, exam_id (exam_id used for subtype pool)
  */
 export async function GET(req) {
     const user = await getCurrentUser();
@@ -20,12 +19,18 @@ export async function GET(req) {
     const section_id   = searchParams.get('section_id');
     const exam_id      = searchParams.get('exam_id');
 
-    if (!mock_test_id || !section_id || !exam_id) {
-        return NextResponse.json({ error: 'mock_test_id, section_id, exam_id are required' }, { status: 400 });
+    if (!mock_test_id) {
+        return NextResponse.json({ error: 'mock_test_id is required' }, { status: 400 });
     }
 
     try {
-        // 1. Accepted questions for this section
+        // Accepted questions with full data + overrides
+        // section_id='all' or '_' means load all sections for this mock test
+        const sectionFilter = (section_id && section_id !== 'all' && section_id !== '_')
+            ? 'AND mtq.exam_section_id = $2'
+            : '';
+        const params = sectionFilter ? [mock_test_id, section_id] : [mock_test_id];
+
         const acceptedRes = await db.query(`
             SELECT
                 qv.question_id,
@@ -36,31 +41,62 @@ export async function GET(req) {
                 qv.correct_option_label,
                 qv.body_json->>'text'   AS question_text,
                 qv.source_question_no,
+                qv.solution_json,
                 ps.session_label        AS source_session,
                 ps.paper_date           AS source_date,
-                mtq.position
+                e.name                  AS source_exam,
+                mtq.exam_section_id,
+                mtq.position,
+                mtq.slot_difficulty,
+                mtq.override_json
             FROM mock_test_question mtq
             JOIN question_version qv ON qv.question_id = mtq.question_id AND qv.language = 'EN'
             JOIN paper_session ps ON ps.paper_session_id = qv.paper_session_id
+            JOIN exam e ON e.exam_id = ps.exam_id
             WHERE mtq.mock_test_id = $1
-              AND mtq.exam_section_id = $2
+              ${sectionFilter}
             ORDER BY mtq.position ASC
-        `, [mock_test_id, section_id]);
+        `, params);
 
-        // 2. Available subtypes in the pool for this section
+        // Fetch options for all accepted questions
+        const questionIds = acceptedRes.rows.map(r => r.question_id);
+        let optsByQuestion = {};
+        if (questionIds.length > 0) {
+            const optsRes = await db.query(`
+                SELECT question_id, option_key, option_json->>'text' AS text, is_correct
+                FROM question_option
+                WHERE question_id = ANY($1) AND language = 'EN'
+                ORDER BY option_key ASC
+            `, [questionIds]);
+            for (const o of optsRes.rows) {
+                if (!optsByQuestion[o.question_id]) optsByQuestion[o.question_id] = [];
+                optsByQuestion[o.question_id].push(o);
+            }
+        }
+
+        const accepted = acceptedRes.rows.map(q => ({
+            ...q,
+            options: optsByQuestion[q.question_id] || [],
+        }));
+
+        // Available subtypes across all OTHER exams (for cross-exam filtering)
+        const subtypeFilter = exam_id
+            ? `AND ps.exam_id != '${exam_id}'`
+            : '';
         const subtypesRes = await db.query(`
             SELECT DISTINCT qv.subtype, COUNT(*) AS cnt
             FROM question_version qv
-            WHERE qv.exam_section_id = $1
-              AND qv.language = 'EN'
+            JOIN paper_session ps ON ps.paper_session_id = qv.paper_session_id
+            WHERE qv.language = 'EN'
               AND qv.status = 'MANUALLY_CORRECTED'
               AND qv.subtype IS NOT NULL
+              ${subtypeFilter}
             GROUP BY qv.subtype
             ORDER BY qv.subtype ASC
-        `, [section_id]);
+        `);
 
         return NextResponse.json({
-            accepted: acceptedRes.rows,
+            accepted,
             subtypes: subtypesRes.rows,
         });
 

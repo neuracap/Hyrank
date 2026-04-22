@@ -4,15 +4,16 @@ import { NextResponse } from 'next/server';
 
 /**
  * POST /api/mock-test/builder/candidate
- * Fetch the next candidate question for the builder.
+ * Fetch the next candidate question from OTHER exams (cross-exam sourcing).
+ * Subtype is the primary quality filter — candidates come from any exam
+ * except the one being built.
+ *
  * Body: {
- *   mock_test_id,      — to exclude questions already accepted in this mock test
- *   section_id,        — exam_section to draw from
- *   exam_id,           — to exclude questions used in other mocks for this exam
- *   subtype?,          — optional subtype filter
- *   exclude_ids?,      — array of question_ids already seen/skipped this session
+ *   mock_test_id,   — to exclude questions already accepted in THIS mock test
+ *   target_exam_id, — the exam we're building for (excluded from candidates)
+ *   subtype?,       — primary filter; if omitted, draws from all subtypes
+ *   exclude_ids?,   — question_ids already seen/skipped this session
  * }
- * Returns: { question, pool_remaining } or { done: true }
  */
 export async function POST(req) {
     const user = await getCurrentUser();
@@ -25,36 +26,25 @@ export async function POST(req) {
         return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
-    const { mock_test_id, section_id, exam_id, subtype, exclude_ids = [] } = body;
-    if (!section_id || !exam_id) {
-        return NextResponse.json({ error: 'section_id and exam_id are required' }, { status: 400 });
+    const { mock_test_id, target_exam_id, subtype, exclude_ids = [] } = body;
+    if (!target_exam_id) {
+        return NextResponse.json({ error: 'target_exam_id is required' }, { status: 400 });
     }
 
     try {
-        // Question IDs already accepted in any mock test for this exam
-        const usedRes = await db.query(`
-            SELECT DISTINCT mtq.question_id
-            FROM mock_test_question mtq
-            JOIN mock_test mt ON mt.mock_test_id = mtq.mock_test_id
-            WHERE mt.exam_id = $1
-        `, [exam_id]);
-        const usedIds = usedRes.rows.map(r => r.question_id);
+        // IDs already accepted in this mock test
+        const acceptedRes = await db.query(`
+            SELECT question_id FROM mock_test_question WHERE mock_test_id = $1
+        `, [mock_test_id || '00000000-0000-0000-0000-000000000000']);
+        const acceptedIds = acceptedRes.rows.map(r => r.question_id);
 
-        // Also exclude from question_usage (previously published)
-        const publishedRes = await db.query(`
-            SELECT DISTINCT question_id FROM question_usage WHERE exam_id = $1
-        `, [exam_id]);
-        for (const r of publishedRes.rows) usedIds.push(r.question_id);
-
-        // Combine all excluded IDs
-        const allExcluded = [...new Set([...usedIds, ...exclude_ids])];
+        const allExcluded = [...new Set([...acceptedIds, ...exclude_ids])];
 
         const subtypeClause = subtype ? `AND qv.subtype = $3` : '';
         const params = subtype
-            ? [section_id, allExcluded, subtype]
-            : [section_id, allExcluded];
+            ? [target_exam_id, allExcluded, subtype]
+            : [target_exam_id, allExcluded];
 
-        // Fetch one random candidate
         const res = await db.query(`
             SELECT
                 qv.question_id,
@@ -65,12 +55,15 @@ export async function POST(req) {
                 qv.correct_option_label,
                 qv.body_json->>'text'   AS question_text,
                 qv.source_question_no,
+                qv.solution_json,
                 ps.session_label        AS source_session,
                 ps.paper_date           AS source_date,
-                ps.paper_session_id     AS source_paper_id
+                e.name                  AS source_exam,
+                e.code                  AS source_exam_code
             FROM question_version qv
             JOIN paper_session ps ON ps.paper_session_id = qv.paper_session_id
-            WHERE qv.exam_section_id = $1
+            JOIN exam e ON e.exam_id = ps.exam_id
+            WHERE ps.exam_id != $1
               AND qv.language = 'EN'
               AND qv.status = 'MANUALLY_CORRECTED'
               AND ($2::uuid[] IS NULL OR qv.question_id != ALL($2::uuid[]))
@@ -94,11 +87,12 @@ export async function POST(req) {
         `, [q.question_id]);
         q.options = opts.rows;
 
-        // Pool size (how many remain after this one)
+        // Pool count
         const countRes = await db.query(`
             SELECT COUNT(*) AS cnt
             FROM question_version qv
-            WHERE qv.exam_section_id = $1
+            JOIN paper_session ps ON ps.paper_session_id = qv.paper_session_id
+            WHERE ps.exam_id != $1
               AND qv.language = 'EN'
               AND qv.status = 'MANUALLY_CORRECTED'
               AND ($2::uuid[] IS NULL OR qv.question_id != ALL($2::uuid[]))

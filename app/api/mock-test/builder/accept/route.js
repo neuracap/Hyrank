@@ -27,7 +27,6 @@ export async function POST(req) {
     try {
         await client.query('BEGIN');
 
-        // Get next position for this section
         const posRes = await client.query(`
             SELECT COALESCE(MAX(position), 0) + 1 AS next_pos
             FROM mock_test_question
@@ -35,20 +34,24 @@ export async function POST(req) {
         `, [mock_test_id, section_id]);
         const position = posRes.rows[0].next_pos;
 
-        // Get subtype + difficulty for the question
         const qRes = await client.query(`
-            SELECT subtype, difficulty FROM question_version
-            WHERE question_id = $1 AND language = 'EN'
+            SELECT qv.subtype, qv.difficulty, qv.solution_json,
+                   qv.body_json->>'text' AS question_text,
+                   qv.correct_option_label
+            FROM question_version qv
+            WHERE qv.question_id = $1 AND qv.language = 'EN'
             LIMIT 1
         `, [question_id]);
-        const { subtype, difficulty } = qRes.rows[0] || {};
+        const qData = qRes.rows[0] || {};
 
         await client.query(`
             INSERT INTO mock_test_question
-                (mock_test_id, question_id, exam_section_id, position, slot_subtype, slot_difficulty, review_status, created_at)
+                (mock_test_id, question_id, exam_section_id, position,
+                 slot_subtype, slot_difficulty, review_status, created_at)
             VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', NOW())
             ON CONFLICT (mock_test_id, question_id) DO NOTHING
-        `, [mock_test_id, question_id, section_id, position, subtype || null, difficulty || null]);
+        `, [mock_test_id, question_id, section_id, position,
+            qData.subtype || null, qData.difficulty || null]);
 
         await client.query('COMMIT');
         return NextResponse.json({ success: true, position });
@@ -88,7 +91,6 @@ export async function DELETE(req) {
             DELETE FROM mock_test_question
             WHERE mock_test_id = $1 AND question_id = $2
         `, [mock_test_id, question_id]);
-
         return NextResponse.json({ success: true });
     } catch (e) {
         console.error('mock-test/builder/accept DELETE error:', e);
