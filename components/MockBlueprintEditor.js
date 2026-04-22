@@ -262,10 +262,175 @@ function BlueprintEditorPanel({ exams, blueprint, onSaved, onNew }) {
     );
 }
 
+// ─── PYQ Generator panel ─────────────────────────────────────────────────────
+function PYQGenerator({ exams, onGenerated }) {
+    const [examId, setExamId]         = useState(exams[0]?.exam_id || '');
+    const [availableYears, setAvailableYears] = useState([]);
+    const [selectedYears, setSelectedYears]   = useState([]);
+    const [bpName, setBpName]         = useState('');
+    const [generating, setGenerating] = useState(false);
+    const [msg, setMsg]               = useState(null);
+    const [preview, setPreview]       = useState(null);
+
+    // Load available years when exam changes
+    useEffect(() => {
+        if (!examId) return;
+        setAvailableYears([]);
+        setSelectedYears([]);
+        setPreview(null);
+        fetch(`/api/mock-blueprint/available-years?exam_id=${examId}`)
+            .then(r => r.json())
+            .then(d => {
+                const yrs = d.years || [];
+                setAvailableYears(yrs);
+                // Default: select the 4 most recent years
+                setSelectedYears(yrs.slice(0, 4).map(y => y.year));
+            })
+            .catch(() => {});
+    }, [examId]);
+
+    const toggleYear = (yr) => {
+        setSelectedYears(prev =>
+            prev.includes(yr) ? prev.filter(y => y !== yr) : [...prev, yr].sort((a, b) => b - a)
+        );
+    };
+
+    const handleGenerate = async () => {
+        if (!selectedYears.length) { setMsg({ type: 'error', text: 'Select at least one year' }); return; }
+        setGenerating(true);
+        setMsg(null);
+        setPreview(null);
+        try {
+            const res = await fetch('/api/mock-blueprint/generate-pyq', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    exam_id: examId,
+                    name:    bpName.trim() || undefined,
+                    years:   selectedYears,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok) { setMsg({ type: 'error', text: data.error || 'Generation failed' }); return; }
+            setMsg({ type: 'success', text: `Blueprint "${data.name}" created!` });
+            setPreview(data);
+            onGenerated(data);
+        } catch (e) {
+            setMsg({ type: 'error', text: e.message });
+        } finally {
+            setGenerating(false);
+        }
+    };
+
+    return (
+        <div className="flex flex-col h-full">
+            <div className="px-5 py-3 border-b border-gray-100 bg-white">
+                <h2 className="text-sm font-bold text-gray-900">Generate PYQ Blueprint</h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                    Analyses the exam&apos;s own papers for selected years and creates a blueprint
+                    with subtype slots matching the average distribution across those years.
+                </p>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+                {/* Exam selector */}
+                <div>
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Exam</label>
+                    <select value={examId} onChange={e => setExamId(e.target.value)}
+                        className="text-sm border border-gray-200 rounded px-3 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
+                        {exams.map(e => <option key={e.exam_id} value={e.exam_id}>{e.name}</option>)}
+                    </select>
+                </div>
+
+                {/* Year selector */}
+                {availableYears.length > 0 && (
+                    <div>
+                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-2">
+                            Select Years <span className="text-gray-400 font-normal">(each year contributes equally)</span>
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                            {availableYears.map(({ year, paper_count, question_count }) => (
+                                <button key={year}
+                                    onClick={() => toggleYear(year)}
+                                    className={`px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors ${
+                                        selectedYears.includes(year)
+                                            ? 'bg-indigo-600 text-white border-indigo-600'
+                                            : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
+                                    }`}>
+                                    {year}
+                                    <span className={`ml-1.5 text-[10px] ${selectedYears.includes(year) ? 'text-indigo-200' : 'text-gray-400'}`}>
+                                        {paper_count}p · {question_count}q
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                        {selectedYears.length > 0 && (
+                            <p className="text-xs text-gray-400 mt-1.5">
+                                {selectedYears.sort((a,b)=>b-a).join(', ')} selected — {selectedYears.length} year{selectedYears.length > 1 ? 's' : ''}
+                            </p>
+                        )}
+                    </div>
+                )}
+                {availableYears.length === 0 && examId && (
+                    <p className="text-xs text-gray-400">No papers with approved questions found for this exam.</p>
+                )}
+
+                {/* Optional name */}
+                <div>
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">
+                        Blueprint Name <span className="font-normal text-gray-400">(optional — auto-generated if blank)</span>
+                    </label>
+                    <input type="text" value={bpName} onChange={e => setBpName(e.target.value)}
+                        placeholder={`e.g. SSC CGL PYQ ${Math.min(...(selectedYears.length ? selectedYears : [2022]))}-${Math.max(...(selectedYears.length ? selectedYears : [2025]))}`}
+                        className="w-full text-sm border border-gray-200 rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                    />
+                </div>
+
+                <button onClick={handleGenerate} disabled={generating || !selectedYears.length}
+                    className="px-5 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+                    {generating ? 'Generating...' : 'Generate Blueprint'}
+                </button>
+
+                {msg && (
+                    <div className={`text-sm px-3 py-2 rounded ${msg.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                        {msg.text}
+                    </div>
+                )}
+
+                {/* Preview of generated sections */}
+                {preview && (
+                    <div className="space-y-3">
+                        <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Generated Slots</h3>
+                        {(preview.config_json?.sections || []).map(sec => (
+                            <div key={sec.section_id} className="border border-gray-200 rounded-lg overflow-hidden">
+                                <div className="bg-gray-50 px-3 py-2 flex items-center justify-between">
+                                    <span className="text-sm font-bold text-gray-800">{sec.code}</span>
+                                    <span className="text-xs text-indigo-600 font-semibold">{sec.total} Qs</span>
+                                </div>
+                                <div className="px-3 py-2 flex flex-wrap gap-1.5">
+                                    {(sec.topic_slots || []).map((slot, i) => (
+                                        <span key={i} className="text-xs px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded">
+                                            {slot.subtype} ×{slot.count}
+                                        </span>
+                                    ))}
+                                    {(sec.topic_slots || []).length === 0 && (
+                                        <span className="text-xs text-gray-400">No subtype data</span>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function MockBlueprintEditor({ exams, initialBlueprints }) {
     const [blueprints, setBlueprints] = useState(initialBlueprints || []);
     const [selected, setSelected]     = useState(null);
+    const [tab, setTab]               = useState('edit'); // 'edit' | 'pyq'
 
     const handleSaved = (bpId, bpName, examId, configJson) => {
         const exam = exams.find(e => e.exam_id === examId);
@@ -279,8 +444,23 @@ export default function MockBlueprintEditor({ exams, initialBlueprints }) {
             }
             return [{ blueprint_id: bpId, name: bpName, exam_id: examId, exam_name: exam?.name, config_json: configJson, is_active: true }, ...prev];
         });
-        // Update selected
         setSelected(b => b ? { ...b, blueprint_id: bpId, name: bpName, config_json: configJson } : null);
+    };
+
+    const handleGenerated = (data) => {
+        // Add the newly created PYQ blueprint to the list and open it for editing
+        const exam = exams.find(e => e.exam_id === data.config_json?.generated_from?.exam_id);
+        setBlueprints(prev => [{
+            blueprint_id: data.blueprint_id,
+            name:         data.name,
+            exam_id:      exams[0]?.exam_id, // will be overwritten when opened
+            exam_name:    exam?.name || '',
+            config_json:  data.config_json,
+            is_active:    true,
+        }, ...prev]);
+        // Switch to edit tab with the new blueprint pre-loaded
+        setTab('edit');
+        setSelected({ blueprint_id: data.blueprint_id, name: data.name, config_json: data.config_json });
     };
 
     return (
@@ -290,19 +470,42 @@ export default function MockBlueprintEditor({ exams, initialBlueprints }) {
                 <BlueprintList
                     blueprints={blueprints}
                     selectedId={selected?.blueprint_id}
-                    onSelect={setSelected}
-                    onNew={() => setSelected(null)}
+                    onSelect={bp => { setSelected(bp); setTab('edit'); }}
+                    onNew={() => { setSelected(null); setTab('edit'); }}
                 />
             </div>
 
-            {/* Right: editor */}
-            <div className="flex-1 overflow-hidden">
-                <BlueprintEditorPanel
-                    exams={exams}
-                    blueprint={selected}
-                    onSaved={handleSaved}
-                    onNew={() => setSelected(null)}
-                />
+            {/* Right: tabs */}
+            <div className="flex-1 flex flex-col overflow-hidden">
+                {/* Tab bar */}
+                <div className="flex border-b border-gray-200 bg-white shrink-0">
+                    {[
+                        { id: 'edit', label: 'Manual Editor' },
+                        { id: 'pyq',  label: 'Generate from PYQ' },
+                    ].map(t => (
+                        <button key={t.id} onClick={() => setTab(t.id)}
+                            className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                                tab === t.id
+                                    ? 'border-indigo-500 text-indigo-700'
+                                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                            }`}>
+                            {t.label}
+                        </button>
+                    ))}
+                </div>
+
+                <div className="flex-1 overflow-hidden">
+                    {tab === 'edit' ? (
+                        <BlueprintEditorPanel
+                            exams={exams}
+                            blueprint={selected}
+                            onSaved={handleSaved}
+                            onNew={() => setSelected(null)}
+                        />
+                    ) : (
+                        <PYQGenerator exams={exams} onGenerated={handleGenerated} />
+                    )}
+                </div>
             </div>
         </div>
     );
