@@ -324,7 +324,20 @@ function AcceptedPanel({ mockTestId, sections, accepted, onRemoved, onUpdated })
             });
             const data = await res.json();
             if (!res.ok) { alert(data.error || 'Save failed'); return; }
-            onUpdated(questionId, es);
+
+            if (data.new_question_id) {
+                // Stem changed — swap the old question_id for the new one everywhere
+                setEditStates(prev => {
+                    const next = { ...prev };
+                    next[data.new_question_id] = next[questionId];
+                    delete next[questionId];
+                    return next;
+                });
+                setExpandedId(data.new_question_id);
+                onUpdated(questionId, es, data.new_question_id);
+            } else {
+                onUpdated(questionId, es);
+            }
         } finally { setSaving(null); }
     };
 
@@ -524,11 +537,13 @@ export default function MockTestBuilder({ mockTests, exams, testType = 'MOCK', m
         if (q) setSectionCounts(prev => ({ ...prev, [q.exam_section_id || q.section_id]: Math.max(0, (prev[q.exam_section_id || q.section_id] || 1) - 1) }));
     };
 
-    const handleUpdated = (questionId, edits) => {
-        setAccepted(prev => prev.map(q => q.question_id === questionId
-            ? { ...q, ...edits, solution_json: { ...(q.solution_json || {}), solution_text: edits.solution_text } }
-            : q
-        ));
+    const handleUpdated = (questionId, edits, newQuestionId = null) => {
+        setAccepted(prev => prev.map(q => {
+            if (q.question_id !== questionId) return q;
+            const updated = { ...q, ...edits, solution_json: { ...(q.solution_json || {}), solution_text: edits.solution_text } };
+            if (newQuestionId) updated.question_id = newQuestionId;
+            return updated;
+        }));
     };
 
     const handleCreateTest = async () => {
