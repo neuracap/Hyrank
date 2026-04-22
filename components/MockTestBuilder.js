@@ -472,7 +472,7 @@ function AcceptedPanel({ mockTestId, sections, accepted, onRemoved, onUpdated })
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
-export default function MockTestBuilder({ mockTests, exams, testType = 'MOCK' }) {
+export default function MockTestBuilder({ mockTests, exams, testType = 'MOCK', migrationPending = false }) {
     const [selectedMockTestId, setSelectedMockTestId] = useState(mockTests[0]?.mock_test_id || '');
     const [accepted, setAccepted]     = useState([]);
     const [sections, setSections]     = useState([]);
@@ -535,6 +535,14 @@ export default function MockTestBuilder({ mockTests, exams, testType = 'MOCK' })
 
     return (
         <div className="flex flex-col h-screen bg-gray-50">
+            {migrationPending && (
+                <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-xs text-amber-800 font-medium flex items-center gap-2">
+                    <span>⚠ Database migration required before creating section tests. Run on Supabase:</span>
+                    <code className="bg-amber-100 px-2 py-0.5 rounded font-mono">
+                        ALTER TABLE mock_test ADD COLUMN IF NOT EXISTS type TEXT DEFAULT &apos;MOCK&apos; CHECK (type IN (&apos;MOCK&apos;, &apos;SECTION&apos;));
+                    </code>
+                </div>
+            )}
             {/* Top bar */}
             <div className="bg-white border-b border-gray-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
                 <h1 className="text-sm font-bold text-gray-900 shrink-0">

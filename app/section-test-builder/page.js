@@ -12,13 +12,22 @@ export default async function SectionTestBuilderPage() {
 
     const client = await db.connect();
     try {
+        // Check if type column exists — migration may not have been run yet
+        const colCheck = await client.query(`
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'mock_test' AND column_name = 'type'
+        `);
+        const typeColExists = colCheck.rows.length > 0;
+
         const [sectionTestsRes, examsRes] = await Promise.all([
-            client.query(`
-                SELECT mock_test_id, name, exam_id, status, type
-                FROM mock_test
-                WHERE status = 'DRAFT' AND type = 'SECTION'
-                ORDER BY created_at DESC
-            `),
+            typeColExists
+                ? client.query(`
+                    SELECT mock_test_id, name, exam_id, status, type
+                    FROM mock_test
+                    WHERE status = 'DRAFT' AND type = 'SECTION'
+                    ORDER BY created_at DESC
+                  `)
+                : { rows: [] },
             client.query(`
                 SELECT e.exam_id, e.name, e.code,
                     json_agg(json_build_object(
@@ -39,6 +48,7 @@ export default async function SectionTestBuilderPage() {
                 mockTests={sectionTestsRes.rows}
                 exams={examsRes.rows}
                 testType="SECTION"
+                migrationPending={!typeColExists}
             />
         );
     } finally {
