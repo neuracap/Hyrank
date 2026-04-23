@@ -24,10 +24,61 @@ function normaliseQ(q) {
     };
 }
 
+// ─── Subtype sidebar ─────────────────────────────────────────────────────────
+function SubtypeSidebar({ subtypes, acceptedSubtypes, activeSubtype, onSelect, loading }) {
+    const acceptedMap = {};
+    for (const s of acceptedSubtypes) acceptedMap[s.subtype] = parseInt(s.cnt);
+    const totalPool = subtypes.reduce((s, t) => s + parseInt(t.cnt), 0);
+    const totalAccepted = acceptedSubtypes.reduce((s, t) => s + parseInt(t.cnt), 0);
+
+    return (
+        <div className="flex flex-col h-full border-r border-gray-200 bg-gray-50/80 w-56 shrink-0">
+            <div className="px-3 py-2.5 border-b border-gray-100">
+                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Subtypes</div>
+                <div className="text-[10px] text-gray-400 mt-0.5">
+                    Pool: {totalPool} | Accepted: {totalAccepted}
+                </div>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+                {/* All subtypes button */}
+                <button
+                    onClick={() => onSelect('')}
+                    disabled={loading}
+                    className={`w-full text-left px-3 py-2 text-xs flex items-center gap-2 transition-colors border-b border-gray-100
+                        ${activeSubtype === '' ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-gray-600 hover:bg-gray-100'}`}
+                >
+                    <span className="flex-1 truncate">All subtypes</span>
+                    <span className="text-[10px] text-gray-400">{totalPool}</span>
+                </button>
+                {subtypes.map(s => {
+                    const acc = acceptedMap[s.subtype] || 0;
+                    const isActive = activeSubtype === s.subtype;
+                    return (
+                        <button
+                            key={s.subtype}
+                            onClick={() => onSelect(s.subtype)}
+                            disabled={loading}
+                            className={`w-full text-left px-3 py-2 text-xs flex items-center gap-1.5 transition-colors border-b border-gray-50
+                                ${isActive ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-gray-600 hover:bg-gray-100'}`}
+                        >
+                            <span className="flex-1 truncate">{s.subtype}</span>
+                            {acc > 0 && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">{acc}</span>
+                            )}
+                            <span className="text-[10px] text-gray-400">{s.cnt}</span>
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
 // ─── Left: Candidate panel ────────────────────────────────────────────────────
-function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds }) {
+function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds, onSubtypesLoaded }) {
     const [subtype, setSubtype]             = useState('');
     const [subtypes, setSubtypes]           = useState([]);
+    const [acceptedSubtypes, setAcceptedSubtypes] = useState([]);
     const [question, setQuestion]           = useState(null);
     const [poolRemaining, setPoolRemaining] = useState(null);
     const [loading, setLoading]             = useState(false);
@@ -39,6 +90,7 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds }) {
     // Blueprint bulk-load
     const [blueprints, setBlueprints]       = useState([]);
     const [bulkQueue, setBulkQueue]         = useState([]); // pre-loaded questions
+    const [bulkIdx, setBulkIdx]             = useState(0);  // current position in queue
     const [bulkLoading, setBulkLoading]     = useState(false);
 
     // Load sections for the target exam (to know where to slot the question)
@@ -58,14 +110,20 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds }) {
             .catch(() => {});
     }, [targetExamId, mockTestId]);
 
-    // Load cross-exam subtypes
-    useEffect(() => {
+    // Load cross-exam subtypes + accepted subtypes
+    const refreshSubtypes = useCallback(() => {
         if (!targetExamId) return;
         fetch(`/api/mock-test/builder/session?mock_test_id=${mockTestId}&section_id=_&exam_id=${targetExamId}`)
             .then(r => r.json())
-            .then(d => setSubtypes(d.subtypes || []))
+            .then(d => {
+                setSubtypes(d.subtypes || []);
+                setAcceptedSubtypes(d.accepted_subtypes || []);
+                if (onSubtypesLoaded) onSubtypesLoaded(d.accepted_subtypes || []);
+            })
             .catch(() => {});
-    }, [targetExamId, mockTestId]);
+    }, [targetExamId, mockTestId, onSubtypesLoaded]);
+
+    useEffect(() => { refreshSubtypes(); }, [refreshSubtypes]);
 
     // Reset when subtype changes
     useEffect(() => {
@@ -73,7 +131,41 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds }) {
         setDone(false);
         setSeenIds([]);
         setPoolRemaining(null);
+        setBulkQueue([]);
+        setBulkIdx(0);
     }, [subtype]);
+
+    const handleSubtypeSelect = (st) => {
+        setSubtype(st);
+    };
+
+    // Fetch a batch of candidates for the current subtype
+    const fetchBatch = useCallback(async (forSubtype) => {
+        if (!targetExamId) return;
+        setBulkLoading(true);
+        setDone(false);
+        try {
+            const st = forSubtype !== undefined ? forSubtype : subtype;
+            const res = await fetch('/api/mock-test/builder/bulk-candidates', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    mock_test_id: mockTestId,
+                    target_exam_id: targetExamId,
+                    slots: [{ subtype: st || undefined, count: 20 }],
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok) { alert(data.error || 'Load failed'); return; }
+            const allQ = (data.results || []).flatMap(r => r.questions);
+            if (allQ.length === 0) { setDone(true); setQuestion(null); setBulkQueue([]); return; }
+            setBulkQueue(allQ);
+            setBulkIdx(0);
+            setQuestion(allQ[0]);
+            setSeenIds(prev => [...new Set([...prev, ...allQ.map(q => q.question_id)])]);
+        } catch (e) { console.error(e); }
+        finally { setBulkLoading(false); }
+    }, [targetExamId, mockTestId, subtype]);
 
     const fetchNext = useCallback(async (extraExclude = []) => {
         if (!targetExamId) return;
@@ -122,6 +214,7 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds }) {
             if (!res.ok) { alert(data.error || 'Load failed'); return; }
             const allQ = data.results.flatMap(r => r.questions.map(q => ({ ...q, _targetSection: targetSectionId })));
             setBulkQueue(allQ);
+            setBulkIdx(0);
             if (allQ.length > 0) {
                 setQuestion(allQ[0]);
                 setSectionId(targetSectionId);
@@ -132,10 +225,10 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds }) {
 
     // Advance bulk queue to next
     const advanceBulkQueue = () => {
-        if (bulkQueue.length <= 1) { setBulkQueue([]); setQuestion(null); setDone(true); return; }
-        const [, ...rest] = bulkQueue;
-        setBulkQueue(rest);
-        setQuestion(rest[0]);
+        const nextIdx = bulkIdx + 1;
+        if (nextIdx >= bulkQueue.length) { setQuestion(null); setDone(true); return; }
+        setBulkIdx(nextIdx);
+        setQuestion(bulkQueue[nextIdx]);
     };
 
     const handleAccept = async () => {
@@ -149,132 +242,156 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds }) {
             });
             const data = await res.json();
             if (!res.ok) { alert(data.error || 'Failed to accept'); return; }
-            // Use the new copied question_id returned by the API
             onAccepted({ ...question, question_id: data.new_question_id, section_id: sectionId, exam_section_id: sectionId });
+            // Refresh accepted subtypes
+            refreshSubtypes();
             if (bulkQueue.length > 0) advanceBulkQueue();
             else fetchNext([question.question_id]);
         } finally { setAccepting(false); }
     };
 
-    return (
-        <div className="flex flex-col h-full">
-            {/* Filters */}
-            <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 border-b border-gray-100 bg-gray-50">
-                <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-500">Section</span>
-                    <select value={sectionId} onChange={e => { setSectionId(e.target.value); setBulkQueue([]); }}
-                        className="text-xs border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
-                        {sections.map(s => <option key={s.section_id} value={s.section_id}>{s.code}</option>)}
-                    </select>
-                </div>
-                <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-500">Subtype</span>
-                    <select value={subtype} onChange={e => { setSubtype(e.target.value); setBulkQueue([]); }}
-                        className="text-xs border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
-                        <option value="">All</option>
-                        {subtypes.map(s => <option key={s.subtype} value={s.subtype}>{s.subtype} ({s.cnt})</option>)}
-                    </select>
-                </div>
-                {blueprints.length > 0 && sectionId && (
-                    <div className="flex items-center gap-1.5">
-                        <span className="text-xs text-gray-500">Blueprint</span>
-                        <select defaultValue="" onChange={e => e.target.value && handleLoadBlueprint(e.target.value, sectionId)}
-                            className="text-xs border border-indigo-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400 text-indigo-700">
-                            <option value="">Load...</option>
-                            {blueprints.map(b => <option key={b.blueprint_id} value={b.blueprint_id}>{b.name}</option>)}
-                        </select>
-                        {bulkQueue.length > 0 && (
-                            <span className="text-xs text-indigo-600 font-semibold">{bulkQueue.length} queued</span>
-                        )}
-                    </div>
-                )}
-                {poolRemaining !== null && !bulkQueue.length && (
-                    <span className="ml-auto text-xs text-gray-400">{poolRemaining} in pool</span>
-                )}
-                {bulkLoading && <span className="ml-auto text-xs text-indigo-400 animate-pulse">Loading blueprint...</span>}
-            </div>
+    const isInBulk = bulkQueue.length > 0;
+    const bulkRemaining = isInBulk ? bulkQueue.length - bulkIdx - 1 : 0;
 
-            {/* Question area */}
-            <div className="flex-1 overflow-y-auto px-5 py-4">
-                {!question && !loading && !done && (
-                    <div className="flex flex-col items-center justify-center h-full gap-4">
-                        <p className="text-sm text-gray-400">Questions drawn from other exams matching subtype</p>
-                        <button onClick={() => fetchNext()}
-                            className="px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">
-                            Load First Candidate
-                        </button>
+    return (
+        <div className="flex h-full flex-1 min-w-0">
+            {/* Subtype sidebar */}
+            <SubtypeSidebar
+                subtypes={subtypes}
+                acceptedSubtypes={acceptedSubtypes}
+                activeSubtype={subtype}
+                onSelect={handleSubtypeSelect}
+                loading={loading || bulkLoading}
+            />
+
+            {/* Question viewer */}
+            <div className="flex flex-col flex-1 min-w-0">
+                {/* Filters */}
+                <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 border-b border-gray-100 bg-gray-50">
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500">Section</span>
+                        <select value={sectionId} onChange={e => { setSectionId(e.target.value); setBulkQueue([]); setBulkIdx(0); }}
+                            className="text-xs border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
+                            {sections.map(s => <option key={s.section_id} value={s.section_id}>{s.code}</option>)}
+                        </select>
                     </div>
-                )}
-                {loading && <div className="flex items-center justify-center h-full text-gray-400 text-sm animate-pulse">Loading...</div>}
-                {done && !loading && (
-                    <div className="flex items-center justify-center h-full text-gray-400 text-sm">
-                        No more candidates{subtype ? ` for subtype "${subtype}"` : ''}.
-                    </div>
-                )}
+                    {blueprints.length > 0 && sectionId && (
+                        <div className="flex items-center gap-1.5">
+                            <span className="text-xs text-gray-500">Blueprint</span>
+                            <select defaultValue="" onChange={e => e.target.value && handleLoadBlueprint(e.target.value, sectionId)}
+                                className="text-xs border border-indigo-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400 text-indigo-700">
+                                <option value="">Load...</option>
+                                {blueprints.map(b => <option key={b.blueprint_id} value={b.blueprint_id}>{b.name}</option>)}
+                            </select>
+                        </div>
+                    )}
+                    {isInBulk && (
+                        <span className="text-xs text-indigo-600 font-semibold">{bulkIdx + 1}/{bulkQueue.length}</span>
+                    )}
+                    {poolRemaining !== null && !isInBulk && (
+                        <span className="ml-auto text-xs text-gray-400">{poolRemaining} in pool</span>
+                    )}
+                    {bulkLoading && <span className="ml-auto text-xs text-indigo-400 animate-pulse">Loading...</span>}
+                </div>
+
+                {/* Question area */}
+                <div className="flex-1 overflow-y-auto px-5 py-4">
+                    {!question && !loading && !bulkLoading && !done && (
+                        <div className="flex flex-col items-center justify-center h-full gap-4">
+                            <p className="text-sm text-gray-400">
+                                {subtype ? `Click below to load "${subtype}" questions` : 'Select a subtype or load all'}
+                            </p>
+                            <button onClick={() => fetchBatch()}
+                                className="px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">
+                                Load Candidates{subtype ? ` — ${subtype}` : ''}
+                            </button>
+                        </div>
+                    )}
+                    {(loading || bulkLoading) && !question && (
+                        <div className="flex items-center justify-center h-full text-gray-400 text-sm animate-pulse">Loading...</div>
+                    )}
+                    {done && !loading && !bulkLoading && (
+                        <div className="flex flex-col items-center justify-center h-full gap-3">
+                            <p className="text-sm text-gray-400">
+                                No more candidates{subtype ? ` for "${subtype}"` : ''}.
+                            </p>
+                            <button onClick={() => { setDone(false); setSeenIds([]); fetchBatch(); }}
+                                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-200">
+                                Reload (reset seen)
+                            </button>
+                        </div>
+                    )}
+
+                    {question && !loading && (
+                        <div className="space-y-4">
+                            <div className="flex flex-wrap items-center gap-2">
+                                {question.source_exam && (
+                                    <span className="text-xs font-semibold px-2 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-100">
+                                        {question.source_exam_code || question.source_exam}
+                                    </span>
+                                )}
+                                {question.subtype && (
+                                    <span className="text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100">{question.subtype}</span>
+                                )}
+                                <span className="text-xs text-gray-400">
+                                    Q.{question.source_question_no || '?'} · {question.source_session} · {formatDate(question.source_date)}
+                                </span>
+                            </div>
+
+                            <div className="text-sm text-gray-900 leading-relaxed">
+                                <Latex>{question.question_text || ''}</Latex>
+                            </div>
+
+                            <div className="space-y-1.5">
+                                {(question.options || []).map(opt => (
+                                    <div key={opt.option_key}
+                                        className={`flex items-start gap-2.5 px-3 py-2 rounded-lg text-sm border ${
+                                            opt.option_key === question.correct_option_label
+                                                ? 'border-green-300 bg-green-50 text-green-900'
+                                                : 'border-gray-100 bg-white text-gray-700'
+                                        }`}>
+                                        <span className="font-bold shrink-0 w-5 text-center">{opt.option_key}</span>
+                                        <Latex>{opt.text || '—'}</Latex>
+                                        {opt.option_key === question.correct_option_label && <span className="ml-auto text-green-600 shrink-0">✓</span>}
+                                    </div>
+                                ))}
+                            </div>
+
+                            {question.solution_json?.solution_text && (
+                                <div className="px-3 py-2 bg-amber-50 border border-amber-100 rounded text-xs text-amber-800">
+                                    <span className="font-semibold">Solution: </span>
+                                    {question.solution_json.solution_text}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
 
                 {question && !loading && (
-                    <div className="space-y-4">
-                        <div className="flex flex-wrap items-center gap-2">
-                            {question.source_exam && (
-                                <span className="text-xs font-semibold px-2 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-100">
-                                    {question.source_exam_code || question.source_exam}
-                                </span>
-                            )}
-                            {question.subtype && (
-                                <span className="text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100">{question.subtype}</span>
-                            )}
-                            <span className="text-xs text-gray-400">
-                                Q.{question.source_question_no || '?'} · {question.source_session} · {formatDate(question.source_date)}
-                            </span>
-                        </div>
-
-                        <div className="text-sm text-gray-900 leading-relaxed">
-                            <Latex>{question.question_text || ''}</Latex>
-                        </div>
-
-                        <div className="space-y-1.5">
-                            {(question.options || []).map(opt => (
-                                <div key={opt.option_key}
-                                    className={`flex items-start gap-2.5 px-3 py-2 rounded-lg text-sm border ${
-                                        opt.option_key === question.correct_option_label
-                                            ? 'border-green-300 bg-green-50 text-green-900'
-                                            : 'border-gray-100 bg-white text-gray-700'
-                                    }`}>
-                                    <span className="font-bold shrink-0 w-5 text-center">{opt.option_key}</span>
-                                    <Latex>{opt.text || '—'}</Latex>
-                                    {opt.option_key === question.correct_option_label && <span className="ml-auto text-green-600 shrink-0">✓</span>}
-                                </div>
-                            ))}
-                        </div>
-
-                        {question.solution_json?.solution_text && (
-                            <div className="px-3 py-2 bg-amber-50 border border-amber-100 rounded text-xs text-amber-800">
-                                <span className="font-semibold">Solution: </span>
-                                {question.solution_json.solution_text}
-                            </div>
+                    <div className="px-4 py-3 border-t border-gray-100 flex gap-3">
+                        <button onClick={handleAccept} disabled={accepting || !sectionId}
+                            className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 disabled:opacity-50">
+                            {accepting ? 'Adding...' : 'Accept'}
+                        </button>
+                        <button onClick={() => isInBulk ? advanceBulkQueue() : fetchNext()} disabled={loading}
+                            className="flex-1 py-2.5 bg-white text-gray-700 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50">
+                            Skip{isInBulk && bulkRemaining > 0 ? ` (${bulkRemaining})` : ''}
+                        </button>
+                        {!isInBulk && (
+                            <button onClick={() => fetchBatch()} disabled={loading || bulkLoading}
+                                className="py-2.5 px-4 bg-gray-100 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-200 disabled:opacity-50">
+                                More
+                            </button>
                         )}
                     </div>
                 )}
             </div>
-
-            {question && !loading && (
-                <div className="px-4 py-3 border-t border-gray-100 flex gap-3">
-                    <button onClick={handleAccept} disabled={accepting || !sectionId}
-                        className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 disabled:opacity-50">
-                        {accepting ? 'Adding...' : '✓ Accept'}
-                    </button>
-                    <button onClick={() => bulkQueue.length > 0 ? advanceBulkQueue() : fetchNext()} disabled={loading}
-                        className="flex-1 py-2.5 bg-white text-gray-700 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50">
-                        → Skip
-                    </button>
-                </div>
-            )}
         </div>
     );
 }
 
 // ─── Right: Accepted — scrollable list with inline edit ───────────────────────
-function AcceptedPanel({ mockTestId, sections, accepted, onRemoved, onUpdated }) {
+function AcceptedPanel({ mockTestId, sections, accepted, onRemoved, onUpdated, acceptedSubtypes }) {
     const [expandedId, setExpandedId] = useState(null);
     const [editStates, setEditStates] = useState({});   // question_id → edit fields
     const [saving, setSaving]         = useState(null); // question_id currently saving
@@ -358,6 +475,14 @@ function AcceptedPanel({ mockTestId, sections, accepted, onRemoved, onUpdated })
         } finally { setRemoving(null); }
     };
 
+    // Compute accepted subtype breakdown from actual accepted list (live)
+    const liveSubtypeCounts = {};
+    for (const q of accepted) {
+        const st = q.subtype || 'Unknown';
+        liveSubtypeCounts[st] = (liveSubtypeCounts[st] || 0) + 1;
+    }
+    const sortedLiveSubtypes = Object.entries(liveSubtypeCounts).sort((a, b) => b[1] - a[1]);
+
     if (accepted.length === 0) {
         return (
             <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
@@ -367,7 +492,23 @@ function AcceptedPanel({ mockTestId, sections, accepted, onRemoved, onUpdated })
     }
 
     return (
-        <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
+        <div className="flex-1 overflow-y-auto">
+            {/* Subtype coverage */}
+            {sortedLiveSubtypes.length > 0 && (
+                <div className="px-4 py-2.5 border-b border-gray-100 bg-gray-50/50">
+                    <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                        Coverage ({accepted.length} questions)
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                        {sortedLiveSubtypes.map(([st, cnt]) => (
+                            <span key={st} className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 font-medium">
+                                {st}: {cnt}
+                            </span>
+                        ))}
+                    </div>
+                </div>
+            )}
+            <div className="divide-y divide-gray-100">
             {accepted.map((q, i) => {
                 const merged   = normaliseQ(q);
                 const isOpen   = expandedId === q.question_id;
@@ -495,6 +636,7 @@ function AcceptedPanel({ mockTestId, sections, accepted, onRemoved, onUpdated })
                     </div>
                 );
             })}
+            </div>
         </div>
     );
 }
@@ -613,14 +755,14 @@ export default function MockTestBuilder({ mockTests, exams, testType = 'MOCK', m
                 </div>
             </div>
 
-            {/* Split panel */}
+            {/* Split panel: Subtype sidebar + Candidate | Accepted */}
             {selectedMockTestId && mockTest ? (
                 <div className="flex flex-1 overflow-hidden">
-                    {/* Left */}
-                    <div className="w-1/2 border-r border-gray-200 bg-white flex flex-col overflow-hidden">
+                    {/* Left: Subtype sidebar + Candidate viewer */}
+                    <div className="flex-1 border-r border-gray-200 bg-white flex flex-col overflow-hidden" style={{ minWidth: 0 }}>
                         <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
                             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Candidate</span>
-                            <span className="text-xs text-gray-400">— from other exams</span>
+                            <span className="text-xs text-gray-400">— pick subtype, then accept</span>
                         </div>
                         <CandidatePanel
                             mockTestId={selectedMockTestId}
@@ -630,11 +772,11 @@ export default function MockTestBuilder({ mockTests, exams, testType = 'MOCK', m
                         />
                     </div>
 
-                    {/* Right */}
-                    <div className="w-1/2 bg-white flex flex-col overflow-hidden">
+                    {/* Right: Accepted */}
+                    <div className="bg-white flex flex-col overflow-hidden" style={{ width: '38%', minWidth: 340 }}>
                         <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
                             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Accepted</span>
-                            <span className="text-xs text-gray-400">— click a number to edit</span>
+                            <span className="text-xs text-gray-400">— click to edit</span>
                         </div>
                         <AcceptedPanel
                             mockTestId={selectedMockTestId}

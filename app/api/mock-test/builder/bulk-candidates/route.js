@@ -45,10 +45,15 @@ export async function POST(req) {
 
         for (const slot of slots) {
             const { subtype, count = 1, difficulty } = slot;
-            if (!subtype || count <= 0) continue;
+            if (count <= 0) continue;
 
-            const params = [target_exam_id, excludedIds, subtype, Math.min(count, 50)];
-            const difficultyClause = difficulty ? `AND qv.difficulty = $5` : '';
+            const params = [target_exam_id, excludedIds];
+            let paramIdx = 3;
+            const subtypeClause = subtype ? `AND qv.subtype = $${paramIdx++}` : '';
+            if (subtype) params.push(subtype);
+            const limitIdx = paramIdx++;
+            params.push(Math.min(count, 50));
+            const difficultyClause = difficulty ? `AND qv.difficulty = $${paramIdx++}` : '';
             if (difficulty) params.push(difficulty);
 
             const res = await db.query(`
@@ -72,11 +77,12 @@ export async function POST(req) {
                 WHERE ps.exam_id != $1
                   AND qv.language = 'EN'
                   AND qv.status = 'MANUALLY_CORRECTED'
+                  AND (qv.solution_status = 'DONE' OR qv.has_image = true)
                   AND ($2::uuid[] IS NULL OR qv.question_id != ALL($2::uuid[]))
-                  AND qv.subtype = $3
+                  ${subtypeClause}
                   ${difficultyClause}
                 ORDER BY RANDOM()
-                LIMIT $4
+                LIMIT $${limitIdx}
             `, params);
 
             // Fetch options for all returned questions

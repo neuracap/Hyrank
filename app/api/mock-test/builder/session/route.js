@@ -87,15 +87,32 @@ export async function GET(req) {
             JOIN paper_session ps ON ps.paper_session_id = qv.paper_session_id
             WHERE qv.language = 'EN'
               AND qv.status = 'MANUALLY_CORRECTED'
+              AND (qv.solution_status = 'DONE' OR qv.has_image = true)
               AND qv.subtype IS NOT NULL
               ${subtypeFilter}
             GROUP BY qv.subtype
-            ORDER BY qv.subtype ASC
+            ORDER BY cnt DESC
         `, subtypeParams);
+
+        // Accepted subtype breakdown for this mock test
+        let acceptedSubtypes = [];
+        if (mock_test_id) {
+            const accSubRes = await db.query(`
+                SELECT qv.subtype, COUNT(*) AS cnt
+                FROM mock_test_question mtq
+                JOIN question_version qv ON qv.question_id = mtq.question_id AND qv.language = 'EN'
+                WHERE mtq.mock_test_id = $1
+                  AND qv.subtype IS NOT NULL
+                GROUP BY qv.subtype
+                ORDER BY cnt DESC
+            `, [mock_test_id]);
+            acceptedSubtypes = accSubRes.rows;
+        }
 
         return NextResponse.json({
             accepted,
             subtypes: subtypesRes.rows,
+            accepted_subtypes: acceptedSubtypes,
         });
 
     } catch (e) {

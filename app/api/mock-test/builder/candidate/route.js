@@ -66,6 +66,7 @@ export async function POST(req) {
             WHERE ps.exam_id != $1
               AND qv.language = 'EN'
               AND qv.status = 'MANUALLY_CORRECTED'
+              AND (qv.solution_status = 'DONE' OR qv.has_image = true)
               AND ($2::uuid[] IS NULL OR qv.question_id != ALL($2::uuid[]))
               ${subtypeClause}
             ORDER BY RANDOM()
@@ -95,6 +96,7 @@ export async function POST(req) {
             WHERE ps.exam_id != $1
               AND qv.language = 'EN'
               AND qv.status = 'MANUALLY_CORRECTED'
+              AND (qv.solution_status = 'DONE' OR qv.has_image = true)
               AND ($2::uuid[] IS NULL OR qv.question_id != ALL($2::uuid[]))
               ${subtypeClause}
         `, params);
