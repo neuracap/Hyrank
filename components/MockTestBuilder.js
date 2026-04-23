@@ -79,21 +79,15 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds, onS
     const [subtype, setSubtype]             = useState('');
     const [subtypes, setSubtypes]           = useState([]);
     const [acceptedSubtypes, setAcceptedSubtypes] = useState([]);
-    const [question, setQuestion]           = useState(null);
-    const [poolRemaining, setPoolRemaining] = useState(null);
+    const [candidates, setCandidates]       = useState([]); // all loaded candidates
+    const [dismissed, setDismissed]         = useState(new Set()); // dismissed question_ids
     const [loading, setLoading]             = useState(false);
-    const [done, setDone]                   = useState(false);
-    const [accepting, setAccepting]         = useState(false);
-    const [seenIds, setSeenIds]             = useState([]);
+    const [accepting, setAccepting]         = useState(null); // question_id currently accepting
     const [sectionId, setSectionId]         = useState('');
     const [sections, setSections]           = useState([]);
-    // Blueprint bulk-load
     const [blueprints, setBlueprints]       = useState([]);
-    const [bulkQueue, setBulkQueue]         = useState([]); // pre-loaded questions
-    const [bulkIdx, setBulkIdx]             = useState(0);  // current position in queue
-    const [bulkLoading, setBulkLoading]     = useState(false);
 
-    // Load sections for the target exam (to know where to slot the question)
+    // Load sections for the target exam
     useEffect(() => {
         if (!targetExamId) return;
         fetch(`/api/mock-test/builder/sections?exam_id=${targetExamId}&mock_test_id=${mockTestId}`)
@@ -103,7 +97,6 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds, onS
                 setSectionId(d.sections?.[0]?.section_id || '');
             })
             .catch(() => {});
-        // Load blueprints for this exam
         fetch(`/api/mock-test/blueprint/list?exam_id=${targetExamId}`)
             .then(r => r.json())
             .then(d => setBlueprints(d.blueprints || []))
@@ -125,81 +118,47 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds, onS
 
     useEffect(() => { refreshSubtypes(); }, [refreshSubtypes]);
 
-    // Reset when subtype changes
+    // Reset candidates when subtype changes
     useEffect(() => {
-        setQuestion(null);
-        setDone(false);
-        setSeenIds([]);
-        setPoolRemaining(null);
-        setBulkQueue([]);
-        setBulkIdx(0);
+        setCandidates([]);
+        setDismissed(new Set());
     }, [subtype]);
 
-    const handleSubtypeSelect = (st) => {
-        setSubtype(st);
-    };
+    const handleSubtypeSelect = (st) => { setSubtype(st); };
 
-    // Fetch a batch of candidates for the current subtype
-    const fetchBatch = useCallback(async (forSubtype) => {
+    // Fetch a batch of candidates
+    const fetchBatch = useCallback(async (append = false) => {
         if (!targetExamId) return;
-        setBulkLoading(true);
-        setDone(false);
+        setLoading(true);
         try {
-            const st = forSubtype !== undefined ? forSubtype : subtype;
+            const existingIds = append ? candidates.map(q => q.question_id) : [];
+            const allExclude = [...new Set([...existingIds, ...acceptedIds])];
             const res = await fetch('/api/mock-test/builder/bulk-candidates', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     mock_test_id: mockTestId,
                     target_exam_id: targetExamId,
-                    slots: [{ subtype: st || undefined, count: 20 }],
+                    slots: [{ subtype: subtype || undefined, count: 30 }],
                 }),
             });
             const data = await res.json();
             if (!res.ok) { alert(data.error || 'Load failed'); return; }
-            const allQ = (data.results || []).flatMap(r => r.questions);
-            if (allQ.length === 0) { setDone(true); setQuestion(null); setBulkQueue([]); return; }
-            setBulkQueue(allQ);
-            setBulkIdx(0);
-            setQuestion(allQ[0]);
-            setSeenIds(prev => [...new Set([...prev, ...allQ.map(q => q.question_id)])]);
-        } catch (e) { console.error(e); }
-        finally { setBulkLoading(false); }
-    }, [targetExamId, mockTestId, subtype]);
-
-    const fetchNext = useCallback(async (extraExclude = []) => {
-        if (!targetExamId) return;
-        setLoading(true);
-        try {
-            const allExclude = [...new Set([...seenIds, ...acceptedIds, ...extraExclude])];
-            const res = await fetch('/api/mock-test/builder/candidate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    mock_test_id: mockTestId,
-                    target_exam_id: targetExamId,
-                    subtype: subtype || undefined,
-                    exclude_ids: allExclude,
-                }),
-            });
-            const data = await res.json();
-            if (data.done) { setDone(true); setQuestion(null); }
-            else {
-                setQuestion(data.question);
-                setPoolRemaining(data.pool_remaining);
-                setSeenIds(prev => [...new Set([...prev, data.question.question_id])]);
-            }
+            const newQ = (data.results || []).flatMap(r => r.questions)
+                .filter(q => !allExclude.includes(q.question_id));
+            if (append) setCandidates(prev => [...prev, ...newQ]);
+            else { setCandidates(newQ); setDismissed(new Set()); }
         } catch (e) { console.error(e); }
         finally { setLoading(false); }
-    }, [targetExamId, mockTestId, subtype, seenIds, acceptedIds]);
+    }, [targetExamId, mockTestId, subtype, candidates, acceptedIds]);
 
-    // Load all candidates for a blueprint section in one shot
+    // Load from blueprint
     const handleLoadBlueprint = async (blueprintId, targetSectionId) => {
         const bp = blueprints.find(b => b.blueprint_id === blueprintId);
         if (!bp) return;
         const section = (bp.config_json?.sections || []).find(s => s.section_id === targetSectionId);
         if (!section?.topic_slots?.length) { alert('No slots defined for this section in the blueprint'); return; }
-        setBulkLoading(true);
+        setLoading(true);
         try {
             const res = await fetch('/api/mock-test/builder/bulk-candidates', {
                 method: 'POST',
@@ -213,27 +172,15 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds, onS
             const data = await res.json();
             if (!res.ok) { alert(data.error || 'Load failed'); return; }
             const allQ = data.results.flatMap(r => r.questions.map(q => ({ ...q, _targetSection: targetSectionId })));
-            setBulkQueue(allQ);
-            setBulkIdx(0);
-            if (allQ.length > 0) {
-                setQuestion(allQ[0]);
-                setSectionId(targetSectionId);
-                setSeenIds(allQ.map(q => q.question_id));
-            }
-        } finally { setBulkLoading(false); }
+            setCandidates(allQ);
+            setDismissed(new Set());
+            setSectionId(targetSectionId);
+        } finally { setLoading(false); }
     };
 
-    // Advance bulk queue to next
-    const advanceBulkQueue = () => {
-        const nextIdx = bulkIdx + 1;
-        if (nextIdx >= bulkQueue.length) { setQuestion(null); setDone(true); return; }
-        setBulkIdx(nextIdx);
-        setQuestion(bulkQueue[nextIdx]);
-    };
-
-    const handleAccept = async () => {
-        if (!question || !sectionId) { alert('Select a section first'); return; }
-        setAccepting(true);
+    const handleAccept = async (question) => {
+        if (!sectionId) { alert('Select a section first'); return; }
+        setAccepting(question.question_id);
         try {
             const res = await fetch('/api/mock-test/builder/accept', {
                 method: 'POST',
@@ -243,15 +190,16 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds, onS
             const data = await res.json();
             if (!res.ok) { alert(data.error || 'Failed to accept'); return; }
             onAccepted({ ...question, question_id: data.new_question_id, section_id: sectionId, exam_section_id: sectionId });
-            // Refresh accepted subtypes
+            setCandidates(prev => prev.filter(q => q.question_id !== question.question_id));
             refreshSubtypes();
-            if (bulkQueue.length > 0) advanceBulkQueue();
-            else fetchNext([question.question_id]);
-        } finally { setAccepting(false); }
+        } finally { setAccepting(null); }
     };
 
-    const isInBulk = bulkQueue.length > 0;
-    const bulkRemaining = isInBulk ? bulkQueue.length - bulkIdx - 1 : 0;
+    const handleDismiss = (questionId) => {
+        setDismissed(prev => new Set([...prev, questionId]));
+    };
+
+    const visible = candidates.filter(q => !dismissed.has(q.question_id));
 
     return (
         <div className="flex h-full flex-1 min-w-0">
@@ -261,16 +209,16 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds, onS
                 acceptedSubtypes={acceptedSubtypes}
                 activeSubtype={subtype}
                 onSelect={handleSubtypeSelect}
-                loading={loading || bulkLoading}
+                loading={loading}
             />
 
-            {/* Question viewer */}
+            {/* Question list */}
             <div className="flex flex-col flex-1 min-w-0">
                 {/* Filters */}
                 <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 border-b border-gray-100 bg-gray-50">
                     <div className="flex items-center gap-2">
                         <span className="text-xs text-gray-500">Section</span>
-                        <select value={sectionId} onChange={e => { setSectionId(e.target.value); setBulkQueue([]); setBulkIdx(0); }}
+                        <select value={sectionId} onChange={e => setSectionId(e.target.value)}
                             className="text-xs border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
                             {sections.map(s => <option key={s.section_id} value={s.section_id}>{s.code}</option>)}
                         </select>
@@ -285,106 +233,116 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds, onS
                             </select>
                         </div>
                     )}
-                    {isInBulk && (
-                        <span className="text-xs text-indigo-600 font-semibold">{bulkIdx + 1}/{bulkQueue.length}</span>
+                    {visible.length > 0 && (
+                        <span className="text-xs text-gray-500">{visible.length} shown</span>
                     )}
-                    {poolRemaining !== null && !isInBulk && (
-                        <span className="ml-auto text-xs text-gray-400">{poolRemaining} in pool</span>
-                    )}
-                    {bulkLoading && <span className="ml-auto text-xs text-indigo-400 animate-pulse">Loading...</span>}
+                    <div className="ml-auto flex items-center gap-2">
+                        {candidates.length > 0 && (
+                            <button onClick={() => fetchBatch(true)} disabled={loading}
+                                className="text-xs px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 disabled:opacity-50">
+                                {loading ? '...' : 'Load More'}
+                            </button>
+                        )}
+                        <button onClick={() => fetchBatch(false)} disabled={loading}
+                            className="text-xs px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">
+                            {loading ? 'Loading...' : candidates.length === 0 ? 'Load Candidates' : 'Reload'}
+                        </button>
+                    </div>
                 </div>
 
-                {/* Question area */}
-                <div className="flex-1 overflow-y-auto px-5 py-4">
-                    {!question && !loading && !bulkLoading && !done && (
-                        <div className="flex flex-col items-center justify-center h-full gap-4">
-                            <p className="text-sm text-gray-400">
-                                {subtype ? `Click below to load "${subtype}" questions` : 'Select a subtype or load all'}
-                            </p>
-                            <button onClick={() => fetchBatch()}
-                                className="px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">
-                                Load Candidates{subtype ? ` — ${subtype}` : ''}
-                            </button>
-                        </div>
+                {/* Scrollable candidate list */}
+                <div className="flex-1 overflow-y-auto">
+                    {loading && candidates.length === 0 && (
+                        <div className="flex items-center justify-center h-full text-gray-400 text-sm animate-pulse">Loading candidates...</div>
                     )}
-                    {(loading || bulkLoading) && !question && (
-                        <div className="flex items-center justify-center h-full text-gray-400 text-sm animate-pulse">Loading...</div>
-                    )}
-                    {done && !loading && !bulkLoading && (
+                    {!loading && candidates.length === 0 && (
                         <div className="flex flex-col items-center justify-center h-full gap-3">
                             <p className="text-sm text-gray-400">
-                                No more candidates{subtype ? ` for "${subtype}"` : ''}.
+                                {subtype ? `Select "${subtype}" and click Load` : 'Pick a subtype or click Load Candidates'}
                             </p>
-                            <button onClick={() => { setDone(false); setSeenIds([]); fetchBatch(); }}
+                        </div>
+                    )}
+                    {visible.length === 0 && candidates.length > 0 && !loading && (
+                        <div className="flex flex-col items-center justify-center h-full gap-3">
+                            <p className="text-sm text-gray-400">All candidates handled</p>
+                            <button onClick={() => fetchBatch(false)}
                                 className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-200">
-                                Reload (reset seen)
+                                Load More
                             </button>
                         </div>
                     )}
 
-                    {question && !loading && (
-                        <div className="space-y-4">
-                            <div className="flex flex-wrap items-center gap-2">
-                                {question.source_exam && (
-                                    <span className="text-xs font-semibold px-2 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-100">
-                                        {question.source_exam_code || question.source_exam}
+                    {visible.map((q, i) => (
+                        <div key={q.question_id} className="border-b border-gray-100 px-4 py-3 hover:bg-gray-50/50">
+                            {/* Header row with meta + action buttons */}
+                            <div className="flex items-center gap-2 mb-2">
+                                <span className="text-xs font-bold text-gray-400 w-5 shrink-0">{i + 1}</span>
+                                {q.source_exam && (
+                                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-100">
+                                        {q.source_exam_code || q.source_exam}
                                     </span>
                                 )}
-                                {question.subtype && (
-                                    <span className="text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100">{question.subtype}</span>
+                                {q.subtype && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100">{q.subtype}</span>
                                 )}
-                                <span className="text-xs text-gray-400">
-                                    Q.{question.source_question_no || '?'} · {question.source_session} · {formatDate(question.source_date)}
+                                <span className="text-[10px] text-gray-400">
+                                    Q.{q.source_question_no || '?'} · {q.source_session}
                                 </span>
+                                {/* Action buttons — right aligned */}
+                                <div className="ml-auto flex items-center gap-1.5 shrink-0">
+                                    <button
+                                        onClick={() => handleAccept(q)}
+                                        disabled={accepting === q.question_id}
+                                        className="px-3 py-1 bg-green-600 text-white rounded text-xs font-semibold hover:bg-green-700 disabled:opacity-50">
+                                        {accepting === q.question_id ? '...' : 'Accept'}
+                                    </button>
+                                    <button
+                                        onClick={() => handleDismiss(q.question_id)}
+                                        className="px-3 py-1 bg-white text-gray-500 border border-gray-200 rounded text-xs hover:bg-red-50 hover:text-red-600 hover:border-red-200">
+                                        Reject
+                                    </button>
+                                </div>
                             </div>
 
-                            <div className="text-sm text-gray-900 leading-relaxed">
-                                <Latex>{question.question_text || ''}</Latex>
+                            {/* Question text */}
+                            <div className="text-sm text-gray-900 leading-relaxed mb-2 pl-7">
+                                <Latex>{q.question_text || ''}</Latex>
                             </div>
 
-                            <div className="space-y-1.5">
-                                {(question.options || []).map(opt => (
+                            {/* Options — compact inline */}
+                            <div className="grid grid-cols-2 gap-1.5 pl-7">
+                                {(q.options || []).map(opt => (
                                     <div key={opt.option_key}
-                                        className={`flex items-start gap-2.5 px-3 py-2 rounded-lg text-sm border ${
-                                            opt.option_key === question.correct_option_label
-                                                ? 'border-green-300 bg-green-50 text-green-900'
-                                                : 'border-gray-100 bg-white text-gray-700'
+                                        className={`flex items-start gap-1.5 px-2 py-1 rounded text-xs border ${
+                                            opt.option_key === q.correct_option_label
+                                                ? 'border-green-300 bg-green-50 text-green-800'
+                                                : 'border-gray-100 bg-white text-gray-600'
                                         }`}>
-                                        <span className="font-bold shrink-0 w-5 text-center">{opt.option_key}</span>
+                                        <span className="font-bold shrink-0">{opt.option_key}.</span>
                                         <Latex>{opt.text || '—'}</Latex>
-                                        {opt.option_key === question.correct_option_label && <span className="ml-auto text-green-600 shrink-0">✓</span>}
                                     </div>
                                 ))}
                             </div>
 
-                            {question.solution_json?.solution_text && (
-                                <div className="px-3 py-2 bg-amber-50 border border-amber-100 rounded text-xs text-amber-800">
-                                    <span className="font-semibold">Solution: </span>
-                                    {question.solution_json.solution_text}
+                            {/* Solution — collapsed */}
+                            {q.solution_json?.solution_text && (
+                                <div className="mt-1.5 pl-7 text-[10px] text-amber-700 line-clamp-1">
+                                    Sol: {q.solution_json.solution_text}
                                 </div>
                             )}
                         </div>
+                    ))}
+
+                    {/* Load more at bottom */}
+                    {visible.length > 0 && (
+                        <div className="px-4 py-4 flex justify-center">
+                            <button onClick={() => fetchBatch(true)} disabled={loading}
+                                className="px-5 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 disabled:opacity-50">
+                                {loading ? 'Loading...' : 'Load More'}
+                            </button>
+                        </div>
                     )}
                 </div>
-
-                {question && !loading && (
-                    <div className="px-4 py-3 border-t border-gray-100 flex gap-3">
-                        <button onClick={handleAccept} disabled={accepting || !sectionId}
-                            className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 disabled:opacity-50">
-                            {accepting ? 'Adding...' : 'Accept'}
-                        </button>
-                        <button onClick={() => isInBulk ? advanceBulkQueue() : fetchNext()} disabled={loading}
-                            className="flex-1 py-2.5 bg-white text-gray-700 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50">
-                            Skip{isInBulk && bulkRemaining > 0 ? ` (${bulkRemaining})` : ''}
-                        </button>
-                        {!isInBulk && (
-                            <button onClick={() => fetchBatch()} disabled={loading || bulkLoading}
-                                className="py-2.5 px-4 bg-gray-100 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-200 disabled:opacity-50">
-                                More
-                            </button>
-                        )}
-                    </div>
-                )}
             </div>
         </div>
     );
