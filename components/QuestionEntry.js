@@ -148,6 +148,8 @@ export default function QuestionEntry() {
     const [subtype, setSubtype] = useState('');
     const [subtypes, setSubtypes] = useState([]);
     const [solutionText, setSolutionText] = useState('');
+    const [solutionJson, setSolutionJson] = useState(null); // full LLM solution object
+    const [solving, setSolving] = useState(false);
     const [isCurrentAffairs, setIsCurrentAffairs] = useState(false);
     const [caPeriod, setCaPeriod] = useState(''); // YYYY-MM format
 
@@ -282,6 +284,60 @@ export default function QuestionEntry() {
         }
     };
 
+    // Get LLM solution
+    const handleSolve = async () => {
+        if (!english.text.trim()) {
+            setMessage({ type: 'error', text: 'Enter English question text first' });
+            return;
+        }
+        // Derive section code from selected section
+        const sec = sections.find(s => s.section_id === selectedSectionId);
+        const sectionCode = sec?.code || '';
+
+        setSolving(true);
+        setMessage(null);
+        try {
+            const res = await fetch('/api/question-entry/solve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    question_text: english.text,
+                    options: english.options,
+                    language: 'EN',
+                    section_code: sectionCode,
+                    subtype: subtype || null,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok) { setMessage({ type: 'error', text: data.error || 'Solve failed' }); return; }
+
+            const sol = data.solution;
+            setSolutionJson(sol);
+            setSolutionText(sol?.solution_text || '');
+
+            // Auto-fill correct answer if LLM found one and we don't have one set
+            if (data.correct_option && !correctAnswer) {
+                setCorrectAnswer(data.correct_option);
+            }
+            // Auto-fill subtype if LLM suggests one and we don't have one
+            if (data.subtype && !subtype) {
+                setSubtype(data.subtype);
+            }
+            // Auto-fill difficulty if LLM suggests one and we don't have one
+            if (data.difficulty && !difficulty) {
+                const diffMap = { easy: 'Easy', medium: 'Medium', hard: 'Hard' };
+                setDifficulty(diffMap[data.difficulty] || '');
+            }
+
+            setMessage({ type: 'success', text: 'Solution generated!' });
+        } catch (e) {
+            console.error(e);
+            setMessage({ type: 'error', text: 'Solve error: ' + e.message });
+        } finally {
+            setSolving(false);
+        }
+    };
+
     const handleStartGroup = async () => {
         if (!passageEn.trim() && !passageHi.trim()) {
             setMessage({ type: 'error', text: 'Enter passage text in at least one language' });
@@ -394,7 +450,8 @@ export default function QuestionEntry() {
                     group_id: activeGroupId || null,
                     group_order: nextOrder,
                     subtype: effectiveSubtype,
-                    solution_text: solutionText || null,
+                    solution_json: solutionJson || null,
+                    solution_text: !solutionJson ? (solutionText || null) : null,
                     ca_period: isCurrentAffairs && caPeriod ? caPeriod : null,
                     english,
                     hindi
@@ -419,6 +476,7 @@ export default function QuestionEntry() {
                 setHindi({ text: '', options: { A: '', B: '', C: '', D: '' } });
                 setCorrectAnswer('');
                 setSolutionText('');
+                setSolutionJson(null);
                 setQuestionId(prev => prev + 1);
 
                 if (sourceQNo) {
@@ -733,22 +791,65 @@ export default function QuestionEntry() {
             {/* Solution / Explanation */}
             <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm mb-4">
                 <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs font-semibold text-gray-500 uppercase">Solution / Explanation <span className="normal-case text-gray-400">(optional)</span></label>
-                    {solutionText && (
-                        <span className="text-[10px] text-green-600 font-medium">Has solution</span>
-                    )}
+                    <label className="text-xs font-semibold text-gray-500 uppercase">Solution / Explanation</label>
+                    <div className="flex items-center gap-2">
+                        {solutionJson && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 bg-green-100 text-green-700 rounded">LLM Solution</span>
+                        )}
+                        <button
+                            type="button"
+                            onClick={handleSolve}
+                            disabled={solving || !english.text.trim()}
+                            className={`px-3 py-1.5 text-xs font-bold rounded transition-all ${solving
+                                ? 'bg-amber-400 text-white cursor-wait'
+                                : 'bg-amber-500 text-white hover:bg-amber-600 shadow-sm'
+                            } disabled:opacity-50`}
+                        >
+                            {solving ? 'Solving...' : 'Get Solution'}
+                        </button>
+                    </div>
                 </div>
                 <textarea
                     value={solutionText}
-                    onChange={(e) => setSolutionText(e.target.value)}
-                    rows={2}
-                    placeholder="Enter solution explanation... (supports LaTeX)"
+                    onChange={(e) => { setSolutionText(e.target.value); setSolutionJson(null); }}
+                    rows={solutionText ? 4 : 2}
+                    placeholder="Click 'Get Solution' to auto-generate, or type manually... (supports LaTeX)"
                     className="w-full p-3 border border-gray-300 rounded font-mono text-sm resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
                 {solutionText && (
                     <div className="mt-2 p-3 bg-gray-50 rounded border border-gray-200 text-sm">
                         <p className="text-xs font-bold text-gray-400 uppercase mb-1">Preview</p>
                         <Latex>{solutionText}</Latex>
+                    </div>
+                )}
+                {/* LLM metadata summary */}
+                {solutionJson?.answer_outcome && (
+                    <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
+                        {solutionJson.answer_outcome.correct_option && (
+                            <span className="px-1.5 py-0.5 bg-green-50 text-green-700 border border-green-200 rounded font-semibold">
+                                Answer: {solutionJson.answer_outcome.correct_option}
+                            </span>
+                        )}
+                        {solutionJson.answer_outcome.recheck_options && (
+                            <span className="px-1.5 py-0.5 bg-red-50 text-red-700 border border-red-200 rounded font-semibold">
+                                Recheck needed
+                            </span>
+                        )}
+                        {solutionJson.question_identity?.subtype && (
+                            <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded">
+                                {solutionJson.question_identity.subtype}
+                            </span>
+                        )}
+                        {solutionJson.question_identity?.difficulty && (
+                            <span className="px-1.5 py-0.5 bg-gray-100 text-gray-600 border border-gray-200 rounded">
+                                {solutionJson.question_identity.difficulty}
+                            </span>
+                        )}
+                        {solutionJson.quality_check?.issue_flag && (
+                            <span className="px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded">
+                                Issue: {solutionJson.quality_check.issue_note}
+                            </span>
+                        )}
                     </div>
                 )}
             </div>

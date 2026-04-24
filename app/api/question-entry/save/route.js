@@ -21,6 +21,7 @@ export async function POST(req) {
             group_order,
             subtype,
             solution_text,
+            solution_json: rawSolutionJson,
             ca_period,
             english,
             hindi
@@ -64,7 +65,8 @@ export async function POST(req) {
         }
 
         const subtypeVal = subtype || null;
-        const solutionJson = solution_text ? { solution_text } : null;
+        // Full solution_json from LLM takes priority, fallback to simple solution_text
+        const solutionJson = rawSolutionJson || (solution_text ? { solution_text } : null);
         const hasImageEn = (english?.text || '').includes('\\includegraphics');
         const hasImageHi = (hindi?.text || '').includes('\\includegraphics');
 
