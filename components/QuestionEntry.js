@@ -145,6 +145,11 @@ export default function QuestionEntry() {
     const [difficulty, setDifficulty] = useState('');
     const [sourceQNo, setSourceQNo] = useState('');
     const [correctAnswer, setCorrectAnswer] = useState('');
+    const [subtype, setSubtype] = useState('');
+    const [subtypes, setSubtypes] = useState([]);
+    const [solutionText, setSolutionText] = useState('');
+    const [isCurrentAffairs, setIsCurrentAffairs] = useState(false);
+    const [caPeriod, setCaPeriod] = useState(''); // YYYY-MM format
 
     // Question data
     const [english, setEnglish] = useState({ ...EMPTY_LANG, options: { ...EMPTY_LANG.options } });
@@ -185,6 +190,16 @@ export default function QuestionEntry() {
 
     const selectedExam = exams.find(e => e.exam_id === selectedExamId);
     const sections = selectedExam?.sections || [];
+
+    // Fetch subtypes when section changes
+    useEffect(() => {
+        setSubtype('');
+        if (!selectedSectionId) { setSubtypes([]); return; }
+        fetch(`/api/mock-blueprint/subtypes?section_id=${selectedSectionId}`)
+            .then(r => r.json())
+            .then(d => setSubtypes(d.subtypes || []))
+            .catch(() => setSubtypes([]));
+    }, [selectedSectionId]);
 
     const handleEnglishChange = (type, value, optKey) => {
         if (type === 'text') {
@@ -363,6 +378,11 @@ export default function QuestionEntry() {
         try {
             const nextOrder = activeGroupId ? groupQuestionCount + 1 : null;
 
+            // Auto-set subtype for group mode
+            const effectiveSubtype = activeGroupId
+                ? (groupType === 'CLOZE' ? 'cloze_test' : 'reading_comprehension')
+                : (subtype || null);
+
             const res = await fetch('/api/question-entry/save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -373,6 +393,9 @@ export default function QuestionEntry() {
                     correct_answer: correctAnswer || null,
                     group_id: activeGroupId || null,
                     group_order: nextOrder,
+                    subtype: effectiveSubtype,
+                    solution_text: solutionText || null,
+                    ca_period: isCurrentAffairs && caPeriod ? caPeriod : null,
                     english,
                     hindi
                 })
@@ -391,10 +414,11 @@ export default function QuestionEntry() {
                     setMessage({ type: 'success', text: `Question ${sourceQNo || '#' + (savedCount + 1)} saved!` });
                 }
 
-                // Reset question form (keep selections)
+                // Reset question form (keep selections like exam, section, subtype, CA toggle)
                 setEnglish({ text: '', options: { A: '', B: '', C: '', D: '' } });
                 setHindi({ text: '', options: { A: '', B: '', C: '', D: '' } });
                 setCorrectAnswer('');
+                setSolutionText('');
                 setQuestionId(prev => prev + 1);
 
                 if (sourceQNo) {
@@ -450,7 +474,7 @@ export default function QuestionEntry() {
 
             {/* Selection Bar */}
             <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm mb-6">
-                <div className="flex flex-wrap gap-4 items-end">
+                <div className="flex flex-wrap gap-4 items-end mb-4">
                     <div className="flex flex-col gap-1 min-w-[220px]">
                         <label className="text-xs font-semibold text-gray-500 uppercase">Exam</label>
                         <select
@@ -474,7 +498,28 @@ export default function QuestionEntry() {
                             {sections.map(s => <option key={s.section_id} value={s.section_id}>{s.name}</option>)}
                         </select>
                     </div>
-                    <div className="flex flex-col gap-1 min-w-[140px]">
+                    <div className="flex flex-col gap-1 min-w-[180px]">
+                        <label className="text-xs font-semibold text-gray-500 uppercase">Subtype</label>
+                        <div className="flex gap-1">
+                            <select
+                                value={subtype}
+                                onChange={(e) => setSubtype(e.target.value)}
+                                disabled={!selectedSectionId && !activeGroupId}
+                                className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
+                            >
+                                <option value="">-- Select --</option>
+                                {subtypes.map(s => <option key={s.subtype} value={s.subtype}>{s.subtype} ({s.cnt})</option>)}
+                            </select>
+                            <input
+                                type="text"
+                                placeholder="or type new..."
+                                value={subtype && !subtypes.find(s => s.subtype === subtype) ? subtype : ''}
+                                onChange={(e) => setSubtype(e.target.value)}
+                                className="w-28 border border-gray-300 rounded-md px-2 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            />
+                        </div>
+                    </div>
+                    <div className="flex flex-col gap-1 min-w-[120px]">
                         <label className="text-xs font-semibold text-gray-500 uppercase">Difficulty</label>
                         <select
                             value={difficulty}
@@ -487,6 +532,8 @@ export default function QuestionEntry() {
                             <option value="Hard">Hard</option>
                         </select>
                     </div>
+                </div>
+                <div className="flex flex-wrap gap-4 items-end">
                     <div className="flex flex-col gap-1 min-w-[120px]">
                         <label className="text-xs font-semibold text-gray-500 uppercase">Q. No. <span className="normal-case text-gray-400">(optional)</span></label>
                         <input
@@ -513,6 +560,37 @@ export default function QuestionEntry() {
                                     {key}
                                 </button>
                             ))}
+                        </div>
+                    </div>
+                    {/* Current Affairs toggle */}
+                    <div className="flex flex-col gap-1">
+                        <label className="text-xs font-semibold text-gray-500 uppercase">Current Affairs</label>
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setIsCurrentAffairs(!isCurrentAffairs);
+                                    if (!isCurrentAffairs && !subtype) setSubtype('current_affairs');
+                                    if (!isCurrentAffairs && !caPeriod) {
+                                        const now = new Date();
+                                        setCaPeriod(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
+                                    }
+                                }}
+                                className={`px-3 py-2 rounded-md text-sm font-bold transition-all ${isCurrentAffairs
+                                    ? 'bg-teal-600 text-white shadow-sm'
+                                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200 border border-gray-300'
+                                    }`}
+                            >
+                                {isCurrentAffairs ? 'CA ON' : 'CA'}
+                            </button>
+                            {isCurrentAffairs && (
+                                <input
+                                    type="month"
+                                    value={caPeriod}
+                                    onChange={(e) => setCaPeriod(e.target.value)}
+                                    className="border border-teal-300 rounded-md px-2 py-1.5 text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-teal-50"
+                                />
+                            )}
                         </div>
                     </div>
                 </div>
@@ -650,6 +728,29 @@ export default function QuestionEntry() {
                     className="px-3 py-1 text-xs font-semibold bg-amber-600 text-white rounded hover:bg-amber-700 transition-colors">
                     Copy All to Hindi
                 </button>
+            </div>
+
+            {/* Solution / Explanation */}
+            <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm mb-4">
+                <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-semibold text-gray-500 uppercase">Solution / Explanation <span className="normal-case text-gray-400">(optional)</span></label>
+                    {solutionText && (
+                        <span className="text-[10px] text-green-600 font-medium">Has solution</span>
+                    )}
+                </div>
+                <textarea
+                    value={solutionText}
+                    onChange={(e) => setSolutionText(e.target.value)}
+                    rows={2}
+                    placeholder="Enter solution explanation... (supports LaTeX)"
+                    className="w-full p-3 border border-gray-300 rounded font-mono text-sm resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                {solutionText && (
+                    <div className="mt-2 p-3 bg-gray-50 rounded border border-gray-200 text-sm">
+                        <p className="text-xs font-bold text-gray-400 uppercase mb-1">Preview</p>
+                        <Latex>{solutionText}</Latex>
+                    </div>
+                )}
             </div>
 
             {/* Bilingual Panels */}

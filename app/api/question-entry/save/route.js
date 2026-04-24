@@ -19,6 +19,9 @@ export async function POST(req) {
             correct_answer,
             group_id,
             group_order,
+            subtype,
+            solution_text,
+            ca_period,
             english,
             hindi
         } = await req.json();
@@ -60,11 +63,17 @@ export async function POST(req) {
             }
         }
 
+        const subtypeVal = subtype || null;
+        const solutionJson = solution_text ? { solution_text } : null;
+        const hasImageEn = (english?.text || '').includes('\\includegraphics');
+        const hasImageHi = (hindi?.text || '').includes('\\includegraphics');
+
         const metaJson = {
             source: 'manual',
             created_by: user.id,
             ...(sectionCode && { section_code: sectionCode }),
-            ...(sectionName && { section_name: sectionName })
+            ...(sectionName && { section_name: sectionName }),
+            ...(ca_period && { ca_period }),
         };
 
         // --- English Question ---
@@ -77,17 +86,20 @@ export async function POST(req) {
         await client.query(`
             INSERT INTO question_version
             (question_id, version_no, language, status, paper_session_id, exam_section_id,
-             body_json, question_type, has_image, source_question_no, question_number_int, difficulty,
-             meta_json, group_id, group_order, created_at, updated_at)
-            VALUES ($1, 1, 'EN', 'MANUALLY_CORRECTED', NULL, $2, $3, 'MCQ', false, $4, $5, $6,
-                    $7, $8, $9, NOW(), NOW())
+             body_json, solution_json, question_type, has_image, source_question_no, question_number_int,
+             difficulty, subtype, meta_json, group_id, group_order, created_at, updated_at)
+            VALUES ($1, 1, 'EN', 'MANUALLY_CORRECTED', NULL, $2, $3, $4, 'MCQ', $5, $6, $7,
+                    $8, $9, $10, $11, $12, NOW(), NOW())
         `, [
             engQuestionId,
             sectionId,
             { text: english.text || '' },
+            solutionJson,
+            hasImageEn,
             qNo,
             qNoInt,
             diff,
+            subtypeVal,
             metaJson,
             gId,
             gOrder
@@ -117,17 +129,20 @@ export async function POST(req) {
         await client.query(`
             INSERT INTO question_version
             (question_id, version_no, language, status, paper_session_id, exam_section_id,
-             body_json, question_type, has_image, source_question_no, question_number_int, difficulty,
-             meta_json, group_id, group_order, created_at, updated_at)
-            VALUES ($1, 1, 'HI', 'MANUALLY_CORRECTED', NULL, $2, $3, 'MCQ', false, $4, $5, $6,
-                    $7, $8, $9, NOW(), NOW())
+             body_json, solution_json, question_type, has_image, source_question_no, question_number_int,
+             difficulty, subtype, meta_json, group_id, group_order, created_at, updated_at)
+            VALUES ($1, 1, 'HI', 'MANUALLY_CORRECTED', NULL, $2, $3, $4, 'MCQ', $5, $6, $7,
+                    $8, $9, $10, $11, $12, NOW(), NOW())
         `, [
             hinQuestionId,
             sectionId,
             { text: hindi.text || '' },
+            solutionJson,
+            hasImageHi,
             qNo,
             qNoInt,
             diff,
+            subtypeVal,
             metaJson,
             gId,
             gOrder

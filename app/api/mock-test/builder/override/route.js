@@ -141,7 +141,7 @@ export async function POST(req) {
             // Re-point mock_test_question to new question_id
             await client.query(`
                 UPDATE mock_test_question
-                SET question_id = $1, slot_difficulty = $2, updated_at = NOW()
+                SET question_id = $1, slot_difficulty = $2
                 WHERE mock_test_id = $3 AND question_id = $4
             `, [newId, newDifficulty, mock_test_id, question_id]);
 
