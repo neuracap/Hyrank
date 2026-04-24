@@ -26,7 +26,7 @@ export async function POST(req) {
         return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
-    const { mock_test_id, target_exam_id, slots = [] } = body;
+    const { mock_test_id, target_exam_id, slots = [], section_code } = body;
     if (!target_exam_id) {
         return NextResponse.json({ error: 'target_exam_id is required' }, { status: 400 });
     }
@@ -55,6 +55,8 @@ export async function POST(req) {
             params.push(Math.min(count, 50));
             const difficultyClause = difficulty ? `AND qv.difficulty = $${paramIdx++}` : '';
             if (difficulty) params.push(difficulty);
+            const sectionClause = section_code ? `AND es.code = $${paramIdx++}` : '';
+            if (section_code) params.push(section_code);
 
             const res = await db.query(`
                 SELECT
@@ -74,6 +76,7 @@ export async function POST(req) {
                 FROM question_version qv
                 JOIN paper_session ps ON ps.paper_session_id = qv.paper_session_id
                 JOIN exam e ON e.exam_id = ps.exam_id
+                ${section_code ? 'JOIN exam_section es ON es.section_id = qv.exam_section_id' : ''}
                 WHERE ps.exam_id != $1
                   AND qv.language = 'EN'
                   AND qv.status = 'MANUALLY_CORRECTED'
@@ -81,6 +84,7 @@ export async function POST(req) {
                   AND ($2::uuid[] IS NULL OR qv.question_id != ALL($2::uuid[]))
                   ${subtypeClause}
                   ${difficultyClause}
+                  ${sectionClause}
                 ORDER BY RANDOM()
                 LIMIT $${limitIdx}
             `, params);

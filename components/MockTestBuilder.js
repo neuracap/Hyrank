@@ -75,7 +75,8 @@ function SubtypeSidebar({ subtypes, acceptedSubtypes, activeSubtype, onSelect, l
 }
 
 // ─── Left: Candidate panel ────────────────────────────────────────────────────
-function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds, onSubtypesLoaded }) {
+function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds, onSubtypesLoaded,
+                          sections, sectionId, onSectionChange, sectionCounts }) {
     const [subtype, setSubtype]             = useState('');
     const [subtypes, setSubtypes]           = useState([]);
     const [acceptedSubtypes, setAcceptedSubtypes] = useState([]);
@@ -83,30 +84,25 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds, onS
     const [dismissed, setDismissed]         = useState(new Set()); // dismissed question_ids
     const [loading, setLoading]             = useState(false);
     const [accepting, setAccepting]         = useState(null); // question_id currently accepting
-    const [sectionId, setSectionId]         = useState('');
-    const [sections, setSections]           = useState([]);
     const [blueprints, setBlueprints]       = useState([]);
 
-    // Load sections for the target exam
+    const currentSection = sections.find(s => s.section_id === sectionId);
+    const sectionCode = currentSection?.code || '';
+
+    // Load blueprints for the target exam
     useEffect(() => {
         if (!targetExamId) return;
-        fetch(`/api/mock-test/builder/sections?exam_id=${targetExamId}&mock_test_id=${mockTestId}`)
-            .then(r => r.json())
-            .then(d => {
-                setSections(d.sections || []);
-                setSectionId(d.sections?.[0]?.section_id || '');
-            })
-            .catch(() => {});
         fetch(`/api/mock-test/blueprint/list?exam_id=${targetExamId}`)
             .then(r => r.json())
             .then(d => setBlueprints(d.blueprints || []))
             .catch(() => {});
-    }, [targetExamId, mockTestId]);
+    }, [targetExamId]);
 
-    // Load cross-exam subtypes + accepted subtypes
+    // Load cross-exam subtypes + accepted subtypes, filtered by section code
     const refreshSubtypes = useCallback(() => {
         if (!targetExamId) return;
-        fetch(`/api/mock-test/builder/session?mock_test_id=${mockTestId}&section_id=_&exam_id=${targetExamId}`)
+        const scParam = sectionCode ? `&section_code=${encodeURIComponent(sectionCode)}` : '';
+        fetch(`/api/mock-test/builder/session?mock_test_id=${mockTestId}&section_id=_&exam_id=${targetExamId}${scParam}`)
             .then(r => r.json())
             .then(d => {
                 setSubtypes(d.subtypes || []);
@@ -114,15 +110,20 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds, onS
                 if (onSubtypesLoaded) onSubtypesLoaded(d.accepted_subtypes || []);
             })
             .catch(() => {});
-    }, [targetExamId, mockTestId, onSubtypesLoaded]);
+    }, [targetExamId, mockTestId, sectionCode, onSubtypesLoaded]);
 
     useEffect(() => { refreshSubtypes(); }, [refreshSubtypes]);
 
-    // Reset candidates when subtype changes
+    // Reset candidates when subtype or section changes
     useEffect(() => {
         setCandidates([]);
         setDismissed(new Set());
-    }, [subtype]);
+    }, [subtype, sectionId]);
+
+    // Reset subtype selection when section changes (subtypes differ per section)
+    useEffect(() => {
+        setSubtype('');
+    }, [sectionId]);
 
     const handleSubtypeSelect = (st) => { setSubtype(st); };
 
@@ -140,6 +141,7 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds, onS
                     mock_test_id: mockTestId,
                     target_exam_id: targetExamId,
                     slots: [{ subtype: subtype || undefined, count: 30 }],
+                    section_code: sectionCode || undefined,
                 }),
             });
             const data = await res.json();
@@ -150,7 +152,7 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds, onS
             else { setCandidates(newQ); setDismissed(new Set()); }
         } catch (e) { console.error(e); }
         finally { setLoading(false); }
-    }, [targetExamId, mockTestId, subtype, candidates, acceptedIds]);
+    }, [targetExamId, mockTestId, subtype, sectionCode, candidates, acceptedIds]);
 
     // Load from blueprint
     const handleLoadBlueprint = async (blueprintId, targetSectionId) => {
@@ -167,6 +169,7 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds, onS
                     mock_test_id: mockTestId,
                     target_exam_id: targetExamId,
                     slots: section.topic_slots.map(t => ({ subtype: t.subtype, count: t.count, difficulty: t.difficulty || undefined })),
+                    section_code: sectionCode || undefined,
                 }),
             });
             const data = await res.json();
@@ -174,12 +177,19 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds, onS
             const allQ = data.results.flatMap(r => r.questions.map(q => ({ ...q, _targetSection: targetSectionId })));
             setCandidates(allQ);
             setDismissed(new Set());
-            setSectionId(targetSectionId);
+            onSectionChange(targetSectionId);
         } finally { setLoading(false); }
     };
 
     const handleAccept = async (question) => {
         if (!sectionId) { alert('Select a section first'); return; }
+        // Enforce section limit
+        const sec = sections.find(s => s.section_id === sectionId);
+        const currentCount = sectionCounts[sectionId] || 0;
+        if (sec?.num_questions && currentCount >= sec.num_questions) {
+            alert(`Section ${sec.code} is full (${currentCount}/${sec.num_questions}). Remove a question first or switch to another section.`);
+            return;
+        }
         setAccepting(question.question_id);
         try {
             const res = await fetch('/api/mock-test/builder/accept', {
@@ -218,7 +228,7 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds, onS
                 <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 border-b border-gray-100 bg-gray-50">
                     <div className="flex items-center gap-2">
                         <span className="text-xs text-gray-500">Section</span>
-                        <select value={sectionId} onChange={e => setSectionId(e.target.value)}
+                        <select value={sectionId} onChange={e => onSectionChange(e.target.value)}
                             className="text-xs border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
                             {sections.map(s => <option key={s.section_id} value={s.section_id}>{s.code}</option>)}
                         </select>
@@ -604,6 +614,7 @@ export default function MockTestBuilder({ mockTests, exams, testType = 'MOCK', m
     const [selectedMockTestId, setSelectedMockTestId] = useState(mockTests[0]?.mock_test_id || '');
     const [accepted, setAccepted]     = useState([]);
     const [sections, setSections]     = useState([]);
+    const [sectionId, setSectionId]   = useState('');
     const [sectionCounts, setSectionCounts] = useState({});
     const [creatingTest, setCreatingTest]   = useState(false);
     const [newTestName, setNewTestName]     = useState('');
@@ -616,7 +627,11 @@ export default function MockTestBuilder({ mockTests, exams, testType = 'MOCK', m
         if (!selectedMockTestId || !mockTest) return;
         fetch(`/api/mock-test/builder/sections?exam_id=${mockTest.exam_id}&mock_test_id=${selectedMockTestId}`)
             .then(r => r.json())
-            .then(d => { setSections(d.sections || []); setSectionCounts(d.counts || {}); })
+            .then(d => {
+                setSections(d.sections || []);
+                setSectionCounts(d.counts || {});
+                setSectionId(prev => prev || d.sections?.[0]?.section_id || '');
+            })
             .catch(() => {});
         // Also load all accepted questions for this mock test
         // (we don't scope to a section in the main state — AcceptedPanel handles section filtering)
@@ -684,20 +699,6 @@ export default function MockTestBuilder({ mockTests, exams, testType = 'MOCK', m
                     {mockTests.map(m => <option key={m.mock_test_id} value={m.mock_test_id}>{m.name}</option>)}
                 </select>
 
-                {/* Section progress pills */}
-                {sections.map(s => {
-                    const cnt = sectionCounts[s.section_id] || 0;
-                    const target = s.num_questions || '?';
-                    const complete = cnt >= (s.num_questions || Infinity);
-                    return (
-                        <span key={s.section_id} className={`text-xs font-semibold px-2 py-1 rounded-full border ${
-                            complete ? 'bg-green-100 text-green-700 border-green-200' : cnt > 0 ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-gray-100 text-gray-500 border-gray-200'
-                        }`}>
-                            {s.code}: {cnt}/{target}
-                        </span>
-                    );
-                })}
-
                 <div className="flex items-center gap-2 ml-auto">
                     <select value={newTestExamId} onChange={e => setNewTestExamId(e.target.value)}
                         className="text-xs border border-gray-200 rounded px-2 py-1.5 bg-white focus:outline-none">
@@ -727,19 +728,52 @@ export default function MockTestBuilder({ mockTests, exams, testType = 'MOCK', m
                             targetExamId={mockTest.exam_id}
                             onAccepted={handleAccepted}
                             acceptedIds={acceptedIds}
+                            sections={sections}
+                            sectionId={sectionId}
+                            onSectionChange={setSectionId}
+                            sectionCounts={sectionCounts}
                         />
                     </div>
 
                     {/* Right: Accepted */}
                     <div className="bg-white flex flex-col overflow-hidden" style={{ width: '38%', minWidth: 340 }}>
-                        <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
-                            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Accepted</span>
-                            <span className="text-xs text-gray-400">— click to edit</span>
+                        <div className="px-4 py-2 bg-gray-50 border-b border-gray-100">
+                            <div className="flex items-center gap-2 mb-1.5">
+                                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Accepted</span>
+                                {sectionId && sections.find(s => s.section_id === sectionId) && (
+                                    <span className="text-[10px] font-semibold px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded">
+                                        {sections.find(s => s.section_id === sectionId).code}
+                                    </span>
+                                )}
+                                <span className="text-xs text-gray-400">— click to edit</span>
+                            </div>
+                            {/* Section progress pills */}
+                            <div className="flex flex-wrap gap-1.5">
+                                {sections.map(s => {
+                                    const cnt = sectionCounts[s.section_id] || 0;
+                                    const target = s.num_questions || '?';
+                                    const isCurrent = s.section_id === sectionId;
+                                    const complete = s.num_questions && cnt >= s.num_questions;
+                                    const over = s.num_questions && cnt > s.num_questions;
+                                    return (
+                                        <button key={s.section_id}
+                                            onClick={() => setSectionId(s.section_id)}
+                                            className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors ${
+                                                over ? 'bg-red-100 text-red-700 border-red-300'
+                                                : complete ? 'bg-green-100 text-green-700 border-green-200'
+                                                : cnt > 0 ? 'bg-amber-100 text-amber-700 border-amber-200'
+                                                : 'bg-gray-100 text-gray-500 border-gray-200'
+                                            } ${isCurrent ? 'ring-2 ring-indigo-400 ring-offset-1' : 'hover:opacity-80'}`}>
+                                            {s.code}: {cnt}/{target}
+                                        </button>
+                                    );
+                                })}
+                            </div>
                         </div>
                         <AcceptedPanel
                             mockTestId={selectedMockTestId}
                             sections={sections}
-                            accepted={accepted}
+                            accepted={accepted.filter(q => !sectionId || (q.exam_section_id || q.section_id) === sectionId)}
                             onRemoved={handleRemoved}
                             onUpdated={handleUpdated}
                         />

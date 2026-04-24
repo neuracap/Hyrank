@@ -15,9 +15,10 @@ export async function GET(req) {
     }
 
     const { searchParams } = new URL(req.url);
-    const mock_test_id = searchParams.get('mock_test_id');
-    const section_id   = searchParams.get('section_id');
-    const exam_id      = searchParams.get('exam_id');
+    const mock_test_id  = searchParams.get('mock_test_id');
+    const section_id    = searchParams.get('section_id');
+    const exam_id       = searchParams.get('exam_id');
+    const section_code  = searchParams.get('section_code');
 
     if (!mock_test_id) {
         return NextResponse.json({ error: 'mock_test_id is required' }, { status: 400 });
@@ -79,12 +80,25 @@ export async function GET(req) {
         }));
 
         // Available subtypes across all OTHER exams (for cross-exam filtering)
-        const subtypeParams = exam_id ? [exam_id] : [];
-        const subtypeFilter = exam_id ? `AND ps.exam_id != $1` : '';
+        // When section_code is provided, only show subtypes belonging to sections with that code
+        const subtypeParams = [];
+        let subtypeParamIdx = 1;
+        let subtypeFilter = '';
+        let subtypeSectionJoin = '';
+        if (exam_id) {
+            subtypeFilter += ` AND ps.exam_id != $${subtypeParamIdx++}`;
+            subtypeParams.push(exam_id);
+        }
+        if (section_code) {
+            subtypeSectionJoin = 'JOIN exam_section es ON es.section_id = qv.exam_section_id';
+            subtypeFilter += ` AND es.code = $${subtypeParamIdx++}`;
+            subtypeParams.push(section_code);
+        }
         const subtypesRes = await db.query(`
             SELECT DISTINCT qv.subtype, COUNT(*) AS cnt
             FROM question_version qv
             JOIN paper_session ps ON ps.paper_session_id = qv.paper_session_id
+            ${subtypeSectionJoin}
             WHERE qv.language = 'EN'
               AND qv.status = 'MANUALLY_CORRECTED'
               AND (qv.solution_status = 'DONE' OR qv.has_image = true)
