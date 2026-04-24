@@ -86,7 +86,7 @@ export async function GET(req) {
         let subtypeFilter = '';
         let subtypeSectionJoin = '';
         if (exam_id) {
-            subtypeFilter += ` AND ps.exam_id != $${subtypeParamIdx++}`;
+            subtypeFilter += ` AND (ps.exam_id IS NULL OR ps.exam_id != $${subtypeParamIdx++})`;
             subtypeParams.push(exam_id);
         }
         if (section_code) {
@@ -97,11 +97,11 @@ export async function GET(req) {
         const subtypesRes = await db.query(`
             SELECT DISTINCT qv.subtype, COUNT(*) AS cnt
             FROM question_version qv
-            JOIN paper_session ps ON ps.paper_session_id = qv.paper_session_id
+            LEFT JOIN paper_session ps ON ps.paper_session_id = qv.paper_session_id
             ${subtypeSectionJoin}
             WHERE qv.language = 'EN'
               AND qv.status = 'MANUALLY_CORRECTED'
-              AND (qv.solution_status = 'DONE' OR qv.has_image = true)
+              AND (qv.paper_session_id IS NULL OR qv.solution_status = 'DONE' OR qv.has_image = true)
               AND qv.subtype IS NOT NULL
               ${subtypeFilter}
             GROUP BY qv.subtype

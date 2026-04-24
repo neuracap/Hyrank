@@ -287,7 +287,11 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds, onS
                             {/* Header row with meta + action buttons */}
                             <div className="flex items-center gap-2 mb-2">
                                 <span className="text-xs font-bold text-gray-400 w-5 shrink-0">{i + 1}</span>
-                                {q.source_exam && (
+                                {q.entry_source === 'manual' ? (
+                                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-200">
+                                        Manual
+                                    </span>
+                                ) : q.source_exam && (
                                     <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-100">
                                         {q.source_exam_code || q.source_exam}
                                     </span>
@@ -296,7 +300,7 @@ function CandidatePanel({ mockTestId, targetExamId, onAccepted, acceptedIds, onS
                                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100">{q.subtype}</span>
                                 )}
                                 <span className="text-[10px] text-gray-400">
-                                    Q.{q.source_question_no || '?'} · {q.source_session}
+                                    {q.entry_source === 'manual' ? 'Manual Entry' : `Q.${q.source_question_no || '?'} · ${q.source_session || ''}`}
                                 </span>
                                 {/* Action buttons — right aligned */}
                                 <div className="ml-auto flex items-center gap-1.5 shrink-0">

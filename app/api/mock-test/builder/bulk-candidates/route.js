@@ -72,15 +72,16 @@ export async function POST(req) {
                     ps.session_label        AS source_session,
                     ps.paper_date           AS source_date,
                     e.name                  AS source_exam,
-                    e.code                  AS source_exam_code
+                    e.code                  AS source_exam_code,
+                    qv.meta_json->>'source' AS entry_source
                 FROM question_version qv
-                JOIN paper_session ps ON ps.paper_session_id = qv.paper_session_id
-                JOIN exam e ON e.exam_id = ps.exam_id
+                LEFT JOIN paper_session ps ON ps.paper_session_id = qv.paper_session_id
+                LEFT JOIN exam e ON e.exam_id = ps.exam_id
                 ${section_code ? 'JOIN exam_section es ON es.section_id = qv.exam_section_id' : ''}
-                WHERE ps.exam_id != $1
+                WHERE (ps.exam_id IS NULL OR ps.exam_id != $1)
                   AND qv.language = 'EN'
                   AND qv.status = 'MANUALLY_CORRECTED'
-                  AND (qv.solution_status = 'DONE' OR qv.has_image = true)
+                  AND (qv.paper_session_id IS NULL OR qv.solution_status = 'DONE' OR qv.has_image = true)
                   AND ($2::uuid[] IS NULL OR qv.question_id != ALL($2::uuid[]))
                   ${subtypeClause}
                   ${difficultyClause}
