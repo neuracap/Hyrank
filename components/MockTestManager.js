@@ -617,16 +617,181 @@ function ReviewQuestionCard({ q, onApprove, onReject, onSuggest, suggestions, on
 }
 
 // =========================================================
+// Tab: Export PYQs (download as JSON for cloning / re-ingest)
+// =========================================================
+function ExportPyqsPanel({ examId, examName }) {
+    const [years, setYears] = useState([]);
+    const [yearsLoading, setYearsLoading] = useState(false);
+    const [year, setYear] = useState('');
+    const [count, setCount] = useState(5);
+    const [splitFiles, setSplitFiles] = useState(true);
+    const [downloading, setDownloading] = useState(false);
+    const [feedback, setFeedback] = useState(null);
+
+    useEffect(() => {
+        if (!examId) return;
+        setYearsLoading(true);
+        setYear('');
+        fetch(`/api/mock-blueprint/available-years?exam_id=${examId}`)
+            .then(r => r.json())
+            .then(d => {
+                setYears(d.years || []);
+                if (d.years?.length > 0) setYear(String(d.years[0].year));
+            })
+            .catch(() => setYears([]))
+            .finally(() => setYearsLoading(false));
+    }, [examId]);
+
+    const slugify = s => (s || 'exam').toString().replace(/[^a-zA-Z0-9]+/g, '-').replace(/(^-|-$)/g, '').toLowerCase();
+
+    const triggerDownload = (filename, dataObj) => {
+        const blob = new Blob([JSON.stringify(dataObj, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
+
+    const handleDownload = async () => {
+        if (!year) return;
+        setDownloading(true);
+        setFeedback(null);
+        try {
+            const res = await fetch(`/api/pyq/export?exam_id=${examId}&year=${year}&limit=${count}`);
+            const data = await res.json();
+            if (!res.ok) {
+                setFeedback({ type: 'error', msg: data.error || 'Failed to fetch PYQs' });
+                return;
+            }
+            const examSlug = slugify(examName || data.export_meta?.exam_name);
+            const papers = data.papers || [];
+
+            if (papers.length === 0) {
+                setFeedback({ type: 'error', msg: 'No papers returned for this exam/year.' });
+                return;
+            }
+
+            if (splitFiles) {
+                // One JSON per paper. Browser may prompt for "allow multiple downloads" first time.
+                for (let i = 0; i < papers.length; i++) {
+                    const paper = papers[i];
+                    const date = (paper.paper_meta?.paper_date || '').slice(0, 10);
+                    const lbl = slugify(paper.paper_meta?.session_label || paper.paper_meta?.paper_session_id);
+                    const fname = `${examSlug}_${year}_${date || i + 1}_${lbl}.json`;
+                    triggerDownload(fname, paper);
+                    // small stagger so browser doesn't drop downloads
+                    await new Promise(r => setTimeout(r, 250));
+                }
+            } else {
+                triggerDownload(`${examSlug}_${year}_${papers.length}papers.json`, data);
+            }
+
+            setFeedback({
+                type: 'success',
+                msg: `Downloaded ${papers.length} paper${papers.length === 1 ? '' : 's'} (requested ${data.export_meta?.requested_papers}).`,
+            });
+        } catch (e) {
+            setFeedback({ type: 'error', msg: e.message });
+        } finally {
+            setDownloading(false);
+        }
+    };
+
+    return (
+        <div className="space-y-5">
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-xs text-amber-900">
+                <div className="font-bold mb-1">PYQ Export — for local cloning + re-ingest</div>
+                <div>
+                    Each paper is exported as JSON containing every <code>*_json</code> column verbatim
+                    (<code>raw.en</code>, <code>raw.hi</code>) plus extracted text (<code>clone.en</code>,
+                    <code>clone.hi</code>) so a local LLM can read the questions directly. For organised
+                    folder downloads (<code>{`<exam>/<year>/<paper>.json`}</code>) run
+                    <code className="mx-1">scripts/download_pyqs.py</code> with your session cookie.
+                </div>
+                <div className="mt-2 pt-2 border-t border-amber-200 text-[11px] text-amber-800">
+                    <strong>Active filters:</strong> solution_status = DONE &middot; has_image = false &middot; status = MANUALLY_CORRECTED.
+                    Image questions and unsolved questions are skipped.
+                </div>
+                <div className="mt-1 text-[11px] text-amber-800">
+                    Each paper carries <code>paper_meta.source_pdf_path</code> + <code>paper_meta.pdf_url</code> (the same <code>/api/pdf?path=…</code> link the bilingual/test pages use).
+                    Run the script with <code>--download-pdfs</code> to save PDFs alongside the JSONs.
+                </div>
+            </div>
+
+            {feedback && (
+                <div className={`text-sm px-4 py-2 rounded ${feedback.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                    {feedback.msg}
+                </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Year</label>
+                    {yearsLoading ? (
+                        <div className="text-xs text-gray-400">Loading years...</div>
+                    ) : years.length === 0 ? (
+                        <div className="text-xs text-gray-400">No PYQ years found for this exam.</div>
+                    ) : (
+                        <select value={year} onChange={e => setYear(e.target.value)}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+                            {years.map(y => (
+                                <option key={y.year} value={y.year}>
+                                    {y.year} — {y.paper_count} papers, {y.question_count} questions
+                                </option>
+                            ))}
+                        </select>
+                    )}
+                </div>
+
+                <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Number of papers</label>
+                    <input type="number" min="1" max="50" value={count}
+                        onChange={e => setCount(Math.min(Math.max(parseInt(e.target.value, 10) || 1, 1), 50))}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500" />
+                    <div className="text-xs text-gray-400 mt-1">Max 50. Most-recent papers first.</div>
+                </div>
+
+                <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Format</label>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input type="checkbox" checked={splitFiles}
+                            onChange={e => setSplitFiles(e.target.checked)} className="accent-blue-600" />
+                        One file per paper
+                    </label>
+                    <div className="text-xs text-gray-400 mt-1">
+                        {splitFiles ? 'Browser may ask "allow multiple downloads"' : 'Single combined manifest JSON'}
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <button onClick={handleDownload} disabled={downloading || !year}
+                    className="px-5 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                    {downloading ? 'Downloading...' : `Download ${count} paper${count === 1 ? '' : 's'}`}
+                </button>
+            </div>
+        </div>
+    );
+}
+
+// =========================================================
 // Main Manager Component
 // =========================================================
 export default function MockTestManager({ exams }) {
     const [selectedExamId, setSelectedExamId] = useState('');
-    const [activeTab, setActiveTab] = useState('mocks'); // 'mocks' | 'create'
+    const [activeTab, setActiveTab] = useState('mocks'); // 'mocks' | 'create' | 'export'
     const [reviewingMockId, setReviewingMockId] = useState(null);
 
     if (reviewingMockId) {
         return <MockReview mockTestId={reviewingMockId} onBack={() => setReviewingMockId(null)} />;
     }
+
+    const selectedExam = exams.find(e => e.exam_id === selectedExamId);
+    const tabLabels = { mocks: 'Existing Mocks', create: 'Create New', export: 'Export PYQs' };
 
     return (
         <div className="min-h-screen bg-gray-50">
@@ -643,10 +808,10 @@ export default function MockTestManager({ exams }) {
                     </select>
                     {selectedExamId && (
                         <div className="flex gap-1">
-                            {['mocks', 'create'].map(tab => (
+                            {['mocks', 'create', 'export'].map(tab => (
                                 <button key={tab} onClick={() => setActiveTab(tab)}
                                     className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors ${activeTab === tab ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                                    {tab === 'mocks' ? 'Existing Mocks' : 'Create New'}
+                                    {tabLabels[tab]}
                                 </button>
                             ))}
                         </div>
@@ -660,8 +825,10 @@ export default function MockTestManager({ exams }) {
                     <div className="text-center py-24 text-gray-400">Select an exam to manage mock tests.</div>
                 ) : activeTab === 'mocks' ? (
                     <MocksList examId={selectedExamId} onOpenMock={setReviewingMockId} />
-                ) : (
+                ) : activeTab === 'create' ? (
                     <BlueprintPanel examId={selectedExamId} />
+                ) : (
+                    <ExportPyqsPanel examId={selectedExamId} examName={selectedExam?.name} />
                 )}
             </div>
         </div>

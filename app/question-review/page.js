@@ -129,12 +129,21 @@ export default function QuestionReviewPage() {
                             <div className="text-sm text-gray-700 space-y-1">
                                 {result.english_exam_name && <div><span className="font-semibold text-blue-700">{result.english_exam_name}</span></div>}
                                 {result.english_session_label && <div className="text-xs">{result.english_session_label}</div>}
-                                <div className="flex gap-3 text-xs text-gray-500">
+                                <div className="flex gap-3 text-xs text-gray-500 items-center flex-wrap">
                                     {result.english_paper_date && <span>{new Date(result.english_paper_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>}
                                     {result.english_shift_label && <span>Shift: {result.english_shift_label}</span>}
                                     {result.english_section_code && <span className="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">{result.english_section_code}</span>}
                                     {result.english_source_qno && <span>Q.{result.english_source_qno}</span>}
                                     {!result.english_source_qno && result.english_qno && <span>Q.{result.english_qno}</span>}
+                                    {result.english_pdf_path ? (
+                                        <a href={`/api/pdf?path=${encodeURIComponent(result.english_pdf_path)}`}
+                                            target="_blank" rel="noopener noreferrer"
+                                            className="ml-auto text-xs font-semibold px-2 py-0.5 rounded border border-blue-300 text-blue-700 bg-white hover:bg-blue-50">
+                                            Open Source PDF ↗
+                                        </a>
+                                    ) : (
+                                        <span className="ml-auto text-xs italic text-gray-400">No PDF linked</span>
+                                    )}
                                 </div>
                             </div>
                         </div>}
@@ -147,12 +156,21 @@ export default function QuestionReviewPage() {
                             <div className="text-sm text-gray-700 space-y-1">
                                 {result.hindi_exam_name && <div><span className="font-semibold text-orange-700">{result.hindi_exam_name}</span></div>}
                                 {result.hindi_session_label && <div className="text-xs">{result.hindi_session_label}</div>}
-                                <div className="flex gap-3 text-xs text-gray-500">
+                                <div className="flex gap-3 text-xs text-gray-500 items-center flex-wrap">
                                     {result.hindi_paper_date && <span>{new Date(result.hindi_paper_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>}
                                     {result.hindi_shift_label && <span>Shift: {result.hindi_shift_label}</span>}
                                     {result.hindi_section_code && <span className="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">{result.hindi_section_code}</span>}
                                     {result.hindi_source_qno && <span>Q.{result.hindi_source_qno}</span>}
                                     {!result.hindi_source_qno && result.hindi_qno && <span>Q.{result.hindi_qno}</span>}
+                                    {result.hindi_pdf_path ? (
+                                        <a href={`/api/pdf?path=${encodeURIComponent(result.hindi_pdf_path)}`}
+                                            target="_blank" rel="noopener noreferrer"
+                                            className="ml-auto text-xs font-semibold px-2 py-0.5 rounded border border-orange-300 text-orange-700 bg-white hover:bg-orange-50">
+                                            Open Source PDF ↗
+                                        </a>
+                                    ) : (
+                                        <span className="ml-auto text-xs italic text-gray-400">No PDF linked</span>
+                                    )}
                                 </div>
                             </div>
                         </div>}

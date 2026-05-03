@@ -70,6 +70,7 @@ export async function GET(request) {
                 ee.name AS english_exam_name,
                 en.source_question_no AS english_source_qno,
                 ese.code AS english_section_code,
+                je.source_pdf_path AS english_pdf_path,
 
                 -- Paper details (Hindi)
                 ph.session_label AS hindi_session_label,
@@ -78,7 +79,8 @@ export async function GET(request) {
                 ph.language AS hindi_paper_language,
                 eh.name AS hindi_exam_name,
                 hi.source_question_no AS hindi_source_qno,
-                esh.code AS hindi_section_code
+                esh.code AS hindi_section_code,
+                jh.source_pdf_path AS hindi_pdf_path
 
             FROM public.question_links ql
             JOIN public.question_version en
@@ -92,9 +94,13 @@ export async function GET(request) {
             LEFT JOIN paper_session pe ON en.paper_session_id = pe.paper_session_id
             LEFT JOIN exam ee ON pe.exam_id = ee.exam_id
             LEFT JOIN exam_section ese ON en.exam_section_id = ese.section_id
+            LEFT JOIN raw_mmd_doc de ON pe.raw_mmd_doc_id = de.raw_mmd_doc_id
+            LEFT JOIN import_job  je ON de.import_job_id   = je.import_job_id
             LEFT JOIN paper_session ph ON hi.paper_session_id = ph.paper_session_id
             LEFT JOIN exam eh ON ph.exam_id = eh.exam_id
             LEFT JOIN exam_section esh ON hi.exam_section_id = esh.section_id
+            LEFT JOIN raw_mmd_doc dh ON ph.raw_mmd_doc_id = dh.raw_mmd_doc_id
+            LEFT JOIN import_job  jh ON dh.import_job_id   = jh.import_job_id
             WHERE ql.english_question_id = $1 OR ql.hindi_question_id = $1
             LIMIT 1;
         `;
@@ -125,6 +131,7 @@ export async function GET(request) {
                     ps.paper_date,
                     ps.shift_label,
                     ps.language AS paper_language,
+                    j.source_pdf_path,
                     (
                         SELECT jsonb_object_agg(qo.option_key, qo.option_json->>'text' ORDER BY qo.option_key)
                         FROM question_option qo
@@ -136,6 +143,8 @@ export async function GET(request) {
                 LEFT JOIN exam_section es ON es.section_id = qv.exam_section_id
                 LEFT JOIN paper_session ps ON ps.paper_session_id = qv.paper_session_id
                 LEFT JOIN exam e ON e.exam_id = ps.exam_id
+                LEFT JOIN raw_mmd_doc d ON ps.raw_mmd_doc_id = d.raw_mmd_doc_id
+                LEFT JOIN import_job  j ON d.import_job_id   = j.import_job_id
                 WHERE qv.question_id = $1
                 LIMIT 1
             `, [questionId]);
@@ -184,6 +193,7 @@ export async function GET(request) {
                     [`${isEn ? 'english' : 'hindi'}_exam_name`]: solo.exam_name,
                     [`${isEn ? 'english' : 'hindi'}_section_code`]: solo.section_code,
                     [`${isEn ? 'english' : 'hindi'}_source_qno`]: solo.source_question_no,
+                    [`${isEn ? 'english' : 'hindi'}_pdf_path`]: solo.source_pdf_path,
                 },
             });
         }
