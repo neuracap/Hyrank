@@ -38,8 +38,7 @@ export async function POST() {
                     'changed_by', $1::int,
                     'at',         to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
                     'source',     'maintenance:promote-fully-corrected'
-                )::jsonb,
-                updated_at = NOW()
+                )::jsonb
             FROM eligible
             WHERE ps.paper_session_id = eligible.paper_session_id
             RETURNING ps.paper_session_id
