@@ -10,6 +10,13 @@ const TASKS = [
         endpoint: '/api/admin/maintenance/recount-paper-stats',
         confirmText: 'This will update count columns across all paper sessions. Continue?',
     },
+    {
+        id: 'promote-fully-corrected',
+        label: 'Promote fully-corrected papers to TEAM_REVIEWED',
+        description: 'Finds papers currently in NOT_REVIEWED where every question_version row has status MANUALLY_CORRECTED, and advances them to TEAM_REVIEWED. Counts are computed live and status_history is appended.',
+        endpoint: '/api/admin/maintenance/promote-fully-corrected',
+        confirmText: 'This will bump all eligible NOT_REVIEWED papers to TEAM_REVIEWED. Continue?',
+    },
     // Add new tasks here
 ];
 
