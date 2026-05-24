@@ -63,7 +63,13 @@ export default async function TestReviewPage({ searchParams }) {
                     SELECT COUNT(*)
                     FROM question_version qv
                     WHERE qv.paper_session_id = ps.paper_session_id
-                ) as total_q
+                ) as total_q,
+                (
+                    SELECT COUNT(*)
+                    FROM question_version qv
+                    WHERE qv.paper_session_id = ps.paper_session_id
+                      AND qv.status = 'MANUALLY_CORRECTED'
+                ) as mc_q
             FROM paper_session ps
             LEFT JOIN exam e ON ps.exam_id = e.exam_id
             ${whereClause}
@@ -122,7 +128,13 @@ export default async function TestReviewPage({ searchParams }) {
                     SELECT COUNT(*)
                     FROM question_version qv
                     WHERE qv.paper_session_id = ps.paper_session_id
-                ) as total_q
+                ) as total_q,
+                (
+                    SELECT COUNT(*)
+                    FROM question_version qv
+                    WHERE qv.paper_session_id = ps.paper_session_id
+                      AND qv.status = 'MANUALLY_CORRECTED'
+                ) as mc_q
             FROM review_assignments ra
             JOIN paper_session ps ON ra.paper_session_id = ps.paper_session_id
             LEFT JOIN exam e ON ps.exam_id = e.exam_id
@@ -286,6 +298,7 @@ export default async function TestReviewPage({ searchParams }) {
                                     <th className="px-6 py-3">Paper Name</th>
                                     <th className="px-6 py-3">Lang</th>
                                     <th className="px-6 py-3">Questions</th>
+                                    <th className="px-6 py-3">MC Done</th>
                                     <th className="px-6 py-3">Status / Progress</th>
                                     <th className="px-6 py-3">Action</th>
                                 </tr>
@@ -293,8 +306,11 @@ export default async function TestReviewPage({ searchParams }) {
                             <tbody>
                                 {papers.map((paper) => {
                                     const totalQ = parseInt(paper.total_q || 0);
+                                    const mcQ = parseInt(paper.mc_q || 0);
+                                    const mcIncomplete = totalQ > 0 && mcQ < totalQ;
+                                    const rowBg = mcIncomplete ? 'bg-amber-50 hover:bg-amber-100' : 'bg-white hover:bg-gray-50';
                                     return (
-                                        <tr key={paper.paper_session_id} className="bg-white border-b hover:bg-gray-50">
+                                        <tr key={paper.paper_session_id} className={`border-b ${rowBg}`}>
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 {paper.paper_date ? new Date(paper.paper_date).toLocaleDateString() : 'N/A'}
                                             </td>
@@ -320,6 +336,11 @@ export default async function TestReviewPage({ searchParams }) {
                                             <td className="px-6 py-4">
                                                 <span className={`font-bold px-2 py-1 rounded ${totalQ < 100 ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
                                                     {totalQ}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <span className={`font-bold px-2 py-1 rounded ${mcIncomplete ? 'bg-amber-100 text-amber-800' : 'bg-green-50 text-green-700'}`}>
+                                                    {mcQ}{totalQ > 0 ? ` / ${totalQ}` : ''}
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4">
