@@ -33,10 +33,11 @@ export default function AnswerConflicts() {
     const [error, setError] = useState('');
 
     const [verdict, setVerdict] = useState(null);
-    const [showSolution, setShowSolution] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     // local override of resolved verdicts so the focused card reflects submits immediately
     const [localResolved, setLocalResolved] = useState({});
+    // per-question local override of solution_json after an edit, keyed `${qid}:${ver}`
+    const [solutionOverrides, setSolutionOverrides] = useState({});
 
     const fetchStats = useCallback(async () => {
         try {
@@ -81,7 +82,11 @@ export default function AnswerConflicts() {
     }, [fetchList]);
 
     // reset per-question controls when the focused item changes
-    useEffect(() => { setVerdict(null); setShowSolution(false); }, [idx, rows]);
+    useEffect(() => { setVerdict(null); }, [idx, rows]);
+
+    const onSolutionSaved = (qid, ver, nextSolutionJson) => {
+        setSolutionOverrides(prev => ({ ...prev, [`${qid}:${ver}`]: nextSolutionJson }));
+    };
 
     const current = rows[idx] || null;
 
@@ -240,13 +245,13 @@ export default function AnswerConflicts() {
                 <ConflictCard
                     key={`${current.question_id}:${current.version_no}`}
                     item={current}
+                    solutionOverride={solutionOverrides[`${current.question_id}:${current.version_no}`]}
                     verdict={verdict}
                     setVerdict={setVerdict}
-                    showSolution={showSolution}
-                    setShowSolution={setShowSolution}
                     submitting={submitting}
                     onSubmit={submitVerdict}
                     existingVerdict={existingVerdict}
+                    onSolutionSaved={onSolutionSaved}
                 />
             )}
         </div>
@@ -266,15 +271,17 @@ function AnswerBadge({ label, value, tone }) {
     );
 }
 
-function ConflictCard({ item, verdict, setVerdict, showSolution, setShowSolution, submitting, onSubmit, existingVerdict }) {
+function ConflictCard({ item, solutionOverride, verdict, setVerdict, submitting, onSubmit, existingVerdict, onSolutionSaved }) {
     const options = item.options || {};
-    const sol = item.solution_text || null;
+    const sol = solutionOverride || item.solution_text || null;
     const srcMeta = SOURCE_META[item.pdf_source] || { label: item.pdf_source, color: 'bg-gray-100 text-gray-600 border-gray-300' };
     const stem = item.question_stem?.text || '';
 
     const displaySections = Array.isArray(sol?.display_sections) ? sol.display_sections : [];
     const coreBasis = sol?.answer_outcome?.core_answer_basis;
     const figureUrl = sol?.answer_outcome?.figure_url;
+    const finalAnswerText = sol?.answer_outcome?.final_answer_text;
+    const solutionCorrectOption = sol?.answer_outcome?.correct_option;
 
     return (
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
@@ -351,36 +358,18 @@ function ConflictCard({ item, verdict, setVerdict, showSolution, setShowSolution
                 </div>
             </div>
 
-            {/* Worked solution (expandable, shown regardless of solution_status) */}
+            {/* Worked solution — visible by default, editable */}
             <div className="px-5 pt-4">
-                <button onClick={() => setShowSolution(s => !s)}
-                    className="text-sm font-semibold text-gray-600 hover:text-gray-900 flex items-center gap-1">
-                    {showSolution ? '▾' : '▸'} Worked solution
-                    <span className="text-xs font-normal text-gray-400">({item.solution_status || 'no status'})</span>
-                </button>
-                {showSolution && (
-                    <div className="mt-2 p-4 bg-slate-50 border border-slate-200 rounded-md text-sm text-gray-700">
-                        {!sol && <div className="text-gray-400 italic">No solver reasoning available — verify against the answer-key PDF.</div>}
-                        {coreBasis && (
-                            <div className="mb-3">
-                                <div className="text-xs font-bold text-gray-500 uppercase mb-0.5">Core basis</div>
-                                <Latex>{coreBasis}</Latex>
-                            </div>
-                        )}
-                        {displaySections.map((sec, i) => (
-                            <div key={i} className="mb-3">
-                                <div className="text-xs font-bold text-gray-500 uppercase mb-0.5">{(sec.key || '').replace(/_/g, ' ')}</div>
-                                <Latex>{sec.content || ''}</Latex>
-                            </div>
-                        ))}
-                        {figureUrl && (
-                            <div className="mt-2">
-                                <div className="text-xs font-bold text-gray-500 uppercase mb-1">Figure</div>
-                                <img src={figureUrl} alt="Solution figure" className="max-h-64 rounded border border-gray-300 object-contain" />
-                            </div>
-                        )}
-                    </div>
-                )}
+                <SolutionPanel
+                    item={item}
+                    sol={sol}
+                    coreBasis={coreBasis}
+                    finalAnswerText={finalAnswerText}
+                    solutionCorrectOption={solutionCorrectOption}
+                    displaySections={displaySections}
+                    figureUrl={figureUrl}
+                    onSaved={onSolutionSaved}
+                />
             </div>
 
             {/* Verdict actions */}
@@ -399,6 +388,208 @@ function ConflictCard({ item, verdict, setVerdict, showSolution, setShowSolution
                 </button>
                 <span className="ml-auto text-xs text-gray-400">Verdict is saved, not yet promoted to is_correct.</span>
             </div>
+        </div>
+    );
+}
+
+function SolutionPanel({ item, sol, coreBasis, finalAnswerText, solutionCorrectOption, displaySections, figureUrl, onSaved }) {
+    const [editing, setEditing] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [editErr, setEditErr] = useState('');
+
+    // editable drafts
+    const [draftBasis, setDraftBasis] = useState('');
+    const [draftFinal, setDraftFinal] = useState('');
+    const [draftOption, setDraftOption] = useState('');
+    const [draftSections, setDraftSections] = useState([]);
+
+    const startEdit = () => {
+        setDraftBasis(coreBasis || '');
+        setDraftFinal(finalAnswerText || '');
+        setDraftOption(solutionCorrectOption || '');
+        setDraftSections((displaySections || []).map(s => ({ key: s.key || '', content: s.content || '' })));
+        setEditErr('');
+        setEditing(true);
+    };
+
+    const cancel = () => {
+        setEditing(false);
+        setEditErr('');
+    };
+
+    const saveEdit = async () => {
+        setSaving(true);
+        setEditErr('');
+        try {
+            const body = {
+                question_id: item.question_id,
+                version_no: item.version_no,
+                core_answer_basis: draftBasis,
+                final_answer_text: draftFinal,
+                display_sections: draftSections.map(s => ({ key: s.key, content: s.content })),
+            };
+            if (draftOption) body.correct_option = draftOption;
+            const res = await fetch('/api/answer-conflicts/edit-solution', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || 'Save failed');
+            onSaved(item.question_id, item.version_no, data.solution_json);
+            setEditing(false);
+        } catch (e) {
+            setEditErr(e.message);
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const updateSection = (i, patch) => {
+        setDraftSections(prev => prev.map((s, idx) => idx === i ? { ...s, ...patch } : s));
+    };
+    const addSection = () => setDraftSections(prev => [...prev, { key: '', content: '' }]);
+    const removeSection = (i) => setDraftSections(prev => prev.filter((_, idx) => idx !== i));
+
+    if (!sol && !editing) {
+        return (
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-md text-sm text-gray-500 italic flex items-center justify-between">
+                <span>No solver reasoning available — verify against the answer-key PDF.</span>
+                <button onClick={() => { setDraftBasis(''); setDraftFinal(''); setDraftOption(''); setDraftSections([{ key: 'answer_logic', content: '' }]); setEditing(true); }}
+                    className="text-xs font-semibold px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-100 text-slate-700">
+                    + Write solution
+                </button>
+            </div>
+        );
+    }
+
+    return (
+        <div className="bg-slate-50 border border-slate-200 rounded-md">
+            <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200">
+                <div className="text-sm font-semibold text-gray-700">
+                    Worked solution
+                    <span className="ml-2 text-xs font-normal text-gray-400">({item.solution_status || 'no status'})</span>
+                </div>
+                {editing ? (
+                    <div className="flex gap-2">
+                        <button onClick={cancel} disabled={saving}
+                            className="text-xs px-2.5 py-1 rounded border border-gray-300 bg-white hover:bg-gray-100 text-gray-700">Cancel</button>
+                        <button onClick={saveEdit} disabled={saving}
+                            className="text-xs px-2.5 py-1 rounded bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50">
+                            {saving ? 'Saving…' : 'Save solution'}
+                        </button>
+                    </div>
+                ) : (
+                    <button onClick={startEdit}
+                        className="text-xs font-semibold px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-100 text-slate-700">
+                        Edit solution
+                    </button>
+                )}
+            </div>
+
+            {editErr && (
+                <div className="mx-4 mt-3 p-2 bg-red-50 text-red-700 border border-red-200 rounded text-xs">{editErr}</div>
+            )}
+
+            <div className="p-4 text-sm text-gray-700 space-y-3">
+                {editing ? (
+                    <>
+                        <FieldEdit label="Correct option" hint="A / B / C / D — sync with the answer key">
+                            <div className="flex gap-1">
+                                {['A', 'B', 'C', 'D'].map(k => (
+                                    <button key={k} onClick={() => setDraftOption(k)}
+                                        className={`w-9 h-9 rounded border font-bold text-sm
+                                            ${draftOption === k ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'}`}>
+                                        {k}
+                                    </button>
+                                ))}
+                                {draftOption && (
+                                    <button onClick={() => setDraftOption('')}
+                                        className="text-xs text-gray-500 underline ml-2">clear</button>
+                                )}
+                            </div>
+                        </FieldEdit>
+                        <FieldEdit label="Final answer text" hint="The text of the correct option">
+                            <input type="text" value={draftFinal} onChange={e => setDraftFinal(e.target.value)}
+                                className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 bg-white" />
+                        </FieldEdit>
+                        <FieldEdit label="Core basis" hint="One/two sentences on why the new answer is correct">
+                            <textarea value={draftBasis} onChange={e => setDraftBasis(e.target.value)} rows={3}
+                                className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 bg-white font-mono" />
+                        </FieldEdit>
+
+                        <div>
+                            <div className="flex items-center justify-between mb-1">
+                                <div className="text-xs font-bold text-gray-500 uppercase tracking-wide">Display sections</div>
+                                <button onClick={addSection} className="text-xs text-blue-600 hover:underline">+ Add section</button>
+                            </div>
+                            <div className="space-y-2">
+                                {draftSections.map((sec, i) => (
+                                    <div key={i} className="border border-gray-200 rounded p-2 bg-white">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <input type="text" value={sec.key}
+                                                onChange={e => updateSection(i, { key: e.target.value })}
+                                                placeholder="key (e.g. answer_logic)"
+                                                className="flex-1 text-xs border border-gray-300 rounded px-2 py-1 font-mono" />
+                                            <button onClick={() => removeSection(i)}
+                                                className="text-xs text-red-600 hover:underline">Remove</button>
+                                        </div>
+                                        <textarea value={sec.content}
+                                            onChange={e => updateSection(i, { content: e.target.value })}
+                                            rows={4}
+                                            className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 font-mono" />
+                                    </div>
+                                ))}
+                                {draftSections.length === 0 && (
+                                    <div className="text-xs text-gray-400 italic">No sections — click "+ Add section" to add one.</div>
+                                )}
+                            </div>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        {solutionCorrectOption && (
+                            <div className="text-xs text-gray-500">
+                                Solver's correct option: <span className="font-bold text-gray-800">{solutionCorrectOption}</span>
+                                {finalAnswerText && <span className="ml-1">— "<span className="italic">{finalAnswerText}</span>"</span>}
+                            </div>
+                        )}
+                        {coreBasis && (
+                            <div>
+                                <div className="text-xs font-bold text-gray-500 uppercase mb-0.5">Core basis</div>
+                                <Latex>{coreBasis}</Latex>
+                            </div>
+                        )}
+                        {displaySections.map((sec, i) => (
+                            <div key={i}>
+                                <div className="text-xs font-bold text-gray-500 uppercase mb-0.5">{(sec.key || '').replace(/_/g, ' ')}</div>
+                                <Latex>{sec.content || ''}</Latex>
+                            </div>
+                        ))}
+                        {figureUrl && (
+                            <div>
+                                <div className="text-xs font-bold text-gray-500 uppercase mb-1">Figure</div>
+                                <img src={figureUrl} alt="Solution figure" className="max-h-64 rounded border border-gray-300 object-contain" />
+                            </div>
+                        )}
+                        {!coreBasis && displaySections.length === 0 && !figureUrl && (
+                            <div className="text-gray-400 italic">No worked solution content yet. Click "Edit solution" to add one.</div>
+                        )}
+                    </>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function FieldEdit({ label, hint, children }) {
+    return (
+        <div>
+            <div className="flex items-baseline justify-between mb-1">
+                <div className="text-xs font-bold text-gray-500 uppercase tracking-wide">{label}</div>
+                {hint && <div className="text-[11px] text-gray-400 italic">{hint}</div>}
+            </div>
+            {children}
         </div>
     );
 }
