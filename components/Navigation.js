@@ -106,6 +106,18 @@ export default function Navigation({ user }) {
                                 Test Review
                             </Link>
 
+                            {user?.isAdmin && (
+                                <Link
+                                    href="/cgl-mock-builder"
+                                    className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${isActive('/cgl-mock-builder')
+                                        ? 'border-green-500 text-gray-900'
+                                        : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                                        }`}
+                                >
+                                    CGL Mock Builder
+                                </Link>
+                            )}
+
                             {!user?.isAdmin && (
                                 <Link
                                     href="/my-reviews"
