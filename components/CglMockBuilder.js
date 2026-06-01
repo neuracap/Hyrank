@@ -175,6 +175,7 @@ function MockReview({ mockTestId, onChanged }) {
     const [err, setErr] = useState('');
     const [busyKey, setBusyKey] = useState(null);
     const [fillTarget, setFillTarget] = useState(null); // { section_code, placeholder_id, position }
+    const [browseTarget, setBrowseTarget] = useState(null); // { section_code, question_id_to_remove }
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -216,6 +217,22 @@ function MockReview({ mockTestId, onChanged }) {
             if (!res.ok || !j.success) throw new Error(j.error || 'Edit failed');
             await load();
         } catch (e) { setErr(e.message); throw e; }
+        finally { setBusyKey(null); }
+    };
+
+    const replaceWith = async (question_id_to_remove, replacement_question_id) => {
+        setBusyKey(`replace-${question_id_to_remove}`);
+        setErr('');
+        try {
+            const res = await fetch(`/api/cgl-mock/${mockTestId}/replace-with`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question_id_to_remove, replacement_question_id }),
+            });
+            const j = await res.json();
+            if (!res.ok || !j.success) throw new Error(j.error || 'Replace failed');
+            setBrowseTarget(null);
+            await load(); onChanged?.();
+        } catch (e) { setErr(e.message); }
         finally { setBusyKey(null); }
     };
 
@@ -356,6 +373,7 @@ function MockReview({ mockTestId, onChanged }) {
                                         onSwap={swap}
                                         onEdit={editQuestion}
                                         onJunk={junkQuestion}
+                                        onOpenBrowse={() => setBrowseTarget({ section_code: sec.code, question_id_to_remove: it.question_id })}
                                         onOpenFill={() => setFillTarget({ section_code: sec.code, placeholder_id: it.placeholder_id, position: it.position })}
                                     />
                                 ))}
@@ -377,6 +395,14 @@ function MockReview({ mockTestId, onChanged }) {
                     onSubmit={(payload) => fillWithCa(fillTarget.placeholder_id, payload)}
                     onClose={() => setFillTarget(null)}
                     busy={busyKey?.startsWith('fill-')}
+                />
+            )}
+            {browseTarget && (
+                <BankBrowserModal
+                    section={browseTarget.section_code}
+                    onPick={(qid) => replaceWith(browseTarget.question_id_to_remove, qid)}
+                    onClose={() => setBrowseTarget(null)}
+                    busy={busyKey?.startsWith('replace-')}
                 />
             )}
         </div>
@@ -429,7 +455,7 @@ function SectionNav({ section, stats, onJump }) {
     );
 }
 
-function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onJunk, onOpenFill }) {
+function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onJunk, onOpenBrowse, onOpenFill }) {
     const anchor = `q-${sectionCode}-${item.position}`;
     const [editing, setEditing] = useState(false);
     const [draftStem, setDraftStem] = useState('');
@@ -516,9 +542,18 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onJunk, onOp
                         </button>
                     )}
                     <button onClick={() => onSwap(item.question_id)} disabled={isSwapping || isEditing}
+                        title="Swap with another question of the same subtype family"
                         className="text-xs font-semibold px-2 py-1 rounded border border-red-300 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50">
                         {isSwapping ? '…' : (item.group_id ? 'Swap group' : 'Delete & swap')}
                     </button>
+                    {!isEditing && !item.group_id && (
+                        <button onClick={onOpenBrowse}
+                            disabled={busyKey === `replace-${item.question_id}`}
+                            title="Browse the bank to pick a replacement from a different topic"
+                            className="text-xs font-semibold px-2 py-1 rounded border border-amber-400 text-amber-700 bg-white hover:bg-amber-50 disabled:opacity-50">
+                            {busyKey === `replace-${item.question_id}` ? '…' : 'Browse bank'}
+                        </button>
+                    )}
                     {!isEditing && (
                         <button onClick={() => onJunk?.(item.question_id)}
                             disabled={busyKey === `junk-${item.question_id}`}
@@ -766,6 +801,132 @@ function CaEditorModal({ onSubmit, onClose, busy }) {
                         disabled={!valid || busy}
                         className="px-4 py-1.5 bg-green-600 text-white text-sm font-bold rounded hover:bg-green-700 disabled:opacity-50">
                         {busy ? 'Saving…' : 'Save & insert'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ---------- Bank browser (swap to a different topic / subtype) ----------
+
+function BankBrowserModal({ section, onPick, onClose, busy }) {
+    const [specSubtype, setSpecSubtype] = useState('');
+    const [difficulty, setDifficulty] = useState('');
+    const [q, setQ] = useState('');
+    const [debouncedQ, setDebouncedQ] = useState('');
+    const [rows, setRows] = useState([]);
+    const [total, setTotal] = useState(0);
+    const [buckets, setBuckets] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [err, setErr] = useState('');
+    const [chosenId, setChosenId] = useState(null);
+    const debounceRef = useRef(null);
+
+    useEffect(() => {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(() => setDebouncedQ(q), 350);
+        return () => clearTimeout(debounceRef.current);
+    }, [q]);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            setLoading(true); setErr('');
+            try {
+                const qs = new URLSearchParams({ section, limit: '20' });
+                if (specSubtype) qs.set('spec_subtype', specSubtype);
+                if (difficulty) qs.set('difficulty', difficulty);
+                if (debouncedQ) qs.set('q', debouncedQ);
+                const res = await fetch(`/api/cgl-mock/search-bank?${qs}`);
+                const j = await res.json();
+                if (cancelled) return;
+                if (!res.ok || !j.success) throw new Error(j.error || 'Search failed');
+                setRows(j.rows); setTotal(j.total); setBuckets(j.subtype_buckets || []);
+            } catch (e) { if (!cancelled) setErr(e.message); }
+            finally { if (!cancelled) setLoading(false); }
+        })();
+        return () => { cancelled = true; };
+    }, [section, specSubtype, difficulty, debouncedQ]);
+
+    return (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+                <div className="px-5 py-3 border-b flex items-center justify-between">
+                    <div>
+                        <h2 className="text-lg font-bold">Pick a replacement from {section}</h2>
+                        <p className="text-xs text-gray-500">
+                            Verified bank pool, excludes anything in any prior CGL T1 mock.
+                            Choose a different subtype to fix topic concentration.
+                        </p>
+                    </div>
+                    <button onClick={onClose} className="text-gray-400 hover:text-gray-800 text-xl">&times;</button>
+                </div>
+                <div className="px-5 py-2 border-b space-y-2">
+                    <div className="flex gap-2 items-center flex-wrap">
+                        <label className="text-xs font-semibold text-gray-600 uppercase">Subtype</label>
+                        <select value={specSubtype} onChange={e => setSpecSubtype(e.target.value)}
+                            className="text-sm border border-gray-300 rounded px-2 py-1 min-w-[200px]">
+                            <option value="">Any</option>
+                            {buckets.map(b => (
+                                <option key={b.slug} value={b.slug} disabled={b.count === 0}>
+                                    {b.slug} ({b.count})
+                                </option>
+                            ))}
+                        </select>
+                        <label className="text-xs font-semibold text-gray-600 uppercase ml-2">Difficulty</label>
+                        <div className="flex gap-1">
+                            {[['', 'Both'], ['2', 'L2'], ['3', 'L3']].map(([v, label]) => (
+                                <button key={v || 'any'} onClick={() => setDifficulty(v)}
+                                    className={`text-[11px] font-bold px-2 py-1 rounded border
+                                        ${difficulty === v ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'}`}>
+                                    {label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    <input type="text" value={q} onChange={e => setQ(e.target.value)}
+                        placeholder="Search stems…"
+                        className="w-full text-sm border border-gray-300 rounded px-3 py-1.5" />
+                    <div className="text-[11px] text-gray-500">{loading ? 'Searching…' : `${total} matches`}</div>
+                </div>
+                {err && <div className="mx-5 mt-3 p-2 bg-red-50 text-red-700 text-xs border border-red-200 rounded">{err}</div>}
+                <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-0">
+                    {rows.length === 0 && !loading && (
+                        <div className="text-center text-gray-400 text-sm p-6">No matches.</div>
+                    )}
+                    {rows.map(r => (
+                        <button key={r.question_id} onClick={() => setChosenId(r.question_id)}
+                            className={`block w-full text-left rounded border p-3 text-sm
+                                ${chosenId === r.question_id ? 'border-green-500 ring-2 ring-green-300 bg-green-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
+                            <div className="flex items-center gap-2 text-[11px] text-gray-500 mb-1 flex-wrap">
+                                <span className="font-mono px-1.5 py-0 rounded bg-indigo-50 text-indigo-700">{r.subtype}</span>
+                                <span className={`px-1.5 py-0 rounded font-bold
+                                    ${r.difficulty === 2 ? 'bg-green-100 text-green-700' : r.difficulty === 3 ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'}`}>
+                                    L{r.difficulty}
+                                </span>
+                                {r.variation && <span className="text-gray-500">var: {r.variation}</span>}
+                                <span className="ml-auto font-mono text-gray-300">{r.question_id.slice(0, 8)}</span>
+                            </div>
+                            <div className="prose prose-sm max-w-none"><Latex>{r.body_json?.text || ''}</Latex></div>
+                            <div className="grid grid-cols-2 gap-1 mt-2">
+                                {['A', 'B', 'C', 'D'].map(k => (
+                                    <div key={k} className={`text-xs p-1.5 rounded border
+                                        ${r.correct_option_label === k ? 'border-green-300 bg-green-50' : 'border-gray-200'}`}>
+                                        <span className="font-bold">{k}.</span> <Latex>{r.options?.[k]?.text || ''}</Latex>
+                                    </div>
+                                ))}
+                            </div>
+                        </button>
+                    ))}
+                </div>
+                <div className="px-5 py-3 border-t bg-gray-50 flex items-center justify-end gap-2">
+                    <button onClick={onClose} disabled={busy}
+                        className="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-100">Cancel</button>
+                    <button onClick={() => chosenId && onPick(chosenId)}
+                        disabled={!chosenId || busy}
+                        className="px-4 py-1.5 bg-amber-600 text-white text-sm font-bold rounded hover:bg-amber-700 disabled:opacity-50">
+                        {busy ? 'Replacing…' : 'Use this question'}
                     </button>
                 </div>
             </div>
