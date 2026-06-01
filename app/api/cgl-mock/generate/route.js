@@ -127,13 +127,14 @@ export async function POST(req) {
         const mockRes = await client.query(`
             INSERT INTO mock_test
               (exam_id, name, slug, status, type, stats_json, created_by, created_at, updated_at)
-            VALUES ($1, $2, $3, 'DRAFT', 'CGL_T1', $4, $5, NOW(), NOW())
+            VALUES ($1, $2, $3, 'DRAFT', 'MOCK', $4, $5, NOW(), NOW())
             RETURNING mock_test_id
         `, [
             CGL_T1_EXAM_ID,
             name,
             slug,
             JSON.stringify({
+                builder: 'cgl-mock-builder',
                 config: picker.config,
                 placeholders: picker.placeholders,
                 section_stats: picker.section_stats,

@@ -18,7 +18,7 @@ export async function GET(req) {
     const statusFilter = searchParams.get('status') || 'DRAFT';
 
     const params = [CGL_T1_EXAM_ID];
-    let where = `WHERE mt.exam_id = $1 AND (mt.type = 'CGL_T1' OR mt.type IS NULL)`;
+    let where = `WHERE mt.exam_id = $1 AND mt.stats_json->>'builder' = 'cgl-mock-builder'`;
     if (statusFilter !== 'ALL') {
         params.push(statusFilter);
         where += ` AND mt.status = $${params.length}`;
