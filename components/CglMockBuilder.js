@@ -428,35 +428,35 @@ function SubtypeAnalysis({ sections }) {
             const questions = sec.items.filter(it => it.kind === 'question');
             const placeholderCount = sec.items.filter(it => it.kind === 'placeholder').length;
 
-            // Group items by slot_subtype (the spec-slug used at pick time)
-            const bucket = new Map(); // slot_subtype -> { count, variations:Set, difficulties:{L2,L3,other} }
+            // Group items by slot_subtype (the spec-slug used at pick time) and,
+            // inside each, by the bank's actual qv.subtype (the fine-grained topic).
+            const groups = new Map(); // slot -> { count, fine: Map<bankSubtype, count> }
             for (const q of questions) {
-                const key = q.slot_subtype || '(unknown)';
-                if (!bucket.has(key)) bucket.set(key, { count: 0, variations: new Set(), L2: 0, L3: 0, other: 0 });
-                const b = bucket.get(key);
-                b.count++;
-                if (q.subtype) b.variations.add(q.subtype);
-                if (q.difficulty === 2) b.L2++;
-                else if (q.difficulty === 3) b.L3++;
-                else b.other++;
+                const slot = q.slot_subtype || '(unknown)';
+                const fine = q.subtype || '(no subtype)';
+                if (!groups.has(slot)) groups.set(slot, { count: 0, fine: new Map() });
+                const g = groups.get(slot);
+                g.count++;
+                g.fine.set(fine, (g.fine.get(fine) || 0) + 1);
             }
 
             // Union of spec targets, remainders, and whatever actually appeared
-            const slugSet = new Set([...Object.keys(targets), ...remainders, ...bucket.keys()]);
+            const slugSet = new Set([...Object.keys(targets), ...remainders, ...groups.keys()]);
             const rows = [...slugSet].map(slug => {
-                const b = bucket.get(slug) || { count: 0, variations: new Set(), L2: 0, L3: 0, other: 0 };
+                const g = groups.get(slug) || { count: 0, fine: new Map() };
                 const target = targets[slug];
                 const hasTarget = target != null;
-                const delta = hasTarget ? b.count - target : null;
+                const delta = hasTarget ? g.count - target : null;
+                const fineRows = [...g.fine.entries()]
+                    .map(([bankSubtype, n]) => ({ bankSubtype, count: n }))
+                    .sort((a, b) => b.count - a.count);
                 return {
                     slug,
-                    count: b.count,
-                    variations: b.variations.size,
-                    L2: b.L2,
-                    L3: b.L3,
+                    count: g.count,
                     target: hasTarget ? target : null,
                     delta,
                     isRemainder: !hasTarget,
+                    fineRows,
                 };
             }).sort((a, b) => b.count - a.count);
 
@@ -490,6 +490,7 @@ function SubtypeAnalysis({ sections }) {
 }
 
 function SubtypeAnalysisCard({ a }) {
+    const anyOver = a.rows.some(r => r.delta != null && r.delta > 0);
     return (
         <div className="border border-gray-200 rounded p-2 bg-white">
             <div className="flex items-baseline justify-between mb-2">
@@ -499,46 +500,47 @@ function SubtypeAnalysisCard({ a }) {
                     {a.placeholderCount > 0 && <span className="text-amber-700"> +{a.placeholderCount} ph</span>}
                 </span>
             </div>
-            <table className="w-full text-[11px]">
-                <thead>
-                    <tr className="text-gray-400">
-                        <th className="text-left font-normal pb-1">subtype</th>
-                        <th className="text-right font-normal w-12">have</th>
-                        <th className="text-right font-normal w-12">target</th>
-                        <th className="text-right font-normal w-14" title="distinct variations / questions">var</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {a.rows.filter(r => r.count > 0 || r.target != null).map(r => {
-                        const overBy = r.delta != null && r.delta > 0;
-                        const underBy = r.delta != null && r.delta < 0;
-                        const exact = r.delta === 0;
-                        const noTarget = r.target == null;
-                        const variationConcern = r.count >= 3 && r.variations < Math.ceil(r.count / 2);
-                        return (
-                            <tr key={r.slug} className={`${overBy ? 'bg-red-50' : underBy ? 'bg-amber-50' : exact ? 'bg-green-50' : noTarget && r.count > 0 ? 'bg-gray-50' : ''}`}>
-                                <td className="font-mono text-gray-700 truncate" title={r.slug}>
+            <div className="space-y-2">
+                {a.rows.filter(r => r.count > 0 || r.target != null).map(r => {
+                    const overBy = r.delta != null && r.delta > 0;
+                    const underBy = r.delta != null && r.delta < 0;
+                    const exact = r.delta === 0;
+                    const noTarget = r.target == null;
+                    return (
+                        <div key={r.slug} className={`rounded border px-1.5 pt-1 pb-1
+                            ${overBy ? 'border-red-300 bg-red-50' : underBy ? 'border-amber-300 bg-amber-50' : exact ? 'border-green-300 bg-green-50' : noTarget && r.count > 0 ? 'border-gray-300 bg-gray-50' : 'border-gray-100'}`}>
+                            <div className="flex items-baseline justify-between text-[11px]">
+                                <span className="font-mono text-gray-800 truncate" title={r.slug}>
                                     {r.slug}
                                     {noTarget && r.count > 0 && <span className="ml-1 text-[10px] text-gray-400">(fallback)</span>}
-                                </td>
-                                <td className={`text-right font-bold ${overBy ? 'text-red-700' : underBy ? 'text-amber-700' : exact ? 'text-green-700' : 'text-gray-700'}`}>
-                                    {r.count}
+                                </span>
+                                <span className={`font-bold ${overBy ? 'text-red-700' : underBy ? 'text-amber-700' : exact ? 'text-green-700' : 'text-gray-700'}`}>
+                                    {r.count}{r.target != null && <span className="text-gray-400 font-normal">/{r.target}</span>}
                                     {overBy && <span className="ml-0.5 text-red-700">+{r.delta}</span>}
                                     {underBy && <span className="ml-0.5 text-amber-700">{r.delta}</span>}
-                                </td>
-                                <td className="text-right text-gray-500">{r.target ?? '—'}</td>
-                                <td className={`text-right ${variationConcern ? 'text-red-600 font-semibold' : 'text-gray-500'}`}
-                                    title={variationConcern ? 'Low variation diversity for this subtype' : undefined}>
-                                    {r.count > 0 ? `${r.variations}/${r.count}` : '—'}
-                                </td>
-                            </tr>
-                        );
-                    })}
-                </tbody>
-            </table>
-            {a.rows.some(r => r.delta != null && r.delta > 0) && (
-                <div className="mt-1 text-[10px] text-red-700">
-                    Some subtype is over target — use “Browse bank” on one of those to switch topics.
+                                </span>
+                            </div>
+                            {r.fineRows.length > 0 && (
+                                <div className="mt-1 pl-2 border-l-2 border-gray-200 space-y-0.5">
+                                    {r.fineRows.map(f => {
+                                        const concern = f.count >= 3 ? 'red' : f.count === 2 ? 'amber' : null;
+                                        return (
+                                            <div key={f.bankSubtype}
+                                                className={`flex items-baseline justify-between text-[10px] ${concern === 'red' ? 'text-red-700 font-semibold' : concern === 'amber' ? 'text-amber-700' : 'text-gray-600'}`}>
+                                                <span className="font-mono truncate flex-1 min-w-0" title={f.bankSubtype}>{f.bankSubtype}</span>
+                                                <span className="ml-1 font-bold tabular-nums">{f.count}</span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+            {anyOver && (
+                <div className="mt-2 text-[10px] text-red-700">
+                    Red counts ≥ 3 of one fine-grained topic — use “Browse bank” to swap.
                 </div>
             )}
         </div>
