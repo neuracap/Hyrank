@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import Latex from '@/components/Latex';
+import { SECTION_SPEC } from '@/lib/cgl-mock-spec.js';
 
 const SECTION_LABELS = {
     REASONING: 'General Intelligence & Reasoning',
@@ -342,6 +343,8 @@ function MockReview({ mockTestId, onChanged }) {
                 </div>
             )}
 
+            <SubtypeAnalysis sections={sections} />
+
             <div className="flex flex-col lg:flex-row items-start">
                 {/* LHS sticky navigation */}
                 <aside className="hidden lg:block w-72 sticky top-2 max-h-[calc(100vh-1rem)] overflow-y-auto p-3 shrink-0">
@@ -404,6 +407,139 @@ function MockReview({ mockTestId, onChanged }) {
                     onClose={() => setBrowseTarget(null)}
                     busy={busyKey?.startsWith('replace-')}
                 />
+            )}
+        </div>
+    );
+}
+
+// ---------- Subtype analysis (top-of-page at-a-glance view) ----------
+
+const SECTION_LABEL_SHORT = { REASONING: 'REASONING', GA: 'GA', QUANT: 'QUANT', ENGLISH: 'ENGLISH' };
+
+function SubtypeAnalysis({ sections }) {
+    const [collapsed, setCollapsed] = useState(false);
+
+    const analysis = useMemo(() => {
+        return sections.map(sec => {
+            const spec = SECTION_SPEC[sec.code] || {};
+            const targets = spec.targets || {};
+            const remainders = spec.remainder_subtypes || [];
+
+            const questions = sec.items.filter(it => it.kind === 'question');
+            const placeholderCount = sec.items.filter(it => it.kind === 'placeholder').length;
+
+            // Group items by slot_subtype (the spec-slug used at pick time)
+            const bucket = new Map(); // slot_subtype -> { count, variations:Set, difficulties:{L2,L3,other} }
+            for (const q of questions) {
+                const key = q.slot_subtype || '(unknown)';
+                if (!bucket.has(key)) bucket.set(key, { count: 0, variations: new Set(), L2: 0, L3: 0, other: 0 });
+                const b = bucket.get(key);
+                b.count++;
+                if (q.subtype) b.variations.add(q.subtype);
+                if (q.difficulty === 2) b.L2++;
+                else if (q.difficulty === 3) b.L3++;
+                else b.other++;
+            }
+
+            // Union of spec targets, remainders, and whatever actually appeared
+            const slugSet = new Set([...Object.keys(targets), ...remainders, ...bucket.keys()]);
+            const rows = [...slugSet].map(slug => {
+                const b = bucket.get(slug) || { count: 0, variations: new Set(), L2: 0, L3: 0, other: 0 };
+                const target = targets[slug];
+                const hasTarget = target != null;
+                const delta = hasTarget ? b.count - target : null;
+                return {
+                    slug,
+                    count: b.count,
+                    variations: b.variations.size,
+                    L2: b.L2,
+                    L3: b.L3,
+                    target: hasTarget ? target : null,
+                    delta,
+                    isRemainder: !hasTarget,
+                };
+            }).sort((a, b) => b.count - a.count);
+
+            return {
+                code: sec.code,
+                totalQuestions: questions.length,
+                placeholderCount,
+                rows,
+            };
+        });
+    }, [sections]);
+
+    return (
+        <div className="border-b border-gray-200 bg-white">
+            <div className="px-5 py-2 flex items-center justify-between">
+                <h3 className="text-sm font-bold text-gray-700">Subtype analysis</h3>
+                <button onClick={() => setCollapsed(c => !c)}
+                    className="text-xs text-blue-600 hover:underline">
+                    {collapsed ? 'Show' : 'Hide'}
+                </button>
+            </div>
+            {!collapsed && (
+                <div className="grid grid-cols-1 lg:grid-cols-4 gap-2 px-3 pb-3">
+                    {analysis.map(a => (
+                        <SubtypeAnalysisCard key={a.code} a={a} />
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function SubtypeAnalysisCard({ a }) {
+    return (
+        <div className="border border-gray-200 rounded p-2 bg-white">
+            <div className="flex items-baseline justify-between mb-2">
+                <span className="text-xs font-bold text-gray-800">{SECTION_LABEL_SHORT[a.code] || a.code}</span>
+                <span className="text-[11px] text-gray-500">
+                    {a.totalQuestions} q
+                    {a.placeholderCount > 0 && <span className="text-amber-700"> +{a.placeholderCount} ph</span>}
+                </span>
+            </div>
+            <table className="w-full text-[11px]">
+                <thead>
+                    <tr className="text-gray-400">
+                        <th className="text-left font-normal pb-1">subtype</th>
+                        <th className="text-right font-normal w-12">have</th>
+                        <th className="text-right font-normal w-12">target</th>
+                        <th className="text-right font-normal w-14" title="distinct variations / questions">var</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {a.rows.filter(r => r.count > 0 || r.target != null).map(r => {
+                        const overBy = r.delta != null && r.delta > 0;
+                        const underBy = r.delta != null && r.delta < 0;
+                        const exact = r.delta === 0;
+                        const noTarget = r.target == null;
+                        const variationConcern = r.count >= 3 && r.variations < Math.ceil(r.count / 2);
+                        return (
+                            <tr key={r.slug} className={`${overBy ? 'bg-red-50' : underBy ? 'bg-amber-50' : exact ? 'bg-green-50' : noTarget && r.count > 0 ? 'bg-gray-50' : ''}`}>
+                                <td className="font-mono text-gray-700 truncate" title={r.slug}>
+                                    {r.slug}
+                                    {noTarget && r.count > 0 && <span className="ml-1 text-[10px] text-gray-400">(fallback)</span>}
+                                </td>
+                                <td className={`text-right font-bold ${overBy ? 'text-red-700' : underBy ? 'text-amber-700' : exact ? 'text-green-700' : 'text-gray-700'}`}>
+                                    {r.count}
+                                    {overBy && <span className="ml-0.5 text-red-700">+{r.delta}</span>}
+                                    {underBy && <span className="ml-0.5 text-amber-700">{r.delta}</span>}
+                                </td>
+                                <td className="text-right text-gray-500">{r.target ?? '—'}</td>
+                                <td className={`text-right ${variationConcern ? 'text-red-600 font-semibold' : 'text-gray-500'}`}
+                                    title={variationConcern ? 'Low variation diversity for this subtype' : undefined}>
+                                    {r.count > 0 ? `${r.variations}/${r.count}` : '—'}
+                                </td>
+                            </tr>
+                        );
+                    })}
+                </tbody>
+            </table>
+            {a.rows.some(r => r.delta != null && r.delta > 0) && (
+                <div className="mt-1 text-[10px] text-red-700">
+                    Some subtype is over target — use “Browse bank” on one of those to switch topics.
+                </div>
             )}
         </div>
     );
