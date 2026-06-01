@@ -88,6 +88,7 @@ export async function POST(req, { params }) {
                 WHERE qg.exam_section_id = $1
                   AND qv.solution_status = 'DONE'
                   AND qv.correct_option_label IS NOT NULL
+                  AND COALESCE(qv.status, '') != 'JUNK'
                   AND qv.difficulty IN (2,3)
                   AND qg.group_id != $2
                 GROUP BY qg.group_id, qg.group_type
@@ -153,6 +154,7 @@ export async function POST(req, { params }) {
             WHERE qv.source_type = 'bank' AND qv.question_type = 'MCQ' AND qv.language = 'EN'
               AND qv.solution_status = 'DONE'
               AND qv.correct_option_label IS NOT NULL
+              AND COALESCE(qv.status, '') != 'JUNK'
               AND qv.exam_section_id = $1
               AND qv.difficulty = $2
               AND qv.subtype LIKE $3

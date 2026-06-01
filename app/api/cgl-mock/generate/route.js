@@ -53,6 +53,7 @@ export async function POST(req) {
               AND qv.solution_status = 'DONE'
               AND qv.correct_option_label IS NOT NULL
               AND COALESCE((qv.meta_json->'resolve'->>'match')::boolean, true) = true
+              AND COALESCE(qv.status, '') != 'JUNK'
               AND qv.exam_section_id = ANY($1)
               AND qv.difficulty IN (2, 3)
         `, [bankSectionIds]);
@@ -83,6 +84,7 @@ export async function POST(req) {
             WHERE qg.exam_section_id = ANY($1)
               AND qv.solution_status = 'DONE'
               AND qv.correct_option_label IS NOT NULL
+              AND COALESCE(qv.status, '') != 'JUNK'
               AND qv.difficulty IN (2, 3)
             ORDER BY qg.group_id, qv.group_order NULLS LAST
         `, [bankSectionIds]);

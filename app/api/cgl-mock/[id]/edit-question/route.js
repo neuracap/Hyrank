@@ -38,7 +38,7 @@ export async function POST(req, { params }) {
 
     let body;
     try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
-    const { question_id, stem, options, correct_option_label } = body;
+    const { question_id, stem, options, correct_option_label, difficulty } = body;
     if (!question_id) return NextResponse.json({ error: 'question_id required' }, { status: 400 });
     if (correct_option_label && !VALID_LABELS.includes(correct_option_label)) {
         return NextResponse.json({ error: 'correct_option_label must be A, B, C, or D' }, { status: 400 });
@@ -46,7 +46,10 @@ export async function POST(req, { params }) {
     if (options && typeof options !== 'object') {
         return NextResponse.json({ error: 'options must be an object {A,B,C,D}' }, { status: 400 });
     }
-    if (stem == null && !options && !correct_option_label) {
+    if (difficulty != null && (!Number.isInteger(difficulty) || difficulty < 1 || difficulty > 4)) {
+        return NextResponse.json({ error: 'difficulty must be an integer 1-4' }, { status: 400 });
+    }
+    if (stem == null && !options && !correct_option_label && difficulty == null) {
         return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
     }
 
@@ -93,6 +96,13 @@ export async function POST(req, { params }) {
             changed.push('correct_option_label');
         }
 
+        // difficulty
+        let newDifficulty = null;
+        if (difficulty != null) {
+            newDifficulty = difficulty;
+            changed.push('difficulty');
+        }
+
         // meta_json edit history append (preserve everything)
         const histEntry = {
             by: user.id,
@@ -114,12 +124,23 @@ export async function POST(req, { params }) {
         // We always write meta_json to record the audit entry.
         await client.query(`
             UPDATE question_version
-            SET body_json = $1::jsonb,
+            SET body_json            = $1::jsonb,
                 correct_option_label = COALESCE($2, correct_option_label),
-                meta_json = $3::jsonb,
-                updated_at = NOW()
-            WHERE question_id = $4 AND version_no = $5 AND language = 'EN'
-        `, [JSON.stringify(newBody), newCorrect, JSON.stringify(newMeta), question_id, version_no]);
+                difficulty           = COALESCE($3, difficulty),
+                meta_json            = $4::jsonb,
+                updated_at           = NOW()
+            WHERE question_id = $5 AND version_no = $6 AND language = 'EN'
+        `, [JSON.stringify(newBody), newCorrect, newDifficulty, JSON.stringify(newMeta), question_id, version_no]);
+
+        // If slot_difficulty exists on mock_test_question, keep it consistent
+        // (only when difficulty was explicitly changed).
+        if (newDifficulty != null) {
+            await client.query(`
+                UPDATE mock_test_question
+                SET slot_difficulty = $1
+                WHERE mock_test_id = $2 AND question_id = $3
+            `, [String(newDifficulty), mockTestId, question_id]);
+        }
 
         // Options text updates (partial allowed)
         if (options) {

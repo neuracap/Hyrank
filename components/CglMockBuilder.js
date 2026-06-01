@@ -219,6 +219,23 @@ function MockReview({ mockTestId, onChanged }) {
         finally { setBusyKey(null); }
     };
 
+    const junkQuestion = async (question_id) => {
+        const reason = prompt('Why are you marking this question as JUNK? (optional)');
+        if (reason === null) return; // user cancelled
+        setBusyKey(`junk-${question_id}`);
+        setErr('');
+        try {
+            const res = await fetch(`/api/cgl-mock/${mockTestId}/junk`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question_id, reason: reason || undefined }),
+            });
+            const j = await res.json();
+            if (!res.ok || !j.success) throw new Error(j.error || 'Junk failed');
+            await load(); onChanged?.();
+        } catch (e) { setErr(e.message); }
+        finally { setBusyKey(null); }
+    };
+
     const fillWithExisting = async (placeholder_id, question_id) => {
         setBusyKey(`fill-${placeholder_id}`);
         setErr('');
@@ -338,6 +355,7 @@ function MockReview({ mockTestId, onChanged }) {
                                         busyKey={busyKey}
                                         onSwap={swap}
                                         onEdit={editQuestion}
+                                        onJunk={junkQuestion}
                                         onOpenFill={() => setFillTarget({ section_code: sec.code, placeholder_id: it.placeholder_id, position: it.position })}
                                     />
                                 ))}
@@ -411,12 +429,13 @@ function SectionNav({ section, stats, onJump }) {
     );
 }
 
-function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onOpenFill }) {
+function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onJunk, onOpenFill }) {
     const anchor = `q-${sectionCode}-${item.position}`;
     const [editing, setEditing] = useState(false);
     const [draftStem, setDraftStem] = useState('');
     const [draftOpts, setDraftOpts] = useState({ A: '', B: '', C: '', D: '' });
     const [draftCorrect, setDraftCorrect] = useState('A');
+    const [draftDifficulty, setDraftDifficulty] = useState(2);
     const [editErr, setEditErr] = useState('');
 
     if (item.kind === 'placeholder') {
@@ -451,6 +470,7 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onOpenFill }
             D: opts.D?.text || '',
         });
         setDraftCorrect(item.correct_option_label || 'A');
+        setDraftDifficulty(item.difficulty ?? 2);
         setEditErr('');
         setEditing(true);
     };
@@ -464,6 +484,7 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onOpenFill }
         }
         if (Object.keys(optsPatch).length > 0) patch.options = optsPatch;
         if (draftCorrect !== (item.correct_option_label || null)) patch.correct_option_label = draftCorrect;
+        if (draftDifficulty !== (item.difficulty ?? null)) patch.difficulty = draftDifficulty;
         if (Object.keys(patch).length === 0) { setEditing(false); return; }
         try {
             await onEdit(item.question_id, patch);
@@ -498,6 +519,14 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onOpenFill }
                         className="text-xs font-semibold px-2 py-1 rounded border border-red-300 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50">
                         {isSwapping ? '…' : (item.group_id ? 'Swap group' : 'Delete & swap')}
                     </button>
+                    {!isEditing && (
+                        <button onClick={() => onJunk?.(item.question_id)}
+                            disabled={busyKey === `junk-${item.question_id}`}
+                            title="Mark this question as JUNK so it never reappears in any future mock"
+                            className="text-xs font-semibold px-2 py-1 rounded border border-gray-700 text-gray-900 bg-white hover:bg-gray-900 hover:text-white disabled:opacity-50">
+                            {busyKey === `junk-${item.question_id}` ? '…' : 'Mark JUNK'}
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -541,13 +570,27 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onOpenFill }
                                 className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 mt-0.5 font-mono" />
                         </label>
                     ))}
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 flex-wrap">
                         <span className="text-[10px] font-bold text-gray-500 uppercase">Correct</span>
                         <div className="flex gap-1">
                             {['A', 'B', 'C', 'D'].map(k => (
                                 <button key={k} onClick={() => setDraftCorrect(k)}
                                     className={`w-8 h-8 rounded border font-bold text-xs
                                         ${draftCorrect === k ? 'border-green-500 bg-green-50 text-green-700' : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'}`}>{k}</button>
+                            ))}
+                        </div>
+                        <span className="text-[10px] font-bold text-gray-500 uppercase ml-3">Difficulty</span>
+                        <div className="flex gap-1">
+                            {[1, 2, 3, 4].map(d => (
+                                <button key={d} onClick={() => setDraftDifficulty(d)}
+                                    className={`px-2.5 py-1 rounded border font-bold text-[11px]
+                                        ${draftDifficulty === d
+                                            ? (d === 2 ? 'border-green-500 bg-green-50 text-green-700'
+                                                : d === 3 ? 'border-orange-500 bg-orange-50 text-orange-700'
+                                                    : 'border-gray-500 bg-gray-100 text-gray-700')
+                                            : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'}`}>
+                                    L{d}
+                                </button>
                             ))}
                         </div>
                         <div className="ml-auto flex gap-2">
