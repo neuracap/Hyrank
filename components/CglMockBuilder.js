@@ -190,16 +190,24 @@ function MockReview({ mockTestId, onChanged }) {
     const [fillTarget, setFillTarget] = useState(null); // { section_code, placeholder_id, position }
     const [browseTarget, setBrowseTarget] = useState(null); // { section_code, question_id_to_remove }
 
-    const load = useCallback(async () => {
-        setLoading(true);
+    // Quiet-reload tracking: first load shows the loading spinner; subsequent
+    // reloads keep the current view (no flash) and restore scroll position.
+    const isFirstLoad = useRef(true);
+    const load = useCallback(async ({ silent = false } = {}) => {
+        const scrollY = silent ? window.scrollY : null;
+        if (!silent) setLoading(true);
         setErr('');
         try {
             const res = await fetch(`/api/cgl-mock/${mockTestId}`);
             const j = await res.json();
             if (!res.ok || !j.success) throw new Error(j.error || 'Failed to load');
             setData(j);
+            if (scrollY != null) {
+                // restore scroll after React has painted the new data
+                requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'instant' }));
+            }
         } catch (e) { setErr(e.message); }
-        finally { setLoading(false); }
+        finally { if (!silent) setLoading(false); isFirstLoad.current = false; }
     }, [mockTestId]);
     useEffect(() => { load(); }, [load]);
 
@@ -213,11 +221,13 @@ function MockReview({ mockTestId, onChanged }) {
             });
             const j = await res.json();
             if (!res.ok || !j.success) throw new Error(j.error || 'Swap failed');
-            await load(); onChanged?.();
+            await load({ silent: true }); onChanged?.();
         } catch (e) { setErr(e.message); }
         finally { setBusyKey(null); }
     };
 
+    // Local-patch edit. No reload — we already know exactly which fields
+    // changed and the server confirmed them.
     const editQuestion = async (question_id, patch) => {
         setBusyKey(`edit-${question_id}`);
         setErr('');
@@ -228,7 +238,35 @@ function MockReview({ mockTestId, onChanged }) {
             });
             const j = await res.json();
             if (!res.ok || !j.success) throw new Error(j.error || 'Edit failed');
-            await load();
+            setData(prev => {
+                if (!prev) return prev;
+                return {
+                    ...prev,
+                    sections: prev.sections.map(sec => ({
+                        ...sec,
+                        items: sec.items.map(it => {
+                            if (it.kind !== 'question' || it.question_id !== question_id) return it;
+                            const next = { ...it };
+                            if (typeof patch.stem === 'string') {
+                                next.body_json = { ...(it.body_json || {}), text: patch.stem };
+                            }
+                            if (patch.options) {
+                                next.options = { ...(it.options || {}) };
+                                for (const [k, txt] of Object.entries(patch.options)) {
+                                    next.options[k] = { ...(it.options?.[k] || {}), text: txt };
+                                }
+                            }
+                            if (patch.correct_option_label) next.correct_option_label = patch.correct_option_label;
+                            if (patch.difficulty != null) next.difficulty = patch.difficulty;
+                            // Recompute has_image locally so the badge stays accurate
+                            const combined = [next.body_json?.text || '',
+                                ...['A', 'B', 'C', 'D'].map(k => next.options?.[k]?.text || '')].join(' ');
+                            next.has_image = /\\includegraphics|!\[.*?\]\(.*?\)/.test(combined);
+                            return next;
+                        }),
+                    })),
+                };
+            });
         } catch (e) { setErr(e.message); throw e; }
         finally { setBusyKey(null); }
     };
@@ -244,7 +282,7 @@ function MockReview({ mockTestId, onChanged }) {
             const j = await res.json();
             if (!res.ok || !j.success) throw new Error(j.error || 'Replace failed');
             setBrowseTarget(null);
-            await load(); onChanged?.();
+            await load({ silent: true }); onChanged?.();
         } catch (e) { setErr(e.message); }
         finally { setBusyKey(null); }
     };
@@ -261,7 +299,7 @@ function MockReview({ mockTestId, onChanged }) {
             });
             const j = await res.json();
             if (!res.ok || !j.success) throw new Error(j.error || 'Junk failed');
-            await load(); onChanged?.();
+            await load({ silent: true }); onChanged?.();
         } catch (e) { setErr(e.message); }
         finally { setBusyKey(null); }
     };
@@ -276,7 +314,7 @@ function MockReview({ mockTestId, onChanged }) {
             });
             const j = await res.json();
             if (!res.ok || !j.success) throw new Error(j.error || 'Fill failed');
-            await load(); onChanged?.();
+            await load({ silent: true }); onChanged?.();
             setFillTarget(null);
         } catch (e) { setErr(e.message); }
         finally { setBusyKey(null); }
@@ -292,7 +330,7 @@ function MockReview({ mockTestId, onChanged }) {
             });
             const j = await res.json();
             if (!res.ok || !j.success) throw new Error(j.error || 'Save failed');
-            await load(); onChanged?.();
+            await load({ silent: true }); onChanged?.();
             setFillTarget(null);
         } catch (e) { setErr(e.message); }
         finally { setBusyKey(null); }
@@ -304,7 +342,7 @@ function MockReview({ mockTestId, onChanged }) {
             const res = await fetch(`/api/mock-test/${mockTestId}/publish`, { method: 'POST' });
             const j = await res.json();
             if (!res.ok) throw new Error(j.error || 'Publish failed');
-            await load(); onChanged?.();
+            await load({ silent: true }); onChanged?.();
         } catch (e) { setErr(e.message); }
     };
 
