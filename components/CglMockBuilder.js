@@ -3,7 +3,19 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import Latex from '@/components/Latex';
-import { SECTION_SPEC } from '@/lib/cgl-mock-spec.js';
+import { SECTION_SPEC, SUBTYPE_PREFIXES } from '@/lib/cgl-mock-spec.js';
+
+// Map a bank's full qv.subtype to its spec-slug (e.g. arithmetic_percentage_chain → 'arithmetic')
+function specSlugForSubtype(bankSubtype) {
+    if (!bankSubtype) return null;
+    for (const [slug, prefixes] of Object.entries(SUBTYPE_PREFIXES)) {
+        for (const p of prefixes) {
+            const stripped = p.endsWith('%') ? p.slice(0, -1) : p;
+            if (bankSubtype.startsWith(stripped)) return slug;
+        }
+    }
+    return null;
+}
 
 const SECTION_LABELS = {
     REASONING: 'General Intelligence & Reasoning',
@@ -428,37 +440,68 @@ function SubtypeAnalysis({ sections }) {
             const questions = sec.items.filter(it => it.kind === 'question');
             const placeholderCount = sec.items.filter(it => it.kind === 'placeholder').length;
 
-            // Group items by slot_subtype (the spec-slug used at pick time) and,
-            // inside each, by the bank's actual qv.subtype (the fine-grained topic).
-            const groups = new Map(); // slot -> { count, fine: Map<bankSubtype, count> }
+            // Picked: group items by slot_subtype, and inside each by bank subtype.
+            const groups = new Map();
             for (const q of questions) {
                 const slot = q.slot_subtype || '(unknown)';
                 const fine = q.subtype || '(no subtype)';
-                if (!groups.has(slot)) groups.set(slot, { count: 0, fine: new Map() });
+                if (!groups.has(slot)) groups.set(slot, { picked: 0, fine: new Map() });
                 const g = groups.get(slot);
-                g.count++;
+                g.picked++;
                 g.fine.set(fine, (g.fine.get(fine) || 0) + 1);
             }
 
-            // Union of spec targets, remainders, and whatever actually appeared
-            const slugSet = new Set([...Object.keys(targets), ...remainders, ...groups.keys()]);
+            // Available pool: map each bank subtype to its derived spec slug and
+            // collect pool counts grouped by spec slug.
+            const poolBySlug = new Map(); // slot -> Map<bankSubtype, pool>
+            for (const entry of (sec.bank_pool || [])) {
+                const slot = specSlugForSubtype(entry.subtype) || '(uncategorised)';
+                if (!poolBySlug.has(slot)) poolBySlug.set(slot, new Map());
+                poolBySlug.get(slot).set(entry.subtype, entry.pool);
+            }
+
+            // Union of spec targets, remainders, picks, and pool slugs.
+            const slugSet = new Set([
+                ...Object.keys(targets),
+                ...remainders,
+                ...groups.keys(),
+                ...poolBySlug.keys(),
+            ]);
+
             const rows = [...slugSet].map(slug => {
-                const g = groups.get(slug) || { count: 0, fine: new Map() };
+                const g = groups.get(slug) || { picked: 0, fine: new Map() };
+                const pool = poolBySlug.get(slug) || new Map();
                 const target = targets[slug];
                 const hasTarget = target != null;
-                const delta = hasTarget ? g.count - target : null;
-                const fineRows = [...g.fine.entries()]
-                    .map(([bankSubtype, n]) => ({ bankSubtype, count: n }))
-                    .sort((a, b) => b.count - a.count);
+                const delta = hasTarget ? g.picked - target : null;
+
+                // Build a unified list of fine-grained bank subtypes (picked ∪ pool).
+                const allBank = new Set([...g.fine.keys(), ...pool.keys()]);
+                const fineRows = [...allBank].map(bankSubtype => ({
+                    bankSubtype,
+                    picked: g.fine.get(bankSubtype) || 0,
+                    available: pool.get(bankSubtype) || 0,
+                })).sort((a, b) => {
+                    // picked first (highest count), then uncovered by largest pool
+                    if (a.picked !== b.picked) return b.picked - a.picked;
+                    return b.available - a.available;
+                });
+
                 return {
                     slug,
-                    count: g.count,
+                    picked: g.picked,
                     target: hasTarget ? target : null,
                     delta,
                     isRemainder: !hasTarget,
                     fineRows,
+                    uncoveredPool: [...pool.values()].reduce((s, n) => s + n, 0)
+                                   - fineRows.filter(r => r.picked > 0).reduce((s, r) => s + r.available, 0),
                 };
-            }).sort((a, b) => b.count - a.count);
+            }).sort((a, b) => {
+                // Picked rows first (most filled at top), then 0-picked rows (uncovered) at bottom
+                if ((a.picked > 0) !== (b.picked > 0)) return a.picked > 0 ? -1 : 1;
+                return b.picked - a.picked || (b.uncoveredPool - a.uncoveredPool);
+            });
 
             return {
                 code: sec.code,
@@ -490,7 +533,9 @@ function SubtypeAnalysis({ sections }) {
 }
 
 function SubtypeAnalysisCard({ a }) {
+    const [showAllUncovered, setShowAllUncovered] = useState({});
     const anyOver = a.rows.some(r => r.delta != null && r.delta > 0);
+
     return (
         <div className="border border-gray-200 rounded p-2 bg-white">
             <div className="flex items-baseline justify-between mb-2">
@@ -501,37 +546,70 @@ function SubtypeAnalysisCard({ a }) {
                 </span>
             </div>
             <div className="space-y-2">
-                {a.rows.filter(r => r.count > 0 || r.target != null).map(r => {
+                {a.rows.filter(r => r.picked > 0 || r.target != null || r.fineRows.some(f => f.available > 0)).map(r => {
                     const overBy = r.delta != null && r.delta > 0;
                     const underBy = r.delta != null && r.delta < 0;
                     const exact = r.delta === 0;
                     const noTarget = r.target == null;
+                    const isEmpty = r.picked === 0;
+                    const covered = r.fineRows.filter(f => f.picked > 0);
+                    const uncovered = r.fineRows.filter(f => f.picked === 0 && f.available > 0)
+                        .sort((a, b) => b.available - a.available);
+                    const showAll = showAllUncovered[r.slug];
+                    const uncoveredVisible = showAll ? uncovered : uncovered.slice(0, 5);
+                    const extra = uncovered.length - uncoveredVisible.length;
+
                     return (
                         <div key={r.slug} className={`rounded border px-1.5 pt-1 pb-1
-                            ${overBy ? 'border-red-300 bg-red-50' : underBy ? 'border-amber-300 bg-amber-50' : exact ? 'border-green-300 bg-green-50' : noTarget && r.count > 0 ? 'border-gray-300 bg-gray-50' : 'border-gray-100'}`}>
+                            ${overBy ? 'border-red-300 bg-red-50'
+                                : underBy ? 'border-amber-300 bg-amber-50'
+                                : exact ? 'border-green-300 bg-green-50'
+                                : isEmpty ? 'border-gray-200 bg-white opacity-90'
+                                : noTarget ? 'border-gray-300 bg-gray-50'
+                                : 'border-gray-100'}`}>
                             <div className="flex items-baseline justify-between text-[11px]">
-                                <span className="font-mono text-gray-800 truncate" title={r.slug}>
+                                <span className={`font-mono truncate ${isEmpty ? 'text-gray-500' : 'text-gray-800'}`} title={r.slug}>
                                     {r.slug}
-                                    {noTarget && r.count > 0 && <span className="ml-1 text-[10px] text-gray-400">(fallback)</span>}
+                                    {noTarget && r.picked > 0 && <span className="ml-1 text-[10px] text-gray-400">(fallback)</span>}
+                                    {isEmpty && r.target != null && <span className="ml-1 text-[10px] text-amber-600">missing</span>}
                                 </span>
-                                <span className={`font-bold ${overBy ? 'text-red-700' : underBy ? 'text-amber-700' : exact ? 'text-green-700' : 'text-gray-700'}`}>
-                                    {r.count}{r.target != null && <span className="text-gray-400 font-normal">/{r.target}</span>}
+                                <span className={`font-bold ${overBy ? 'text-red-700' : underBy ? 'text-amber-700' : exact ? 'text-green-700' : isEmpty ? 'text-gray-400' : 'text-gray-700'}`}>
+                                    {r.picked}{r.target != null && <span className="text-gray-400 font-normal">/{r.target}</span>}
                                     {overBy && <span className="ml-0.5 text-red-700">+{r.delta}</span>}
                                     {underBy && <span className="ml-0.5 text-amber-700">{r.delta}</span>}
                                 </span>
                             </div>
-                            {r.fineRows.length > 0 && (
+                            {(covered.length > 0 || uncoveredVisible.length > 0) && (
                                 <div className="mt-1 pl-2 border-l-2 border-gray-200 space-y-0.5">
-                                    {r.fineRows.map(f => {
-                                        const concern = f.count >= 3 ? 'red' : f.count === 2 ? 'amber' : null;
+                                    {covered.map(f => {
+                                        const concern = f.picked >= 3 ? 'red' : f.picked === 2 ? 'amber' : null;
                                         return (
                                             <div key={f.bankSubtype}
                                                 className={`flex items-baseline justify-between text-[10px] ${concern === 'red' ? 'text-red-700 font-semibold' : concern === 'amber' ? 'text-amber-700' : 'text-gray-600'}`}>
                                                 <span className="font-mono truncate flex-1 min-w-0" title={f.bankSubtype}>{f.bankSubtype}</span>
-                                                <span className="ml-1 font-bold tabular-nums">{f.count}</span>
+                                                <span className="ml-1 font-bold tabular-nums">{f.picked}</span>
                                             </div>
                                         );
                                     })}
+                                    {uncoveredVisible.length > 0 && (
+                                        <>
+                                            {covered.length > 0 && <div className="border-t border-gray-100 my-0.5"></div>}
+                                            {uncoveredVisible.map(f => (
+                                                <div key={f.bankSubtype}
+                                                    className="flex items-baseline justify-between text-[10px] text-gray-400 italic"
+                                                    title={`${f.bankSubtype} — ${f.available} available in the bank pool, not used yet`}>
+                                                    <span className="font-mono truncate flex-1 min-w-0">{f.bankSubtype}</span>
+                                                    <span className="ml-1 tabular-nums">·{f.available}</span>
+                                                </div>
+                                            ))}
+                                            {extra > 0 && (
+                                                <button onClick={() => setShowAllUncovered(s => ({ ...s, [r.slug]: true }))}
+                                                    className="text-[10px] text-blue-600 hover:underline">
+                                                    + {extra} more uncovered
+                                                </button>
+                                            )}
+                                        </>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -540,9 +618,12 @@ function SubtypeAnalysisCard({ a }) {
             </div>
             {anyOver && (
                 <div className="mt-2 text-[10px] text-red-700">
-                    Red counts ≥ 3 of one fine-grained topic — use “Browse bank” to swap.
+                    Red ≥ 3 of one fine-grained topic — use “Browse bank” to switch.
                 </div>
             )}
+            <div className="mt-1 text-[10px] text-gray-400">
+                Italic gray rows · count = uncovered in the bank pool.
+            </div>
         </div>
     );
 }

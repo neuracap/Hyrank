@@ -1,12 +1,15 @@
 import db from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-edge';
 import { NextResponse } from 'next/server';
-import { SECTION_CODES, TARGET_SECTION_IDS } from '@/lib/cgl-mock-spec';
+import { SECTION_CODES, TARGET_SECTION_IDS, BANK_SECTION_IDS, CGL_T1_EXAM_ID } from '@/lib/cgl-mock-spec';
 
 export const dynamic = 'force-dynamic';
 
 const SECTION_BY_TARGET_ID = Object.fromEntries(
     SECTION_CODES.map(c => [TARGET_SECTION_IDS[c], c])
+);
+const SECTION_BY_BANK_ID = Object.fromEntries(
+    SECTION_CODES.map(c => [BANK_SECTION_IDS[c], c])
 );
 
 /**
@@ -129,6 +132,36 @@ export async function GET(req, { params }) {
             bySection[code].sort((a, b) => (a.position || 0) - (b.position || 0));
         }
 
+        // Per-section verified bank pool, excluding anything already in any
+        // CGL T1 mock — used by the analysis panel to show uncovered subtypes.
+        const bankSectionIds = SECTION_CODES.map(c => BANK_SECTION_IDS[c]);
+        const poolRes = await client.query(`
+            SELECT qv.exam_section_id, qv.subtype, COUNT(*)::int AS pool
+            FROM question_version qv
+            WHERE qv.source_type = 'bank'
+              AND qv.question_type = 'MCQ'
+              AND qv.language = 'EN'
+              AND qv.solution_status = 'DONE'
+              AND qv.correct_option_label IS NOT NULL
+              AND COALESCE(qv.status, '') != 'JUNK'
+              AND COALESCE((qv.meta_json->'resolve'->>'match')::boolean, true) = true
+              AND qv.exam_section_id = ANY($1)
+              AND qv.difficulty IN (2, 3)
+              AND NOT EXISTS (
+                  SELECT 1 FROM mock_test_question mtq
+                  JOIN mock_test mt ON mt.mock_test_id = mtq.mock_test_id
+                  WHERE mtq.question_id = qv.question_id AND mt.exam_id = $2
+              )
+            GROUP BY qv.exam_section_id, qv.subtype
+            ORDER BY qv.exam_section_id, COUNT(*) DESC
+        `, [bankSectionIds, CGL_T1_EXAM_ID]);
+        const poolBySection = {};
+        for (const code of SECTION_CODES) poolBySection[code] = [];
+        for (const row of poolRes.rows) {
+            const code = SECTION_BY_BANK_ID[row.exam_section_id];
+            if (code) poolBySection[code].push({ subtype: row.subtype, pool: row.pool });
+        }
+
         return NextResponse.json({
             success: true,
             mock: {
@@ -142,7 +175,11 @@ export async function GET(req, { params }) {
                 published_at: mock.published_at,
                 stats: stats,
             },
-            sections: SECTION_CODES.map(code => ({ code, items: bySection[code] })),
+            sections: SECTION_CODES.map(code => ({
+                code,
+                items: bySection[code],
+                bank_pool: poolBySection[code],
+            })),
         });
     } catch (e) {
         console.error('cgl-mock/[id] error:', e);
