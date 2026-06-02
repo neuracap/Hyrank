@@ -682,6 +682,7 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onJunk, onOp
     const [draftCorrect, setDraftCorrect] = useState('A');
     const [draftDifficulty, setDraftDifficulty] = useState(2);
     const [editErr, setEditErr] = useState('');
+    const [uploadingTo, setUploadingTo] = useState(null); // 'stem' | 'A' | 'B' | 'C' | 'D' | null
 
     if (item.kind === 'placeholder') {
         const isReasoning = sectionCode === 'REASONING';
@@ -718,6 +719,58 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onJunk, onOp
         setDraftDifficulty(item.difficulty ?? 2);
         setEditErr('');
         setEditing(true);
+    };
+
+    // Upload an image (File blob) and append \includegraphics{path} to the
+    // chosen field's draft. `target` is 'stem' or one of 'A'/'B'/'C'/'D'.
+    const uploadImage = async (fileBlob, target) => {
+        if (!fileBlob || !item.question_id || !item.version_no) return;
+        setUploadingTo(target);
+        setEditErr('');
+        try {
+            const reader = new FileReader();
+            const dataUrl = await new Promise((resolve, reject) => {
+                reader.onerror = () => reject(new Error('Failed to read file'));
+                reader.onloadend = () => resolve(reader.result);
+                reader.readAsDataURL(fileBlob);
+            });
+            const res = await fetch('/api/upload', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    data: dataUrl,
+                    question_id: item.question_id,
+                    language: item.language || 'EN',
+                    version_no: item.version_no,
+                    role: target === 'stem' ? 'stem' : 'option',
+                    option_key: target === 'stem' ? '__STEM__' : target,
+                }),
+            });
+            const data = await res.json();
+            if (!data.latexPath) throw new Error(data.error || 'Upload failed');
+            const tag = `\\includegraphics{${data.latexPath}}`;
+            if (target === 'stem') {
+                setDraftStem(prev => (prev ? `${prev}\n\n${tag}` : tag));
+            } else {
+                setDraftOpts(prev => ({ ...prev, [target]: prev[target] ? `${prev[target]} ${tag}` : tag }));
+            }
+        } catch (e) {
+            setEditErr(e.message);
+        } finally {
+            setUploadingTo(null);
+        }
+    };
+
+    const handlePaste = (e, target) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+        for (const it of items) {
+            if (it.type && it.type.startsWith('image/')) {
+                e.preventDefault();
+                uploadImage(it.getAsFile(), target);
+                return;
+            }
+        }
     };
     const cancelEdit = () => { setEditing(false); setEditErr(''); };
     const saveEdit = async () => {
@@ -811,18 +864,29 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onJunk, onOp
                     <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
                         ⚠ Editing updates the source question in place — bank questions are shared across other uses.
                     </div>
-                    <label className="block">
-                        <span className="text-[10px] font-bold text-gray-500 uppercase">Stem</span>
-                        <textarea rows={3} value={draftStem} onChange={e => setDraftStem(e.target.value)}
+                    <div>
+                        <div className="flex items-baseline justify-between">
+                            <span className="text-[10px] font-bold text-gray-500 uppercase">Stem</span>
+                            <ImageUploadButton target="stem" uploadingTo={uploadingTo}
+                                onPick={(file) => uploadImage(file, 'stem')} />
+                        </div>
+                        <textarea rows={3} value={draftStem}
+                            onChange={e => setDraftStem(e.target.value)}
+                            onPaste={(e) => handlePaste(e, 'stem')}
                             className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 mt-0.5 font-mono" />
-                    </label>
+                    </div>
                     {['A', 'B', 'C', 'D'].map(k => (
-                        <label key={k} className="block">
-                            <span className="text-[10px] font-bold text-gray-500 uppercase">Option {k}</span>
+                        <div key={k}>
+                            <div className="flex items-baseline justify-between">
+                                <span className="text-[10px] font-bold text-gray-500 uppercase">Option {k}</span>
+                                <ImageUploadButton target={k} uploadingTo={uploadingTo}
+                                    onPick={(file) => uploadImage(file, k)} />
+                            </div>
                             <input type="text" value={draftOpts[k]}
                                 onChange={e => setDraftOpts(o => ({ ...o, [k]: e.target.value }))}
+                                onPaste={(e) => handlePaste(e, k)}
                                 className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 mt-0.5 font-mono" />
-                        </label>
+                        </div>
                     ))}
                     <div className="flex items-center gap-3 flex-wrap">
                         <span className="text-[10px] font-bold text-gray-500 uppercase">Correct</span>
@@ -1024,6 +1088,29 @@ function CaEditorModal({ onSubmit, onClose, busy }) {
                 </div>
             </div>
         </div>
+    );
+}
+
+// ---------- Image upload helper (file picker + paste-aware label) ----------
+
+function ImageUploadButton({ target, uploadingTo, onPick }) {
+    const inputRef = useRef(null);
+    const isUploading = uploadingTo === target;
+    return (
+        <>
+            <button type="button" onClick={() => inputRef.current?.click()}
+                disabled={uploadingTo !== null}
+                title="Upload an image — also accepts Ctrl+V paste into the field"
+                className="text-[10px] font-semibold px-1.5 py-0.5 rounded border border-blue-300 text-blue-700 bg-white hover:bg-blue-50 disabled:opacity-50">
+                {isUploading ? 'Uploading…' : '📎 Add image'}
+            </button>
+            <input ref={inputRef} type="file" accept="image/*" className="hidden"
+                onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) onPick(f);
+                    e.target.value = '';
+                }} />
+        </>
     );
 }
 

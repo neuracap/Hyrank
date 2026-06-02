@@ -41,9 +41,11 @@ export async function GET(req, { params }) {
         const qRes = await client.query(`
             SELECT mtq.position, mtq.slot_subtype, mtq.slot_difficulty,
                    mtq.exam_section_id, mtq.group_id, mtq.review_status,
-                   qv.question_id, qv.subtype, qv.difficulty,
+                   qv.question_id, qv.version_no, qv.language,
+                   qv.subtype, qv.difficulty,
                    qv.leaf_topic_id, qv.correct_option_label,
                    qv.body_json, qv.solution_status, qv.solution_json,
+                   qv.has_image,
                    (qv.meta_json->>'variation') AS variation,
                    (qv.meta_json->>'source_file') AS source_file
             FROM mock_test_question mtq
@@ -107,6 +109,8 @@ export async function GET(req, { params }) {
                 slot_difficulty: r.slot_difficulty,
                 review_status: r.review_status,
                 question_id: r.question_id,
+                version_no: r.version_no,
+                language: r.language,
                 subtype: r.subtype,
                 difficulty: r.difficulty,
                 variation: r.variation,
@@ -115,6 +119,7 @@ export async function GET(req, { params }) {
                 body_json: r.body_json,
                 solution_json: r.solution_json,
                 solution_status: r.solution_status,
+                has_image: r.has_image,
                 options: optsByQid[r.question_id] || {},
                 group_id: r.group_id,
                 stimulus: stimulus,

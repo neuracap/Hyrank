@@ -170,6 +170,25 @@ export async function POST(req, { params }) {
             `, [newCorrect, question_id, version_no]);
         }
 
+        // Recompute has_image from the now-saved body + all options.
+        const allTextRes = await client.query(`
+            SELECT
+                (body_json->>'text') AS body_text,
+                (
+                    SELECT string_agg(qo.option_json->>'text', ' ')
+                    FROM question_option qo
+                    WHERE qo.question_id = $1 AND qo.version_no = $2 AND qo.language = 'EN'
+                ) AS options_text
+            FROM question_version
+            WHERE question_id = $1 AND version_no = $2 AND language = 'EN'
+        `, [question_id, version_no]);
+        const combined = `${allTextRes.rows[0]?.body_text || ''} ${allTextRes.rows[0]?.options_text || ''}`;
+        const hasImage = /\\includegraphics|!\[.*?\]\(.*?\)/.test(combined);
+        await client.query(
+            `UPDATE question_version SET has_image = $1 WHERE question_id = $2 AND version_no = $3 AND language = 'EN'`,
+            [hasImage, question_id, version_no]
+        );
+
         await client.query('COMMIT');
         return NextResponse.json({
             success: true,
