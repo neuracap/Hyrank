@@ -42,6 +42,12 @@ export default function CglMockBuilder() {
     const [mockName, setMockName] = useState('');
     const [generating, setGenerating] = useState(false);
 
+    // Step 2 (planning) state: preview data + the user's bank-subtype targets per section
+    const [planStep, setPlanStep] = useState(false);
+    const [preview, setPreview] = useState(null);
+    const [previewing, setPreviewing] = useState(false);
+    const [userTargets, setUserTargets] = useState({}); // { SECTION: { bank_subtype: N } }
+
     const [selectedId, setSelectedId] = useState(null);
 
     const fetchDrafts = useCallback(async () => {
@@ -57,12 +63,33 @@ export default function CglMockBuilder() {
 
     useEffect(() => { fetchDrafts(); }, [fetchDrafts]);
 
+    const startPlanning = async () => {
+        setPreviewing(true);
+        setError('');
+        try {
+            const res = await fetch('/api/cgl-mock/preview', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...config }),
+            });
+            const j = await res.json();
+            if (!res.ok || !j.success) throw new Error(j.error || 'Preview failed');
+            setPreview(j);
+            // Initialize userTargets from the suggested_plan
+            setUserTargets(JSON.parse(JSON.stringify(j.suggested_plan || {})));
+            setPlanStep(true);
+        } catch (e) { setError(e.message); }
+        finally { setPreviewing(false); }
+    };
+
     const generate = async () => {
         setGenerating(true);
         setError('');
         try {
             const body = { ...config };
             if (mockName.trim()) body.name = mockName.trim();
+            if (planStep && preview) {
+                body.plan = { bank_subtype_targets: userTargets };
+            }
             const res = await fetch('/api/cgl-mock/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -70,12 +97,16 @@ export default function CglMockBuilder() {
             });
             const data = await res.json();
             if (!res.ok || !data.success) throw new Error(data.error || 'Generate failed');
-            setShowConfig(false);
+            setShowConfig(false); setPlanStep(false); setPreview(null);
             setMockName('');
             await fetchDrafts();
             setSelectedId(data.mock_test_id);
         } catch (e) { setError(e.message); }
         finally { setGenerating(false); }
+    };
+
+    const closeConfigModal = () => {
+        setShowConfig(false); setPlanStep(false); setPreview(null);
     };
 
     return (
@@ -114,13 +145,24 @@ export default function CglMockBuilder() {
                 </div>
             )}
 
-            {showConfig && (
+            {showConfig && !planStep && (
                 <ConfigModal
                     config={config}
                     setConfig={setConfig}
                     mockName={mockName}
                     setMockName={setMockName}
-                    onClose={() => setShowConfig(false)}
+                    onClose={closeConfigModal}
+                    onNext={startPlanning}
+                    previewing={previewing}
+                />
+            )}
+            {showConfig && planStep && preview && (
+                <PlanModal
+                    preview={preview}
+                    userTargets={userTargets}
+                    setUserTargets={setUserTargets}
+                    onBack={() => setPlanStep(false)}
+                    onClose={closeConfigModal}
                     onGenerate={generate}
                     generating={generating}
                 />
@@ -131,13 +173,14 @@ export default function CglMockBuilder() {
     );
 }
 
-function ConfigModal({ config, setConfig, mockName, setMockName, onClose, onGenerate, generating }) {
+function ConfigModal({ config, setConfig, mockName, setMockName, onClose, onNext, previewing }) {
     const upd = (k, v) => setConfig(prev => ({ ...prev, [k]: v }));
     return (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 p-6">
-                <h2 className="text-lg font-bold mb-1">New CGL Tier 1 mock</h2>
-                <p className="text-xs text-gray-500 mb-4">4 sections × 25 = 100 questions. Difficulty 2 & 3 only.</p>
+                <div className="text-xs font-semibold text-gray-400 uppercase mb-1">Step 1 of 2</div>
+                <h2 className="text-lg font-bold mb-1">Configure mock</h2>
+                <p className="text-xs text-gray-500 mb-4">4 sections × 25 = 100 questions. Difficulty 2 & 3 only. Next step lets you adjust the subtype breakup.</p>
                 <label className="block mb-3">
                     <span className="text-xs font-semibold text-gray-600 uppercase">Mock name (optional)</span>
                     <input type="text" value={mockName} onChange={e => setMockName(e.target.value)}
@@ -156,11 +199,11 @@ function ConfigModal({ config, setConfig, mockName, setMockName, onClose, onGene
                         onChange={v => upd('ga_ca_placeholder_count', v)} max={10} />
                 </div>
                 <div className="flex justify-end gap-2 mt-6">
-                    <button onClick={onClose} disabled={generating}
+                    <button onClick={onClose} disabled={previewing}
                         className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">Cancel</button>
-                    <button onClick={onGenerate} disabled={generating}
-                        className="px-4 py-2 text-sm bg-green-600 text-white font-bold rounded-md hover:bg-green-700 disabled:opacity-50">
-                        {generating ? 'Generating…' : 'Generate mock'}
+                    <button onClick={onNext} disabled={previewing}
+                        className="px-4 py-2 text-sm bg-blue-600 text-white font-bold rounded-md hover:bg-blue-700 disabled:opacity-50">
+                        {previewing ? 'Loading pool…' : 'Next: Plan distribution →'}
                     </button>
                 </div>
             </div>
@@ -178,6 +221,183 @@ function NumberRow({ label, value, onChange, max = 10 }) {
         <input type="number" min={0} max={max} value={value}
             onChange={e => onChange(Math.max(0, Math.min(max, parseInt(e.target.value || '0', 10))))}
             className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 mt-1" /></label>);
+}
+
+// ---------- Plan-distribution modal (step 2) ----------
+
+function PlanModal({ preview, userTargets, setUserTargets, onBack, onClose, onGenerate, generating }) {
+    const [activeSection, setActiveSection] = useState(preview.sections?.[0]?.code || 'REASONING');
+    const [filter, setFilter] = useState('');
+
+    const setCount = (section, bankSubtype, n) => {
+        const v = Math.max(0, parseInt(n || '0', 10) || 0);
+        setUserTargets(prev => {
+            const next = { ...prev };
+            const sec = { ...(next[section] || {}) };
+            if (v <= 0) delete sec[bankSubtype]; else sec[bankSubtype] = v;
+            next[section] = sec;
+            return next;
+        });
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[92vh] flex flex-col">
+                <div className="px-5 py-3 border-b flex items-center justify-between">
+                    <div>
+                        <div className="text-xs font-semibold text-gray-400 uppercase mb-0.5">Step 2 of 2</div>
+                        <h2 className="text-lg font-bold">Plan distribution</h2>
+                        <p className="text-xs text-gray-500">Pick exactly how many of each fine-grained subtype to include. Pool depth = available in the verified bank (excluding any prior CGL T1 mock).</p>
+                    </div>
+                    <button onClick={onClose} className="text-gray-400 hover:text-gray-800 text-xl">&times;</button>
+                </div>
+
+                {/* Section tabs */}
+                <div className="px-5 pt-3 border-b flex gap-2">
+                    {preview.sections.map(s => {
+                        const planned = sumValues(userTargets[s.code]);
+                        const need = s.inventory_needed ?? 0;
+                        const over = planned > need;
+                        const under = planned < need;
+                        return (
+                            <button key={s.code} onClick={() => setActiveSection(s.code)}
+                                className={`px-3 py-1.5 rounded-t text-xs font-bold border-b-2
+                                    ${activeSection === s.code ? 'border-blue-500 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                                {s.code}
+                                <span className={`ml-1 font-normal ${over ? 'text-red-700' : under ? 'text-amber-700' : 'text-green-700'}`}>
+                                    ({planned}/{need})
+                                </span>
+                            </button>
+                        );
+                    })}
+                    <input type="text" value={filter} onChange={e => setFilter(e.target.value)}
+                        placeholder="filter subtypes…"
+                        className="ml-auto text-xs border border-gray-300 rounded px-2 py-1 w-48" />
+                </div>
+
+                {/* Section body */}
+                <div className="flex-1 overflow-y-auto p-4">
+                    {preview.sections.filter(s => s.code === activeSection).map(s => (
+                        <PlanSectionPanel key={s.code} section={s} userTargets={userTargets[s.code] || {}}
+                            filter={filter} setCount={(bs, n) => setCount(s.code, bs, n)} />
+                    ))}
+                </div>
+
+                <div className="px-5 py-3 border-t bg-gray-50 flex items-center gap-2">
+                    <button onClick={onBack} disabled={generating}
+                        className="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-100">← Back</button>
+                    <div className="ml-auto flex items-center gap-3 text-xs text-gray-500">
+                        <span>Total picks across sections: <strong className="text-gray-800">{
+                            preview.sections.reduce((t, s) => t + sumValues(userTargets[s.code]), 0)
+                        }</strong></span>
+                        <button onClick={onClose} disabled={generating}
+                            className="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-100">Cancel</button>
+                        <button onClick={onGenerate} disabled={generating}
+                            className="px-4 py-1.5 bg-green-600 text-white text-sm font-bold rounded hover:bg-green-700 disabled:opacity-50">
+                            {generating ? 'Generating…' : 'Generate mock'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function sumValues(obj) {
+    if (!obj) return 0;
+    let n = 0;
+    for (const v of Object.values(obj)) n += (parseInt(v || 0, 10) || 0);
+    return n;
+}
+
+function PlanSectionPanel({ section, userTargets, filter, setCount }) {
+    const [expanded, setExpanded] = useState(() => {
+        // Default: expand only spec slugs that have nonzero user targets, or
+        // any group with pool > 0 if user has nothing yet.
+        const out = {};
+        for (const slug of Object.keys(section.bank_pool_by_spec || {})) {
+            out[slug] = Object.entries(userTargets).some(([, n]) =>
+                n > 0 && (section.bank_pool_by_spec[slug] || []).some(c => c.bank_subtype === Object.keys(userTargets).find(bs => bs)));
+        }
+        // Fall back: expand top 4 spec slugs by total pool
+        if (!Object.values(out).some(Boolean)) {
+            const ordered = Object.entries(section.bank_pool_by_spec || {})
+                .map(([slug, arr]) => ({ slug, total: arr.reduce((t, c) => t + c.pool, 0) }))
+                .sort((a, b) => b.total - a.total)
+                .slice(0, 4);
+            ordered.forEach(o => { out[o.slug] = true; });
+        }
+        return out;
+    });
+
+    const planned = sumValues(userTargets);
+    const need = section.inventory_needed ?? 0;
+    const status = planned === need ? 'on' : planned > need ? 'over' : 'under';
+
+    const lowerFilter = filter.trim().toLowerCase();
+
+    return (
+        <div>
+            <div className="text-xs text-gray-500 mb-3 flex flex-wrap gap-3">
+                <span>Inventory needed: <strong className="text-gray-800">{need}</strong></span>
+                <span>Placeholders: <strong>{section.placeholder_count}</strong></span>
+                <span>Group slots: <strong>{section.group_slots}</strong></span>
+                <span className={`ml-auto font-bold ${status === 'on' ? 'text-green-700' : status === 'over' ? 'text-red-700' : 'text-amber-700'}`}>
+                    Plan total: {planned} / {need} {status === 'over' ? `(over by ${planned - need})` : status === 'under' ? `(short by ${need - planned})` : '✓'}
+                </span>
+            </div>
+
+            <div className="space-y-2">
+                {Object.entries(section.bank_pool_by_spec || {}).map(([slug, candidates]) => {
+                    const slugTotal = candidates.reduce((t, c) => t + c.pool, 0);
+                    const slugPlanned = candidates.reduce((t, c) => t + (userTargets[c.bank_subtype] || 0), 0);
+                    const open = expanded[slug];
+
+                    const visible = lowerFilter
+                        ? candidates.filter(c => c.bank_subtype.toLowerCase().includes(lowerFilter) || slug.toLowerCase().includes(lowerFilter))
+                        : candidates;
+                    if (lowerFilter && visible.length === 0) return null;
+
+                    return (
+                        <div key={slug} className="border border-gray-200 rounded bg-white">
+                            <button onClick={() => setExpanded(e => ({ ...e, [slug]: !e[slug] }))}
+                                className="w-full flex items-center justify-between px-3 py-2 text-left text-sm hover:bg-gray-50">
+                                <span className="flex items-center gap-2">
+                                    <span className="text-gray-400">{open ? '▾' : '▸'}</span>
+                                    <span className="font-mono font-semibold text-gray-800">{slug}</span>
+                                    <span className="text-xs text-gray-500">({candidates.length} variations · pool {slugTotal})</span>
+                                </span>
+                                <span className="text-xs font-bold text-gray-700">picked {slugPlanned}</span>
+                            </button>
+                            {open && (
+                                <div className="border-t border-gray-100 divide-y divide-gray-50">
+                                    {visible.map(c => {
+                                        const cur = userTargets[c.bank_subtype] || 0;
+                                        const over = cur > c.pool;
+                                        return (
+                                            <div key={c.bank_subtype} className={`flex items-center gap-2 px-3 py-1.5 text-xs ${over ? 'bg-red-50' : ''}`}>
+                                                <span className="flex-1 min-w-0 font-mono truncate text-gray-700" title={c.bank_subtype}>{c.bank_subtype}</span>
+                                                <span className="text-gray-500 w-16 text-right tabular-nums">
+                                                    pool {c.pool}
+                                                </span>
+                                                <span className="text-gray-400 w-16 text-right tabular-nums" title="L2 / L3 split">
+                                                    L2:{c.L2}/L3:{c.L3}
+                                                </span>
+                                                <input type="number" min={0} max={c.pool}
+                                                    value={cur}
+                                                    onChange={e => setCount(c.bank_subtype, e.target.value)}
+                                                    className={`w-16 text-sm border rounded px-2 py-1 text-right ${over ? 'border-red-400 bg-red-100 text-red-900' : 'border-gray-300'}`} />
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
 }
 
 // ---------- Mock review (test-page-style two-column) ----------

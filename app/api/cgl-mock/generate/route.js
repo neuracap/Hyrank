@@ -27,6 +27,10 @@ export async function POST(req) {
     const config = normalizeConfig(body);
     const requestedName = (body.name || '').trim();
 
+    // Optional user-provided plan: { bank_subtype_targets: { REASONING: {bank_subtype: N, ...}, ... } }
+    // When present, the picker uses these counts directly instead of SECTION_SPEC.targets.
+    const userBankTargets = body?.plan?.bank_subtype_targets || null;
+
     const client = await db.connect();
     try {
         // 1) Exclusion set: every question_id ever used in a CGL T1 mock.
@@ -117,6 +121,7 @@ export async function POST(req) {
             poolsBySection,
             groups,
             excludedIds,
+            userBankTargets,
         });
 
         // 5) Persist: mock_test + mock_test_question.
@@ -141,6 +146,7 @@ export async function POST(req) {
                 placeholders: picker.placeholders,
                 section_stats: picker.section_stats,
                 notes: picker.notes,
+                user_bank_targets: userBankTargets || null,
                 generated_at: new Date().toISOString(),
                 generated_by: user.id,
             }),
