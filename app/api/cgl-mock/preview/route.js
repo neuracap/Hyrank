@@ -111,10 +111,16 @@ export async function POST(req) {
                 (g.passage_chars ?? 0) >= (config.rc_min_passage_chars || 0) &&
                 g.size >= 5
             );
+            const clozeGroups = groupsForSection.filter(g => g.group_type === 'CLOZE');
+            const clozeQualifying = clozeGroups.filter(g =>
+                (g.passage_chars ?? 0) >= (config.cloze_min_passage_chars || 0) &&
+                g.size >= 5
+            );
             const group_availability = {
                 RC:    rcGroups.length,
                 RC_qualifying: rcQualifying.length,
-                CLOZE: groupsForSection.filter(g => g.group_type === 'CLOZE').length,
+                CLOZE: clozeGroups.length,
+                CLOZE_qualifying: clozeQualifying.length,
                 DI:    groupsForSection.filter(g => g.group_type === 'DI').length,
             };
 
@@ -137,7 +143,10 @@ export async function POST(req) {
                     (groupSpec.when_config && config[groupSpec.when_config]) ||
                     (groupSpec.group_type === 'DI' && config.include_quant_di);
                 if (!conditionMet) continue;
-                const availKey = groupSpec.group_type === 'RC' ? 'RC_qualifying' : groupSpec.group_type;
+                const availKey =
+                    groupSpec.group_type === 'RC'    ? 'RC_qualifying'
+                  : groupSpec.group_type === 'CLOZE' ? 'CLOZE_qualifying'
+                  : groupSpec.group_type;
                 if ((s.group_availability[availKey] ?? 0) > 0) {
                     groupSlotsClaimed += groupSpec.expected_size_max ?? 5;
                 }
