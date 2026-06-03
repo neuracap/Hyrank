@@ -83,6 +83,7 @@ export async function POST(req) {
         const grpRes = await client.query(`
             SELECT qg.group_id, qg.group_type, qg.passage_question_id,
                    qg.exam_section_id,
+                   COALESCE(LENGTH(qg.passage_en), 0) AS passage_chars,
                    qv.question_id, qv.group_order, qv.difficulty, qv.subtype,
                    qv.leaf_topic_id, qv.correct_option_label, qv.body_json,
                    qv.solution_status, qv.meta_json
@@ -107,6 +108,7 @@ export async function POST(req) {
                     group_id: row.group_id,
                     group_type: row.group_type,
                     passage_question_id: row.passage_question_id,
+                    passage_chars: row.passage_chars ?? 0,
                     section_code: byBankSectionId[row.exam_section_id],
                     members: [],
                 });

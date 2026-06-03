@@ -69,6 +69,7 @@ const DEFAULT_CONFIG = {
     include_quant_di: true,
     reasoning_img_placeholder_count: 0,
     ga_ca_placeholder_count: 4,
+    rc_min_passage_chars: 1400,
 };
 
 export default function CglMockBuilder() {
@@ -259,6 +260,16 @@ function ConfigModal({ config, setConfig, difficultyProfile, setDifficultyProfil
                 </label>
                 <div className="space-y-2 mt-2">
                     <CheckRow label="Include English RC set (5 Q)" checked={config.include_english_rc} onChange={v => upd('include_english_rc', v)} />
+                    {config.include_english_rc && (
+                        <div className="pl-6 flex items-center gap-2">
+                            <span className="text-[11px] text-gray-500">RC passage minimum:</span>
+                            <input type="number" min={0} max={5000} step={100}
+                                value={config.rc_min_passage_chars}
+                                onChange={e => upd('rc_min_passage_chars', Math.max(0, Math.min(5000, parseInt(e.target.value || '0', 10) || 0)))}
+                                className="w-20 text-xs border border-gray-300 rounded px-2 py-1" />
+                            <span className="text-[11px] text-gray-400">chars (≈ {Math.round(config.rc_min_passage_chars / 7)} words)</span>
+                        </div>
+                    )}
                     <CheckRow label="Include English Cloze set (5 Q)" checked={config.include_english_cloze} onChange={v => upd('include_english_cloze', v)} />
                     <CheckRow label="Include Quant DI set (~3 Q)" checked={config.include_quant_di} onChange={v => upd('include_quant_di', v)} />
                 </div>
@@ -465,6 +476,14 @@ function PlanSectionPanel({ section, userTargets, filter, setCount }) {
                 <span>Inventory needed: <strong className="text-gray-800">{need}</strong></span>
                 <span>Placeholders: <strong>{section.placeholder_count}</strong></span>
                 <span>Group slots: <strong>{section.group_slots}</strong></span>
+                {section.code === 'ENGLISH' && section.group_availability && (
+                    <span title="RC groups meeting size + passage-length threshold">
+                        RC qualifying: <strong className={section.group_availability.RC_qualifying > 0 ? 'text-gray-800' : 'text-red-700'}>
+                            {section.group_availability.RC_qualifying ?? 0}
+                        </strong>
+                        <span className="text-gray-400"> / {section.group_availability.RC ?? 0} total</span>
+                    </span>
+                )}
                 <span className={`ml-auto font-bold ${status === 'on' ? 'text-green-700' : status === 'over' ? 'text-red-700' : 'text-amber-700'}`}>
                     Plan total: {planned} / {need} {status === 'over' ? `(over by ${planned - need})` : status === 'under' ? `(short by ${need - planned})` : '✓'}
                 </span>

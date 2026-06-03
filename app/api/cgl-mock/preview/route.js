@@ -56,9 +56,11 @@ export async function POST(req) {
             ORDER BY qv.exam_section_id, COUNT(*) DESC
         `, [bankSectionIds, CGL_T1_EXAM_ID]);
 
-        // 2. Available groups (RC/Cloze/DI) per section + size
+        // 2. Available groups (RC/Cloze/DI) per section + size + passage length
         const grpRes = await client.query(`
-            SELECT qg.exam_section_id, qg.group_id, qg.group_type, COUNT(qv.question_id)::int AS size
+            SELECT qg.exam_section_id, qg.group_id, qg.group_type,
+                   COUNT(qv.question_id)::int AS size,
+                   COALESCE(LENGTH(qg.passage_en), 0) AS passage_chars
             FROM question_group qg
             JOIN question_version qv ON qv.group_id = qg.group_id AND qv.language='EN' AND qv.question_type='MCQ' AND qv.source_type='bank'
             WHERE qg.exam_section_id = ANY($1)
@@ -70,7 +72,7 @@ export async function POST(req) {
                   JOIN mock_test mt ON mt.mock_test_id = mtq.mock_test_id
                   WHERE mtq.question_id = qv.question_id AND mt.exam_id = $2
               )
-            GROUP BY qg.exam_section_id, qg.group_id, qg.group_type
+            GROUP BY qg.exam_section_id, qg.group_id, qg.group_type, qg.passage_en
         `, [bankSectionIds, CGL_T1_EXAM_ID]);
 
         // Inversion: bank_section_id -> code
@@ -104,8 +106,14 @@ export async function POST(req) {
             for (const arr of Object.values(bySpec)) arr.sort((a, b) => b.pool - a.pool);
 
             const groupsForSection = grpRes.rows.filter(g => g.exam_section_id === bankId);
+            const rcGroups = groupsForSection.filter(g => g.group_type === 'RC');
+            const rcQualifying = rcGroups.filter(g =>
+                (g.passage_chars ?? 0) >= (config.rc_min_passage_chars || 0) &&
+                g.size >= 5
+            );
             const group_availability = {
-                RC:    groupsForSection.filter(g => g.group_type === 'RC').length,
+                RC:    rcGroups.length,
+                RC_qualifying: rcQualifying.length,
                 CLOZE: groupsForSection.filter(g => g.group_type === 'CLOZE').length,
                 DI:    groupsForSection.filter(g => g.group_type === 'DI').length,
             };
@@ -129,7 +137,8 @@ export async function POST(req) {
                     (groupSpec.when_config && config[groupSpec.when_config]) ||
                     (groupSpec.group_type === 'DI' && config.include_quant_di);
                 if (!conditionMet) continue;
-                if (s.group_availability[groupSpec.group_type] > 0) {
+                const availKey = groupSpec.group_type === 'RC' ? 'RC_qualifying' : groupSpec.group_type;
+                if ((s.group_availability[availKey] ?? 0) > 0) {
                     groupSlotsClaimed += groupSpec.expected_size_max ?? 5;
                 }
             }
