@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth-edge';
 import { NextResponse } from 'next/server';
 import {
     CGL_T1_EXAM_ID, TARGET_SECTION_IDS, BANK_SECTION_IDS, SECTION_CODES,
+    SUBTYPE_PREFIXES,
 } from '@/lib/cgl-mock-spec';
 
 export const dynamic = 'force-dynamic';
@@ -31,8 +32,20 @@ export async function POST(req, { params }) {
     const { id: mockTestId } = await params;
     let body;
     try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
-    const { question_id } = body;
+    const { question_id, target_spec_subtype, target_difficulty } = body;
     if (!question_id) return NextResponse.json({ error: 'question_id required' }, { status: 400 });
+
+    // Validate optional overrides
+    if (target_spec_subtype && !SUBTYPE_PREFIXES[target_spec_subtype]) {
+        return NextResponse.json({ error: `Unknown spec_subtype: ${target_spec_subtype}` }, { status: 400 });
+    }
+    let parsedDifficulty = null;
+    if (target_difficulty != null && target_difficulty !== '') {
+        parsedDifficulty = parseInt(target_difficulty, 10);
+        if (![1, 2, 3, 4].includes(parsedDifficulty)) {
+            return NextResponse.json({ error: 'target_difficulty must be 1, 2, 3, or 4' }, { status: 400 });
+        }
+    }
 
     const client = await db.connect();
     try {
@@ -137,16 +150,23 @@ export async function POST(req, { params }) {
         }
 
         // -------- SINGLE QUESTION SWAP --------
-        // Build candidate pool: same subtype family AND same difficulty band AND not excluded.
-        // Use the OLD slot_subtype as the family signal (it was the spec_subtype used
-        // when picking). If slot_subtype isn't set, fall back to the bank's subtype prefix
-        // up to the first underscore.
-        const prefixSeed = slot.slot_subtype ||
+        // Resolve the subtype family + difficulty for the replacement.
+        // Overrides (when caller passed them) take precedence; otherwise stick
+        // with the slot's existing family + difficulty.
+        const effectiveSpecSubtype = target_spec_subtype || slot.slot_subtype ||
             (slot.subtype ? slot.subtype.split('_')[0] : null);
-        if (!prefixSeed) {
+        if (!effectiveSpecSubtype) {
             await client.query('ROLLBACK');
             return NextResponse.json({ error: 'No subtype context for swap' }, { status: 500 });
         }
+        const effectiveDifficulty = parsedDifficulty != null ? parsedDifficulty : slot.difficulty;
+
+        // Build the LIKE patterns to match the spec_subtype family. Use the
+        // SUBTYPE_PREFIXES map when the spec key is known; fall back to a
+        // single prefix from the old behavior otherwise.
+        const likePatterns = SUBTYPE_PREFIXES[effectiveSpecSubtype]
+            || [`${effectiveSpecSubtype}%`];
+
         const candRes = await client.query(`
             SELECT qv.question_id, qv.subtype, qv.difficulty, qv.leaf_topic_id,
                    qv.correct_option_label
@@ -157,15 +177,17 @@ export async function POST(req, { params }) {
               AND COALESCE(qv.status, '') != 'JUNK'
               AND qv.exam_section_id = $1
               AND qv.difficulty = $2
-              AND qv.subtype LIKE $3
+              AND qv.subtype LIKE ANY($3)
               AND qv.group_id IS NULL
             LIMIT 200
-        `, [bankSectionId, slot.difficulty, `${prefixSeed}%`]);
+        `, [bankSectionId, effectiveDifficulty, likePatterns]);
 
         const fresh = candRes.rows.filter(r => !excluded.has(r.question_id));
         if (fresh.length === 0) {
             await client.query('ROLLBACK');
-            return NextResponse.json({ error: 'No fresh replacement available with the same subtype family and difficulty.' }, { status: 409 });
+            return NextResponse.json({
+                error: `No fresh replacement available for spec_subtype="${effectiveSpecSubtype}" at difficulty L${effectiveDifficulty}.`,
+            }, { status: 409 });
         }
         // Prefer a different bank-subtype than the old one (variation diversity).
         const oldFullSubtype = slot.subtype;
@@ -173,7 +195,13 @@ export async function POST(req, { params }) {
         const pickPool = differentVariation.length > 0 ? differentVariation : fresh;
         const pick = pickPool[Math.floor(Math.random() * pickPool.length)];
 
-        // Delete old, insert new at same position.
+        // Persist any changes to slot_subtype/slot_difficulty so downstream
+        // stats/analysis reflect the new bucket.
+        const newSlotSubtype = target_spec_subtype || slot.slot_subtype;
+        const newSlotDifficulty = parsedDifficulty != null
+            ? String(parsedDifficulty)
+            : slot.slot_difficulty;
+
         await client.query(`
             DELETE FROM mock_test_question WHERE mock_test_id = $1 AND question_id = $2
         `, [mockTestId, question_id]);
@@ -187,8 +215,8 @@ export async function POST(req, { params }) {
             pick.question_id,
             slot.exam_section_id,
             slot.position,
-            slot.slot_subtype,
-            slot.slot_difficulty,
+            newSlotSubtype,
+            newSlotDifficulty,
         ]);
         await client.query('COMMIT');
         return NextResponse.json({
@@ -198,6 +226,7 @@ export async function POST(req, { params }) {
             new_question_id: pick.question_id,
             new_subtype: pick.subtype,
             new_difficulty: pick.difficulty,
+            new_slot_subtype: newSlotSubtype,
         });
     } catch (e) {
         await client.query('ROLLBACK').catch(() => {});

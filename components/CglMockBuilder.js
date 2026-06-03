@@ -554,13 +554,13 @@ function MockReview({ mockTestId, onChanged }) {
     }, [mockTestId]);
     useEffect(() => { load(); }, [load]);
 
-    const swap = async (question_id) => {
+    const swap = async (question_id, opts = {}) => {
         setBusyKey(`swap-${question_id}`);
         setErr('');
         try {
             const res = await fetch(`/api/cgl-mock/${mockTestId}/swap`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ question_id }),
+                body: JSON.stringify({ question_id, ...opts }),
             });
             const j = await res.json();
             if (!res.ok || !j.success) throw new Error(j.error || 'Swap failed');
@@ -1075,6 +1075,15 @@ function SectionNav({ section, stats, onJump }) {
     );
 }
 
+function specSubtypesForSection(code) {
+    const spec = SECTION_SPEC[code] || {};
+    const set = new Set([
+        ...Object.keys(spec.targets || {}),
+        ...(spec.remainder_subtypes || []),
+    ]);
+    return [...set].sort();
+}
+
 function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onJunk, onOpenBrowse, onOpenFill }) {
     const anchor = `q-${sectionCode}-${item.position}`;
     const [editing, setEditing] = useState(false);
@@ -1084,6 +1093,22 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onJunk, onOp
     const [draftDifficulty, setDraftDifficulty] = useState(2);
     const [editErr, setEditErr] = useState('');
     const [uploadingTo, setUploadingTo] = useState(null); // 'stem' | 'A' | 'B' | 'C' | 'D' | null
+
+    // Split-button swap menu (override spec_subtype / difficulty)
+    const [swapMenuOpen, setSwapMenuOpen] = useState(false);
+    const [overrideSubtype, setOverrideSubtype] = useState('');
+    const [overrideDifficulty, setOverrideDifficulty] = useState('');
+    const swapMenuRef = useRef(null);
+    useEffect(() => {
+        if (!swapMenuOpen) return;
+        const onDocMouseDown = (e) => {
+            if (swapMenuRef.current && !swapMenuRef.current.contains(e.target)) {
+                setSwapMenuOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', onDocMouseDown);
+        return () => document.removeEventListener('mousedown', onDocMouseDown);
+    }, [swapMenuOpen]);
 
     if (item.kind === 'placeholder') {
         const isReasoning = sectionCode === 'REASONING';
@@ -1214,11 +1239,70 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onJunk, onOp
                             Edit
                         </button>
                     )}
-                    <button onClick={() => onSwap(item.question_id)} disabled={isSwapping || isEditing}
-                        title="Swap with another question of the same subtype family"
-                        className="text-xs font-semibold px-2 py-1 rounded border border-red-300 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50">
-                        {isSwapping ? '…' : (item.group_id ? 'Swap group' : 'Delete & swap')}
-                    </button>
+                    {item.group_id ? (
+                        <button onClick={() => onSwap(item.question_id)} disabled={isSwapping || isEditing}
+                            title="Swap with another group of the same type"
+                            className="text-xs font-semibold px-2 py-1 rounded border border-red-300 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50">
+                            {isSwapping ? '…' : 'Swap group'}
+                        </button>
+                    ) : (
+                        <div className="relative inline-flex" ref={swapMenuRef}>
+                            <button onClick={() => onSwap(item.question_id)} disabled={isSwapping || isEditing}
+                                title="Swap with another question of the same subtype family"
+                                className="text-xs font-semibold px-2 py-1 rounded-l border border-red-300 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50">
+                                {isSwapping ? '…' : 'Delete & swap'}
+                            </button>
+                            <button onClick={() => setSwapMenuOpen(o => !o)} disabled={isSwapping || isEditing}
+                                title="Swap with a different subtype or difficulty"
+                                aria-label="Swap options"
+                                className="text-xs font-semibold px-1.5 py-1 rounded-r border border-l-0 border-red-300 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50">
+                                ▾
+                            </button>
+                            {swapMenuOpen && (
+                                <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-md shadow-lg p-3 w-72">
+                                    <div className="text-[10px] font-bold text-gray-500 uppercase mb-2">Swap with different…</div>
+                                    <label className="block mb-2">
+                                        <span className="text-[10px] font-semibold text-gray-600 uppercase">Spec subtype</span>
+                                        <select value={overrideSubtype}
+                                            onChange={e => setOverrideSubtype(e.target.value)}
+                                            className="w-full text-xs border border-gray-300 rounded px-2 py-1 mt-0.5">
+                                            <option value="">(same family — {item.slot_subtype || '?'})</option>
+                                            {specSubtypesForSection(sectionCode).map(s => (
+                                                <option key={s} value={s}>{s}</option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                    <label className="block mb-3">
+                                        <span className="text-[10px] font-semibold text-gray-600 uppercase">Difficulty</span>
+                                        <select value={overrideDifficulty}
+                                            onChange={e => setOverrideDifficulty(e.target.value)}
+                                            className="w-full text-xs border border-gray-300 rounded px-2 py-1 mt-0.5">
+                                            <option value="">(same level — L{item.difficulty})</option>
+                                            {DIFFICULTY_LEVELS.map(l => (
+                                                <option key={l} value={l}>L{l}</option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                    <div className="flex gap-2 justify-end">
+                                        <button onClick={() => { setSwapMenuOpen(false); setOverrideSubtype(''); setOverrideDifficulty(''); }}
+                                            className="text-xs px-2 py-1 border border-gray-300 rounded hover:bg-gray-50">Cancel</button>
+                                        <button onClick={() => {
+                                            const opts = {};
+                                            if (overrideSubtype) opts.target_spec_subtype = overrideSubtype;
+                                            if (overrideDifficulty) opts.target_difficulty = parseInt(overrideDifficulty, 10);
+                                            setSwapMenuOpen(false);
+                                            onSwap(item.question_id, opts);
+                                            setOverrideSubtype(''); setOverrideDifficulty('');
+                                        }}
+                                            disabled={!overrideSubtype && !overrideDifficulty}
+                                            className="text-xs px-3 py-1 rounded bg-red-600 text-white font-semibold hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                                            Swap →
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
                     {!isEditing && !item.group_id && (
                         <button onClick={onOpenBrowse}
                             disabled={busyKey === `replace-${item.question_id}`}
