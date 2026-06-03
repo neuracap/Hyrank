@@ -3,7 +3,46 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import Latex from '@/components/Latex';
-import { SECTION_SPEC, SUBTYPE_PREFIXES } from '@/lib/cgl-mock-spec.js';
+import { SECTION_SPEC, SUBTYPE_PREFIXES, SECTION_CODES, SECTION_DIFFICULTY_BASE } from '@/lib/cgl-mock-spec.js';
+
+const DIFFICULTY_LEVELS = [1, 2, 3, 4];
+
+function placeholderCountForCode(config, code) {
+    if (code === 'REASONING') return config.reasoning_img_placeholder_count;
+    if (code === 'GA') return config.ga_ca_placeholder_count;
+    return 0;
+}
+
+function defaultProfileFor(config) {
+    const out = {};
+    for (const code of SECTION_CODES) {
+        const base = SECTION_DIFFICULTY_BASE[code];
+        const ph = placeholderCountForCode(config, code);
+        const row = { L1: base.L1, L2: base.L2, L3: base.L3, L4: base.L4 };
+        // Eat placeholders from L3 first (highest base), then L2, L4, L1
+        let left = ph;
+        for (const k of ['L3', 'L2', 'L4', 'L1']) {
+            const take = Math.min(row[k], left);
+            row[k] -= take;
+            left -= take;
+        }
+        out[code] = row;
+    }
+    return out;
+}
+
+function profileRowSum(row) {
+    if (!row) return 0;
+    return (row.L1 || 0) + (row.L2 || 0) + (row.L3 || 0) + (row.L4 || 0);
+}
+
+function profileMatchesConfig(profile, config) {
+    for (const code of SECTION_CODES) {
+        const need = 25 - placeholderCountForCode(config, code);
+        if (profileRowSum(profile?.[code]) !== need) return false;
+    }
+    return true;
+}
 
 // Map a bank's full qv.subtype to its spec-slug (e.g. arithmetic_percentage_chain → 'arithmetic')
 function specSlugForSubtype(bankSubtype) {
@@ -41,6 +80,12 @@ export default function CglMockBuilder() {
     const [config, setConfig] = useState(DEFAULT_CONFIG);
     const [mockName, setMockName] = useState('');
     const [generating, setGenerating] = useState(false);
+    const [difficultyProfile, setDifficultyProfile] = useState(() => defaultProfileFor(DEFAULT_CONFIG));
+    // When placeholder counts change, reset the profile so each row sums to 25 - placeholders.
+    // Discards in-progress user edits to that row — explicit and predictable beats clever.
+    useEffect(() => {
+        setDifficultyProfile(defaultProfileFor(config));
+    }, [config.reasoning_img_placeholder_count, config.ga_ca_placeholder_count]);
 
     // Step 2 (planning) state: preview data + the user's bank-subtype targets per section
     const [planStep, setPlanStep] = useState(false);
@@ -90,6 +135,7 @@ export default function CglMockBuilder() {
             if (planStep && preview) {
                 body.plan = { bank_subtype_targets: userTargets };
             }
+            body.difficulty_profile = difficultyProfile;
             const res = await fetch('/api/cgl-mock/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -149,6 +195,8 @@ export default function CglMockBuilder() {
                 <ConfigModal
                     config={config}
                     setConfig={setConfig}
+                    difficultyProfile={difficultyProfile}
+                    setDifficultyProfile={setDifficultyProfile}
                     mockName={mockName}
                     setMockName={setMockName}
                     onClose={closeConfigModal}
@@ -173,14 +221,36 @@ export default function CglMockBuilder() {
     );
 }
 
-function ConfigModal({ config, setConfig, mockName, setMockName, onClose, onNext, previewing }) {
+function ConfigModal({ config, setConfig, difficultyProfile, setDifficultyProfile, mockName, setMockName, onClose, onNext, previewing }) {
     const upd = (k, v) => setConfig(prev => ({ ...prev, [k]: v }));
+    const profileValid = profileMatchesConfig(difficultyProfile, config);
+
+    const setLevel = (code, level, value) => {
+        const n = Math.max(0, parseInt(value || '0', 10) || 0);
+        setDifficultyProfile(prev => ({
+            ...prev,
+            [code]: { ...(prev?.[code] || { L1: 0, L2: 0, L3: 0, L4: 0 }), [`L${level}`]: n },
+        }));
+    };
+    const resetRowToBase = (code) => {
+        const base = SECTION_DIFFICULTY_BASE[code];
+        const ph = placeholderCountForCode(config, code);
+        const row = { L1: base.L1, L2: base.L2, L3: base.L3, L4: base.L4 };
+        let left = ph;
+        for (const k of ['L3', 'L2', 'L4', 'L1']) {
+            const take = Math.min(row[k], left);
+            row[k] -= take;
+            left -= take;
+        }
+        setDifficultyProfile(prev => ({ ...prev, [code]: row }));
+    };
+
     return (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 p-6">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[92vh] overflow-y-auto p-6">
                 <div className="text-xs font-semibold text-gray-400 uppercase mb-1">Step 1 of 2</div>
                 <h2 className="text-lg font-bold mb-1">Configure mock</h2>
-                <p className="text-xs text-gray-500 mb-4">4 sections × 25 = 100 questions. Difficulty 2 & 3 only. Next step lets you adjust the subtype breakup.</p>
+                <p className="text-xs text-gray-500 mb-4">4 sections × 25 = 100 questions. Set the per-mock difficulty distribution below; next step lets you adjust the subtype breakup.</p>
                 <label className="block mb-3">
                     <span className="text-xs font-semibold text-gray-600 uppercase">Mock name (optional)</span>
                     <input type="text" value={mockName} onChange={e => setMockName(e.target.value)}
@@ -198,11 +268,64 @@ function ConfigModal({ config, setConfig, mockName, setMockName, onClose, onNext
                     <NumberRow label="GA current-affairs placeholders" value={config.ga_ca_placeholder_count}
                         onChange={v => upd('ga_ca_placeholder_count', v)} max={10} />
                 </div>
+
+                <div className="mt-5 border-t pt-4">
+                    <div className="flex items-baseline justify-between mb-1">
+                        <span className="text-xs font-semibold text-gray-600 uppercase">Difficulty distribution</span>
+                        <span className="text-[10px] text-gray-400">drawn-question target per level; placeholders excluded</span>
+                    </div>
+                    <table className="text-xs w-full mt-1">
+                        <thead>
+                            <tr className="text-gray-500 text-[10px] uppercase border-b border-gray-200">
+                                <th className="text-left font-semibold py-1.5 pr-2">Section</th>
+                                {DIFFICULTY_LEVELS.map(l => <th key={l} className="text-center font-semibold py-1.5">L{l}</th>)}
+                                <th className="text-right font-semibold py-1.5 pl-2">Sum / Need</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {SECTION_CODES.map(code => {
+                                const row = difficultyProfile?.[code] || { L1: 0, L2: 0, L3: 0, L4: 0 };
+                                const sum = profileRowSum(row);
+                                const need = 25 - placeholderCountForCode(config, code);
+                                const ok = sum === need;
+                                return (
+                                    <tr key={code} className="border-b border-gray-100 last:border-0">
+                                        <td className="py-1.5 pr-2 font-mono text-gray-700 text-[11px]">{code}</td>
+                                        {DIFFICULTY_LEVELS.map(l => (
+                                            <td key={l} className="text-center py-1 px-0.5">
+                                                <input type="number" min={0} max={25}
+                                                    value={row[`L${l}`] ?? 0}
+                                                    onChange={e => setLevel(code, l, e.target.value)}
+                                                    className="w-12 text-center border border-gray-300 rounded px-1 py-0.5 text-sm tabular-nums" />
+                                            </td>
+                                        ))}
+                                        <td className={`text-right py-1 pl-2 font-semibold tabular-nums ${ok ? 'text-green-700' : 'text-red-700'}`}>
+                                            {sum} / {need}
+                                        </td>
+                                        <td className="pl-2 text-right">
+                                            <button type="button" onClick={() => resetRowToBase(code)}
+                                                className="text-[10px] text-blue-600 hover:underline" title="Reset this row to the CGL base">
+                                                reset
+                                            </button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                    {!profileValid && (
+                        <div className="text-[11px] text-red-700 mt-2">
+                            Each row must sum to (25 − that section's placeholders) before you can continue.
+                        </div>
+                    )}
+                </div>
+
                 <div className="flex justify-end gap-2 mt-6">
                     <button onClick={onClose} disabled={previewing}
                         className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">Cancel</button>
-                    <button onClick={onNext} disabled={previewing}
-                        className="px-4 py-2 text-sm bg-blue-600 text-white font-bold rounded-md hover:bg-blue-700 disabled:opacity-50">
+                    <button onClick={onNext} disabled={previewing || !profileValid}
+                        className="px-4 py-2 text-sm bg-blue-600 text-white font-bold rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
                         {previewing ? 'Loading pool…' : 'Next: Plan distribution →'}
                     </button>
                 </div>
@@ -380,8 +503,8 @@ function PlanSectionPanel({ section, userTargets, filter, setCount }) {
                                                 <span className="text-gray-500 w-16 text-right tabular-nums">
                                                     pool {c.pool}
                                                 </span>
-                                                <span className="text-gray-400 w-16 text-right tabular-nums" title="L2 / L3 split">
-                                                    L2:{c.L2}/L3:{c.L3}
+                                                <span className="text-gray-400 w-24 text-right tabular-nums font-mono text-[10px]" title="L1·L2·L3·L4 in pool">
+                                                    {c.L1 ?? 0}·{c.L2 ?? 0}·{c.L3 ?? 0}·{c.L4 ?? 0}
                                                 </span>
                                                 <input type="number" min={0} max={c.pool}
                                                     value={cur}
@@ -889,11 +1012,31 @@ function SubtypeAnalysisCard({ a }) {
 function SectionStatBadge({ code, stats }) {
     const s = (stats?.section_stats || []).find(x => x.code === code);
     if (!s) return null;
+    const target = s.difficulty_target || null;
+    const actual = s.difficulty_actual || s.difficulty || {};
+    const levelChip = (lvl) => {
+        const a = actual[`L${lvl}`] ?? 0;
+        const t = target ? (target[`L${lvl}`] ?? 0) : null;
+        const diff = t != null ? a - t : null;
+        let cls = 'text-gray-500';
+        let title = `got ${a}`;
+        if (t != null) {
+            title = `target ${t}, got ${a}`;
+            if (diff === 0) cls = 'text-gray-700';
+            else if (Math.abs(diff) === 1) cls = 'text-amber-700';
+            else cls = 'text-red-700 font-bold';
+        }
+        return (
+            <span key={lvl} className={cls} title={title}>
+                L{lvl}:{a}{t != null ? `/${t}` : ''}
+            </span>
+        );
+    };
     return (
-        <span className="text-xs text-gray-600">
-            {s.drawn || 0}/{s.target}
-            {s.placeholder_count > 0 && <span className="text-amber-700"> · +{s.placeholder_count} ph</span>}
-            <span className="ml-2">L2:{s.difficulty?.L2 || 0} L3:{s.difficulty?.L3 || 0}</span>
+        <span className="text-xs text-gray-600 inline-flex gap-2 items-baseline">
+            <span>{s.drawn || 0}/{s.target}</span>
+            {s.placeholder_count > 0 && <span className="text-amber-700">+{s.placeholder_count}ph</span>}
+            <span className="inline-flex gap-1.5">{DIFFICULTY_LEVELS.map(levelChip)}</span>
         </span>
     );
 }

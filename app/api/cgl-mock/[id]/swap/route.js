@@ -89,7 +89,7 @@ export async function POST(req, { params }) {
                   AND qv.solution_status = 'DONE'
                   AND qv.correct_option_label IS NOT NULL
                   AND COALESCE(qv.status, '') != 'JUNK'
-                  AND qv.difficulty IN (2,3)
+                  AND qv.difficulty IN (1,2,3,4)
                   AND qg.group_id != $2
                 GROUP BY qg.group_id, qg.group_type
                 HAVING qg.group_type = $3

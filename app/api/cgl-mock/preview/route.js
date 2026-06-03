@@ -3,7 +3,8 @@ import { getCurrentUser } from '@/lib/auth-edge';
 import { NextResponse } from 'next/server';
 import {
     CGL_T1_EXAM_ID, BANK_SECTION_IDS, SECTION_CODES, SECTION_TOTAL,
-    SECTION_SPEC, SUBTYPE_PREFIXES, normalizeConfig, buildPlaceholderTemplates,
+    SECTION_SPEC, SUBTYPE_PREFIXES, SECTION_DIFFICULTY_BASE,
+    normalizeConfig, buildPlaceholderTemplates, placeholderCountsBySection,
 } from '@/lib/cgl-mock-spec';
 
 export const dynamic = 'force-dynamic';
@@ -45,7 +46,7 @@ export async function POST(req) {
               AND COALESCE(qv.status,'') != 'JUNK'
               AND COALESCE((qv.meta_json->'resolve'->>'match')::boolean, true) = true
               AND qv.exam_section_id = ANY($1)
-              AND qv.difficulty IN (2,3)
+              AND qv.difficulty IN (1,2,3,4)
               AND NOT EXISTS (
                   SELECT 1 FROM mock_test_question mtq
                   JOIN mock_test mt ON mt.mock_test_id = mtq.mock_test_id
@@ -63,7 +64,7 @@ export async function POST(req) {
             WHERE qg.exam_section_id = ANY($1)
               AND qv.solution_status='DONE' AND qv.correct_option_label IS NOT NULL
               AND COALESCE(qv.status,'') != 'JUNK'
-              AND qv.difficulty IN (2,3)
+              AND qv.difficulty IN (1,2,3,4)
               AND NOT EXISTS (
                   SELECT 1 FROM mock_test_question mtq
                   JOIN mock_test mt ON mt.mock_test_id = mtq.mock_test_id
@@ -79,16 +80,18 @@ export async function POST(req) {
         const sections = SECTION_CODES.map(code => {
             const bankId = BANK_SECTION_IDS[code];
             const rowsHere = poolRes.rows.filter(r => r.exam_section_id === bankId);
-            // bank_subtype → { pool, L2, L3, spec_slug }
+            // bank_subtype → { pool, L1, L2, L3, L4 }
             const bankPool = new Map();
             for (const row of rowsHere) {
                 if (!bankPool.has(row.subtype)) {
-                    bankPool.set(row.subtype, { bank_subtype: row.subtype, pool: 0, L2: 0, L3: 0 });
+                    bankPool.set(row.subtype, { bank_subtype: row.subtype, pool: 0, L1: 0, L2: 0, L3: 0, L4: 0 });
                 }
                 const e = bankPool.get(row.subtype);
                 e.pool += row.c;
-                if (row.difficulty === 2) e.L2 += row.c;
+                if (row.difficulty === 1) e.L1 += row.c;
+                else if (row.difficulty === 2) e.L2 += row.c;
                 else if (row.difficulty === 3) e.L3 += row.c;
+                else if (row.difficulty === 4) e.L4 += row.c;
             }
 
             // Group bank subtypes by their derived spec slug
@@ -171,6 +174,8 @@ export async function POST(req) {
             config,
             sections,
             suggested_plan,
+            difficulty_base: SECTION_DIFFICULTY_BASE,
+            placeholder_counts: placeholderCountsBySection(config),
         });
     } catch (e) {
         console.error('cgl-mock/preview error:', e);

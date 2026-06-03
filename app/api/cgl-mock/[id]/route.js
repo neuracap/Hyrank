@@ -151,7 +151,7 @@ export async function GET(req, { params }) {
               AND COALESCE(qv.status, '') != 'JUNK'
               AND COALESCE((qv.meta_json->'resolve'->>'match')::boolean, true) = true
               AND qv.exam_section_id = ANY($1)
-              AND qv.difficulty IN (2, 3)
+              AND qv.difficulty IN (1, 2, 3, 4)
               AND NOT EXISTS (
                   SELECT 1 FROM mock_test_question mtq
                   JOIN mock_test mt ON mt.mock_test_id = mtq.mock_test_id

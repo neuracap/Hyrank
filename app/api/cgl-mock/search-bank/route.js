@@ -55,11 +55,11 @@ export async function GET(req) {
         `COALESCE(qv.status, '') != 'JUNK'`,
         `COALESCE((qv.meta_json->'resolve'->>'match')::boolean, true) = true`,
         `qv.exam_section_id = $1`,
-        `qv.difficulty IN (2, 3)`,
+        `qv.difficulty IN (1, 2, 3, 4)`,
     ];
     const params = [bankSectionId];
 
-    if (difficulty === '2' || difficulty === '3') {
+    if (['1', '2', '3', '4'].includes(difficulty)) {
         params.push(parseInt(difficulty, 10));
         conditions.push(`qv.difficulty = $${params.length}`);
     }
@@ -128,7 +128,7 @@ export async function GET(req) {
                   AND COALESCE(qv.status,'') != 'JUNK'
                   AND COALESCE((qv.meta_json->'resolve'->>'match')::boolean,true)=true
                   AND qv.exam_section_id = $1
-                  AND qv.difficulty IN (2,3)
+                  AND qv.difficulty IN (1,2,3,4)
                   AND qv.subtype LIKE ANY($2)
                   AND NOT EXISTS (
                       SELECT 1 FROM mock_test_question mtq

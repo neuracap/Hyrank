@@ -3,7 +3,7 @@ import { getCurrentUser } from '@/lib/auth-edge';
 import { NextResponse } from 'next/server';
 import {
     CGL_T1_EXAM_ID, TARGET_SECTION_IDS, BANK_SECTION_IDS,
-    SECTION_CODES, normalizeConfig,
+    SECTION_CODES, normalizeConfig, normalizeDifficultyProfile,
 } from '@/lib/cgl-mock-spec';
 import { buildMock } from '@/lib/cgl-mock-picker';
 
@@ -30,6 +30,13 @@ export async function POST(req) {
     // Optional user-provided plan: { bank_subtype_targets: { REASONING: {bank_subtype: N, ...}, ... } }
     // When present, the picker uses these counts directly instead of SECTION_SPEC.targets.
     const userBankTargets = body?.plan?.bank_subtype_targets || null;
+
+    // Optional per-mock difficulty profile. Falls back to SECTION_DIFFICULTY_BASE.
+    const { profile: difficultyProfile, errors: profileErrors } =
+        normalizeDifficultyProfile(body?.difficulty_profile, config);
+    if (profileErrors.length > 0) {
+        return NextResponse.json({ error: profileErrors.join(' ') }, { status: 400 });
+    }
 
     const client = await db.connect();
     try {
@@ -59,7 +66,7 @@ export async function POST(req) {
               AND COALESCE((qv.meta_json->'resolve'->>'match')::boolean, true) = true
               AND COALESCE(qv.status, '') != 'JUNK'
               AND qv.exam_section_id = ANY($1)
-              AND qv.difficulty IN (2, 3)
+              AND qv.difficulty IN (1, 2, 3, 4)
         `, [bankSectionIds]);
 
         const byBankSectionId = Object.fromEntries(
@@ -89,7 +96,7 @@ export async function POST(req) {
               AND qv.solution_status = 'DONE'
               AND qv.correct_option_label IS NOT NULL
               AND COALESCE(qv.status, '') != 'JUNK'
-              AND qv.difficulty IN (2, 3)
+              AND qv.difficulty IN (1, 2, 3, 4)
             ORDER BY qg.group_id, qv.group_order NULLS LAST
         `, [bankSectionIds]);
 
@@ -122,6 +129,7 @@ export async function POST(req) {
             groups,
             excludedIds,
             userBankTargets,
+            difficultyProfile,
         });
 
         // 5) Persist: mock_test + mock_test_question.
@@ -147,6 +155,7 @@ export async function POST(req) {
                 section_stats: picker.section_stats,
                 notes: picker.notes,
                 user_bank_targets: userBankTargets || null,
+                difficulty_profile: picker.difficulty_profile,
                 generated_at: new Date().toISOString(),
                 generated_by: user.id,
             }),
