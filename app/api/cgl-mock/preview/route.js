@@ -38,6 +38,10 @@ export async function POST(req) {
         const bankSectionIds = SECTION_CODES.map(c => BANK_SECTION_IDS[c]);
 
         // 1. Pool depths per (section, bank_subtype, difficulty)
+        // CA freshness predicate: ca_% subtypes must clear (current YQ - freshness_quarters).
+        const now = new Date();
+        const currentYq = now.getFullYear() * 4 + (Math.floor(now.getMonth() / 3) + 1);
+        const caCutoffYq = currentYq - (config.ca_freshness_quarters || 4);
         const poolRes = await client.query(`
             SELECT qv.exam_section_id, qv.subtype, qv.difficulty, COUNT(*)::int AS c
             FROM question_version qv
@@ -47,6 +51,13 @@ export async function POST(req) {
               AND COALESCE((qv.meta_json->'resolve'->>'match')::boolean, true) = true
               AND qv.exam_section_id = ANY($1)
               AND qv.difficulty IN (1,2,3,4)
+              AND (
+                qv.subtype NOT LIKE 'ca\\_%' ESCAPE '\\'
+                OR (
+                    (qv.meta_json->>'relevance_year')::int * 4
+                    + (qv.meta_json->>'relevance_quarter')::int >= $3
+                )
+              )
               AND NOT EXISTS (
                   SELECT 1 FROM mock_test_question mtq
                   JOIN mock_test mt ON mt.mock_test_id = mtq.mock_test_id
@@ -54,7 +65,7 @@ export async function POST(req) {
               )
             GROUP BY qv.exam_section_id, qv.subtype, qv.difficulty
             ORDER BY qv.exam_section_id, COUNT(*) DESC
-        `, [bankSectionIds, CGL_T1_EXAM_ID]);
+        `, [bankSectionIds, CGL_T1_EXAM_ID, caCutoffYq]);
 
         // 2. Available groups (RC/Cloze/DI) per section + size + passage length
         // Passage text lives on a question_version row referenced by qg.passage_question_id.

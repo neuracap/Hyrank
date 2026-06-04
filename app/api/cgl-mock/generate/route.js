@@ -50,7 +50,12 @@ export async function POST(req) {
         const excludedIds = new Set(exclRes.rows.map(r => r.question_id));
 
         // 2) Pool — verified bank questions per bank section.
+        // For CA questions (subtype ca_%), additional freshness filter: the question's
+        // relevance_year * 4 + relevance_quarter must be >= cutoff (current YQ - freshness_quarters).
         const bankSectionIds = SECTION_CODES.map(c => BANK_SECTION_IDS[c]);
+        const now = new Date();
+        const currentYq = now.getFullYear() * 4 + (Math.floor(now.getMonth() / 3) + 1);
+        const caCutoffYq = currentYq - (config.ca_freshness_quarters || 4);
         const poolRes = await client.query(`
             SELECT qv.question_id, qv.exam_section_id, qv.subtype, qv.difficulty,
                    qv.leaf_topic_id, qv.group_id, qv.group_order,
@@ -67,7 +72,14 @@ export async function POST(req) {
               AND COALESCE(qv.status, '') != 'JUNK'
               AND qv.exam_section_id = ANY($1)
               AND qv.difficulty IN (1, 2, 3, 4)
-        `, [bankSectionIds]);
+              AND (
+                qv.subtype NOT LIKE 'ca\\_%' ESCAPE '\\'
+                OR (
+                    (qv.meta_json->>'relevance_year')::int * 4
+                    + (qv.meta_json->>'relevance_quarter')::int >= $2
+                )
+              )
+        `, [bankSectionIds, caCutoffYq]);
 
         const byBankSectionId = Object.fromEntries(
             SECTION_CODES.map(c => [BANK_SECTION_IDS[c], c])

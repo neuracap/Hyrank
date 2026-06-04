@@ -9,7 +9,6 @@ const DIFFICULTY_LEVELS = [1, 2, 3, 4];
 
 function placeholderCountForCode(config, code) {
     if (code === 'REASONING') return config.reasoning_img_placeholder_count;
-    if (code === 'GA') return config.ga_ca_placeholder_count;
     return 0;
 }
 
@@ -68,9 +67,9 @@ const DEFAULT_CONFIG = {
     include_english_cloze: true,
     include_quant_di: true,
     reasoning_img_placeholder_count: 0,
-    ga_ca_placeholder_count: 4,
     rc_min_passage_chars: 1400,
     cloze_min_passage_chars: 700,
+    ca_freshness_quarters: 4,
 };
 
 export default function CglMockBuilder() {
@@ -87,7 +86,7 @@ export default function CglMockBuilder() {
     // Discards in-progress user edits to that row — explicit and predictable beats clever.
     useEffect(() => {
         setDifficultyProfile(defaultProfileFor(config));
-    }, [config.reasoning_img_placeholder_count, config.ga_ca_placeholder_count]);
+    }, [config.reasoning_img_placeholder_count]);
 
     // Step 2 (planning) state: preview data + the user's bank-subtype targets per section
     const [planStep, setPlanStep] = useState(false);
@@ -287,8 +286,8 @@ function ConfigModal({ config, setConfig, difficultyProfile, setDifficultyProfil
                 <div className="grid grid-cols-2 gap-3 mt-4">
                     <NumberRow label="REASONING image placeholders" value={config.reasoning_img_placeholder_count}
                         onChange={v => upd('reasoning_img_placeholder_count', v)} max={10} />
-                    <NumberRow label="GA current-affairs placeholders" value={config.ga_ca_placeholder_count}
-                        onChange={v => upd('ga_ca_placeholder_count', v)} max={10} />
+                    <NumberRow label="CA freshness (last N quarters)" value={config.ca_freshness_quarters}
+                        onChange={v => upd('ca_freshness_quarters', Math.max(1, v))} max={20} />
                 </div>
 
                 <div className="mt-5 border-t pt-4">
