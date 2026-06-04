@@ -651,6 +651,45 @@ function MockReview({ mockTestId, onChanged }) {
         finally { setBusyKey(null); }
     };
 
+    // Passage edit (RC / Cloze stimulus). The passage is stored on a separate
+    // question_version row referenced via group.passage_question_id, so it
+    // needs its own endpoint distinct from edit-question.
+    const editPassage = async (group_id, passage_text) => {
+        setBusyKey(`passage-${group_id}`);
+        setErr('');
+        try {
+            const res = await fetch(`/api/cgl-mock/${mockTestId}/edit-passage`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ group_id, passage_text }),
+            });
+            const j = await res.json();
+            if (!res.ok || !j.success) throw new Error(j.error || 'Passage edit failed');
+            // Patch all items in this group locally so all 5 member cards show
+            // the new passage immediately, no silent reload needed.
+            setData(prev => {
+                if (!prev) return prev;
+                return {
+                    ...prev,
+                    sections: prev.sections.map(sec => ({
+                        ...sec,
+                        items: sec.items.map(it => {
+                            if (it.kind !== 'question' || it.group_id !== group_id) return it;
+                            const next = { ...it };
+                            const stimulus = it.stimulus || {};
+                            const passage_body = stimulus.passage_body || {};
+                            next.stimulus = {
+                                ...stimulus,
+                                passage_body: { ...passage_body, text: passage_text },
+                            };
+                            return next;
+                        }),
+                    })),
+                };
+            });
+        } catch (e) { setErr(e.message); throw e; }
+        finally { setBusyKey(null); }
+    };
+
     const replaceWith = async (question_id_to_remove, replacement_question_id) => {
         setBusyKey(`replace-${question_id_to_remove}`);
         setErr('');
@@ -805,6 +844,7 @@ function MockReview({ mockTestId, onChanged }) {
                                         busyKey={busyKey}
                                         onSwap={swap}
                                         onEdit={editQuestion}
+                                        onEditPassage={editPassage}
                                         onJunk={junkQuestion}
                                         onOpenBrowse={() => setBrowseTarget({ section_code: sec.code, question_id_to_remove: it.question_id })}
                                         onOpenFill={() => setFillTarget({ section_code: sec.code, placeholder_id: it.placeholder_id, position: it.position })}
@@ -1121,7 +1161,7 @@ function specSubtypesForSection(code) {
     return [...set].sort();
 }
 
-function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onJunk, onOpenBrowse, onOpenFill }) {
+function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onEditPassage, onJunk, onOpenBrowse, onOpenFill }) {
     const anchor = `q-${sectionCode}-${item.position}`;
     const [editing, setEditing] = useState(false);
     const [draftStem, setDraftStem] = useState('');
@@ -1130,6 +1170,11 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onJunk, onOp
     const [draftDifficulty, setDraftDifficulty] = useState(2);
     const [editErr, setEditErr] = useState('');
     const [uploadingTo, setUploadingTo] = useState(null); // 'stem' | 'A' | 'B' | 'C' | 'D' | null
+
+    // Inline passage editor (RC / Cloze stimulus)
+    const [editingPassage, setEditingPassage] = useState(false);
+    const [draftPassage, setDraftPassage] = useState('');
+    const [savingPassage, setSavingPassage] = useState(false);
 
     // Split-button swap menu (override spec_subtype / difficulty)
     const [swapMenuOpen, setSwapMenuOpen] = useState(false);
@@ -1359,10 +1404,52 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onJunk, onOp
                 </div>
             </div>
 
-            {item.stimulus?.passage_body?.text && (
+            {item.stimulus?.passage_body?.text != null && item.group_id && (
                 <div className="mb-2 p-3 bg-purple-50 border border-purple-200 rounded text-sm">
-                    <div className="text-[10px] font-bold text-purple-700 uppercase mb-1">Passage / Stimulus</div>
-                    <Latex>{item.stimulus.passage_body.text}</Latex>
+                    <div className="flex items-baseline justify-between mb-1">
+                        <div className="text-[10px] font-bold text-purple-700 uppercase">Passage / Stimulus</div>
+                        {!editingPassage ? (
+                            <button onClick={() => {
+                                setDraftPassage(item.stimulus.passage_body.text || '');
+                                setEditingPassage(true);
+                            }}
+                                className="text-[10px] font-semibold text-purple-700 hover:underline">
+                                Edit passage
+                            </button>
+                        ) : (
+                            <div className="flex gap-1.5">
+                                <button onClick={() => setEditingPassage(false)} disabled={savingPassage}
+                                    className="text-[10px] px-2 py-0.5 border border-gray-300 rounded text-gray-700 hover:bg-white disabled:opacity-50">
+                                    Cancel
+                                </button>
+                                <button onClick={async () => {
+                                    if (!onEditPassage) return;
+                                    setSavingPassage(true);
+                                    try {
+                                        await onEditPassage(item.group_id, draftPassage);
+                                        setEditingPassage(false);
+                                    } catch { /* error surfaces in parent */ }
+                                    finally { setSavingPassage(false); }
+                                }} disabled={savingPassage}
+                                    className="text-[10px] px-2 py-0.5 bg-purple-600 text-white rounded font-bold hover:bg-purple-700 disabled:opacity-50">
+                                    {savingPassage ? 'Saving…' : 'Save passage'}
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                    {!editingPassage ? (
+                        <Latex>{item.stimulus.passage_body.text}</Latex>
+                    ) : (
+                        <textarea value={draftPassage}
+                            onChange={e => setDraftPassage(e.target.value)}
+                            rows={Math.max(4, Math.min(20, Math.ceil((draftPassage.length || 0) / 80)))}
+                            className="w-full font-mono text-xs border border-purple-300 rounded p-2 bg-white" />
+                    )}
+                    {editingPassage && (
+                        <div className="text-[10px] text-purple-600 mt-1">
+                            Saves the EN passage for this group. All {item.stimulus?.group_type || 'group'} questions sharing this passage will update.
+                        </div>
+                    )}
                 </div>
             )}
 
