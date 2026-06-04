@@ -57,12 +57,14 @@ export async function POST(req) {
         `, [bankSectionIds, CGL_T1_EXAM_ID]);
 
         // 2. Available groups (RC/Cloze/DI) per section + size + passage length
+        // Passage text lives on a question_version row referenced by qg.passage_question_id.
         const grpRes = await client.query(`
             SELECT qg.exam_section_id, qg.group_id, qg.group_type,
                    COUNT(qv.question_id)::int AS size,
-                   COALESCE(LENGTH(qg.passage_en), 0) AS passage_chars
+                   COALESCE(LENGTH(MAX(pv.body_json->>'text')), 0) AS passage_chars
             FROM question_group qg
             JOIN question_version qv ON qv.group_id = qg.group_id AND qv.language='EN' AND qv.question_type='MCQ' AND qv.source_type='bank'
+            LEFT JOIN question_version pv ON pv.question_id = qg.passage_question_id AND pv.language='EN'
             WHERE qg.exam_section_id = ANY($1)
               AND qv.solution_status='DONE' AND qv.correct_option_label IS NOT NULL
               AND COALESCE(qv.status,'') != 'JUNK'
@@ -72,7 +74,7 @@ export async function POST(req) {
                   JOIN mock_test mt ON mt.mock_test_id = mtq.mock_test_id
                   WHERE mtq.question_id = qv.question_id AND mt.exam_id = $2
               )
-            GROUP BY qg.exam_section_id, qg.group_id, qg.group_type, qg.passage_en
+            GROUP BY qg.exam_section_id, qg.group_id, qg.group_type
         `, [bankSectionIds, CGL_T1_EXAM_ID]);
 
         // Inversion: bank_section_id -> code

@@ -83,7 +83,7 @@ export async function POST(req) {
         const grpRes = await client.query(`
             SELECT qg.group_id, qg.group_type, qg.passage_question_id,
                    qg.exam_section_id,
-                   COALESCE(LENGTH(qg.passage_en), 0) AS passage_chars,
+                   COALESCE(LENGTH(pv.body_json->>'text'), 0) AS passage_chars,
                    qv.question_id, qv.group_order, qv.difficulty, qv.subtype,
                    qv.leaf_topic_id, qv.correct_option_label, qv.body_json,
                    qv.solution_status, qv.meta_json
@@ -93,6 +93,9 @@ export async function POST(req) {
              AND qv.language = 'EN'
              AND qv.question_type = 'MCQ'
              AND qv.source_type = 'bank'
+            LEFT JOIN question_version pv
+              ON pv.question_id = qg.passage_question_id
+             AND pv.language = 'EN'
             WHERE qg.exam_section_id = ANY($1)
               AND qv.solution_status = 'DONE'
               AND qv.correct_option_label IS NOT NULL
