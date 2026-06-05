@@ -755,14 +755,38 @@ function MockReview({ mockTestId, onChanged }) {
         finally { setBusyKey(null); }
     };
 
-    const publish = async () => {
-        if (!confirm('Publish this mock? It will become a permanent record.')) return;
+    // Defensive parse: server can occasionally return an empty body on a non-OK
+    // response. Don't let JSON.parse blow up — surface the status code instead.
+    const parseResponse = async (res) => {
+        const text = await res.text();
+        if (!text) return {};
+        try { return JSON.parse(text); } catch { return { error: text.slice(0, 240) }; }
+    };
+
+    const approveAll = async () => {
+        if (!confirm('Approve every question + mark this mock as APPROVED?')) return;
+        setBusyKey('approve-all');
+        setErr('');
         try {
-            const res = await fetch(`/api/mock-test/${mockTestId}/publish`, { method: 'POST' });
-            const j = await res.json();
-            if (!res.ok) throw new Error(j.error || 'Publish failed');
+            const res = await fetch(`/api/mock-test/${mockTestId}/approve-all`, { method: 'POST' });
+            const j = await parseResponse(res);
+            if (!res.ok || !j.success) throw new Error(j.error || `Approve failed (${res.status})`);
             await load({ silent: true }); onChanged?.();
         } catch (e) { setErr(e.message); }
+        finally { setBusyKey(null); }
+    };
+
+    const publish = async () => {
+        if (!confirm('Publish this mock? It will become a permanent record.')) return;
+        setBusyKey('publish');
+        setErr('');
+        try {
+            const res = await fetch(`/api/mock-test/${mockTestId}/publish`, { method: 'POST' });
+            const j = await parseResponse(res);
+            if (!res.ok) throw new Error(j.error || `Publish failed (${res.status})`);
+            await load({ silent: true }); onChanged?.();
+        } catch (e) { setErr(e.message); }
+        finally { setBusyKey(null); }
     };
 
     const placeholderCount = useMemo(() => {
@@ -794,10 +818,19 @@ function MockReview({ mockTestId, onChanged }) {
                     </div>
                 </div>
                 <div className="flex gap-2">
-                    {mock.status === 'DRAFT' && (
+                    {(mock.status === 'DRAFT' || mock.status === 'IN_REVIEW') && (
+                        <button onClick={approveAll}
+                            disabled={busyKey === 'approve-all' || placeholderCount > 0}
+                            title={placeholderCount > 0 ? `Fill the ${placeholderCount} placeholder(s) first` : 'Mark every question + the mock as APPROVED'}
+                            className="px-3 py-1.5 bg-amber-600 text-white text-sm font-semibold rounded hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                            {busyKey === 'approve-all' ? 'Approving…' : 'Approve all'}
+                        </button>
+                    )}
+                    {mock.status === 'APPROVED' && (
                         <button onClick={publish}
-                            className="px-3 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded hover:bg-blue-700">
-                            Publish
+                            disabled={busyKey === 'publish'}
+                            className="px-3 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded hover:bg-blue-700 disabled:opacity-50">
+                            {busyKey === 'publish' ? 'Publishing…' : 'Publish'}
                         </button>
                     )}
                 </div>

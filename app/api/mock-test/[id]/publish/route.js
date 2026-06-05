@@ -23,16 +23,14 @@ export async function POST(req, { params }) {
         );
 
         if (mockRes.rows.length === 0) {
-            client.release();
             return NextResponse.json({ error: 'Mock test not found' }, { status: 404 });
         }
 
         const mock = mockRes.rows[0];
 
         if (mock.status !== 'APPROVED') {
-            client.release();
             return NextResponse.json({
-                error: `Cannot publish mock in ${mock.status} status. All questions must be approved first.`
+                error: `Cannot publish mock in ${mock.status} status. Run "Approve all" first.`
             }, { status: 400 });
         }
 
@@ -44,7 +42,6 @@ export async function POST(req, { params }) {
         `, [id]);
 
         if (parseInt(pendingCheck.rows[0].cnt) > 0) {
-            client.release();
             return NextResponse.json({
                 error: `${pendingCheck.rows[0].cnt} questions are not yet approved`
             }, { status: 400 });
