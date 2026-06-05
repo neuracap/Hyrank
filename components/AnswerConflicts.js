@@ -258,15 +258,18 @@ export default function AnswerConflicts() {
     );
 }
 
-function AnswerBadge({ label, value, tone }) {
+function AnswerBadge({ label, value, tone, warn }) {
     const tones = {
         blue: 'bg-blue-50 border-blue-300 text-blue-800',
         amber: 'bg-amber-50 border-amber-300 text-amber-800',
+        purple: 'bg-purple-50 border-purple-300 text-purple-800',
     };
+    const warnCls = warn ? 'ring-2 ring-red-400' : '';
     return (
-        <div className={`flex-1 rounded-lg border px-4 py-3 ${tones[tone]}`}>
+        <div className={`flex-1 rounded-lg border px-4 py-3 ${tones[tone]} ${warnCls}`}>
             <div className="text-xs font-semibold uppercase tracking-wide opacity-70">{label}</div>
             <div className="text-2xl font-bold mt-0.5">{value || '—'}</div>
+            {warn && <div className="text-[10px] text-red-700 font-bold mt-0.5">⚠ multi-flag bug</div>}
         </div>
     );
 }
@@ -314,6 +317,11 @@ function ConflictCard({ item, solutionOverride, verdict, setVerdict, submitting,
             <div className="px-5 pt-4 flex gap-3">
                 <AnswerBadge label="Solution says" value={item.solution_answer} tone="blue" />
                 <AnswerBadge label="Answer key says" value={item.answer_key_answer} tone="amber" />
+                <AnswerBadge
+                    label="Option flag says"
+                    value={(item.option_flag_answers || []).join(', ') || '—'}
+                    tone="purple"
+                    warn={(item.option_flag_answers || []).length > 1} />
             </div>
 
             {/* Stem */}
@@ -332,6 +340,7 @@ function ConflictCard({ item, solutionOverride, verdict, setVerdict, submitting,
                     {Object.entries(options).sort(([a], [b]) => a.localeCompare(b)).map(([key, val]) => {
                         const isSolution = item.solution_answer === key;
                         const isAnswerKey = item.answer_key_answer === key;
+                        const isOptionFlag = (item.option_flag_answers || []).includes(key);
                         const isPicked = verdict === key;
                         return (
                             <button key={key} type="button" onClick={() => setVerdict(key)}
@@ -348,6 +357,7 @@ function ConflictCard({ item, solutionOverride, verdict, setVerdict, submitting,
                                 <div className="flex flex-col gap-1 items-end">
                                     {isSolution && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 whitespace-nowrap">SOLUTION</span>}
                                     {isAnswerKey && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 whitespace-nowrap">ANSWER KEY</span>}
+                                    {isOptionFlag && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 whitespace-nowrap">OPTION FLAG</span>}
                                 </div>
                             </button>
                         );

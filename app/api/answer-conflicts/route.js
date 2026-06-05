@@ -86,6 +86,14 @@ export async function GET(req) {
                 qv.correct_option_label     AS solution_answer,
                 qv.pdf_correct_option_label AS answer_key_answer,
                 qv.pdf_verification_status  AS pdf_source,
+                (
+                    SELECT array_agg(qo.option_key ORDER BY qo.option_key)
+                    FROM question_option qo
+                    WHERE qo.question_id = qv.question_id
+                      AND qo.version_no  = qv.version_no
+                      AND qo.language    = 'EN'
+                      AND qo.is_correct  = true
+                ) AS option_flag_answers,
                 qv.body_json     AS question_stem,
                 qv.solution_json AS solution_text,
                 qv.solution_status,
