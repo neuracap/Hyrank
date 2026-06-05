@@ -28,13 +28,15 @@ export default function AnswerConflicts() {
     const [rows, setRows] = useState([]);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(1);
-    const [idx, setIdx] = useState(0);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
-    const [verdict, setVerdict] = useState(null);
-    const [submitting, setSubmitting] = useState(false);
-    // local override of resolved verdicts so the focused card reflects submits immediately
+    // Per-card staging of the picked option before Confirm.
+    // Keyed by `${qid}:${version_no}` so 50 cards can each hold their own.
+    const [verdicts, setVerdicts] = useState({});
+    // Which row is currently being submitted (only one at a time prevents races).
+    const [submittingKey, setSubmittingKey] = useState(null);
+    // local override of resolved verdicts so cards reflect submits immediately
     const [localResolved, setLocalResolved] = useState({});
     // per-question local override of solution_json after an edit, keyed `${qid}:${ver}`
     const [solutionOverrides, setSolutionOverrides] = useState({});
@@ -62,7 +64,6 @@ export default function AnswerConflicts() {
             if (!res.ok || !data.success) throw new Error(data.error || 'Failed to load');
             if (targetPage === 1) {
                 setRows(data.rows);
-                setIdx(0);
             } else {
                 setRows(prev => [...prev, ...data.rows]);
             }
@@ -78,45 +79,30 @@ export default function AnswerConflicts() {
     useEffect(() => { fetchStats(); }, [fetchStats]);
     useEffect(() => {
         setLocalResolved({});
+        setVerdicts({});
         fetchList(1);
     }, [fetchList]);
-
-    // reset per-question controls when the focused item changes
-    useEffect(() => { setVerdict(null); }, [idx, rows]);
 
     const onSolutionSaved = (qid, ver, nextSolutionJson) => {
         setSolutionOverrides(prev => ({ ...prev, [`${qid}:${ver}`]: nextSolutionJson }));
     };
 
-    const current = rows[idx] || null;
-
-    const advance = async () => {
-        const nextIdx = idx + 1;
-        if (nextIdx < rows.length) {
-            setIdx(nextIdx);
-        } else if (rows.length < total) {
-            await fetchList(page + 1);
-            setIdx(nextIdx);
-        }
-        // else: end of queue, stay
-    };
-
-    const submitVerdict = async (chosen) => {
-        if (!current || submitting) return;
-        setSubmitting(true);
+    const submitVerdict = async (item, chosen) => {
+        if (!item || submittingKey) return;
+        const key = `${item.question_id}:${item.version_no}`;
+        setSubmittingKey(key);
         try {
             const res = await fetch('/api/answer-conflicts/resolve', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    question_id: current.question_id,
-                    version_no: current.version_no,
+                    question_id: item.question_id,
+                    version_no: item.version_no,
                     verdict: chosen,
                 }),
             });
             const data = await res.json();
             if (!res.ok || !data.success) throw new Error(data.error || 'Submit failed');
-            const key = `${current.question_id}:${current.version_no}`;
             setLocalResolved(prev => ({
                 ...prev,
                 [key]: {
@@ -125,21 +111,22 @@ export default function AnswerConflicts() {
                 },
             }));
             fetchStats();
-            await advance();
         } catch (e) {
             setError(e.message);
         } finally {
-            setSubmitting(false);
+            setSubmittingKey(null);
         }
     };
 
-    const resolvedKey = current ? `${current.question_id}:${current.version_no}` : null;
-    const existingVerdict = current
-        ? (localResolved[resolvedKey] || (
-            current.final_answer_source
-                ? { final_correct_option_label: current.final_correct_option_label, final_answer_source: current.final_answer_source }
-                : null))
-        : null;
+    const existingVerdictFor = (item) => {
+        const key = `${item.question_id}:${item.version_no}`;
+        return localResolved[key]
+            || (item.final_answer_source
+                ? { final_correct_option_label: item.final_correct_option_label, final_answer_source: item.final_answer_source }
+                : null);
+    };
+
+    const hasMore = rows.length < total;
 
     const overall = stats?.overall;
     const pct = overall && overall.total ? Math.round((overall.resolved / overall.total) * 100) : 0;
@@ -219,18 +206,12 @@ export default function AnswerConflicts() {
                 <div className="mb-4 p-3 bg-red-50 text-red-700 border border-red-200 rounded text-sm">{error}</div>
             )}
 
-            {/* Queue position */}
+            {/* Queue header */}
             {!loading && rows.length > 0 && (
                 <div className="flex items-center justify-between mb-3 text-sm">
                     <span className="text-gray-500">
-                        Item <span className="font-bold text-gray-800">{idx + 1}</span> of {total} in this view
+                        Showing <span className="font-bold text-gray-800">{rows.length}</span> of {total} in this view
                     </span>
-                    <div className="flex gap-2">
-                        <button onClick={() => setIdx(i => Math.max(0, i - 1))} disabled={idx === 0}
-                            className="px-3 py-1 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50 disabled:opacity-40">← Prev</button>
-                        <button onClick={advance} disabled={idx + 1 >= total}
-                            className="px-3 py-1 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50 disabled:opacity-40">Skip →</button>
-                    </div>
                 </div>
             )}
 
@@ -241,18 +222,37 @@ export default function AnswerConflicts() {
                 </div>
             )}
 
-            {current && (
-                <ConflictCard
-                    key={`${current.question_id}:${current.version_no}`}
-                    item={current}
-                    solutionOverride={solutionOverrides[`${current.question_id}:${current.version_no}`]}
-                    verdict={verdict}
-                    setVerdict={setVerdict}
-                    submitting={submitting}
-                    onSubmit={submitVerdict}
-                    existingVerdict={existingVerdict}
-                    onSolutionSaved={onSolutionSaved}
-                />
+            <div className="space-y-4">
+                {rows.map((item) => {
+                    const key = `${item.question_id}:${item.version_no}`;
+                    return (
+                        <ConflictCard
+                            key={key}
+                            item={item}
+                            solutionOverride={solutionOverrides[key]}
+                            verdict={verdicts[key] || null}
+                            setVerdict={(v) => setVerdicts(prev => ({ ...prev, [key]: v }))}
+                            submitting={submittingKey === key}
+                            onSubmit={(chosen) => submitVerdict(item, chosen)}
+                            existingVerdict={existingVerdictFor(item)}
+                            onSolutionSaved={onSolutionSaved}
+                        />
+                    );
+                })}
+            </div>
+
+            {/* Load more */}
+            {rows.length > 0 && (
+                <div className="mt-6 flex items-center justify-center">
+                    {hasMore ? (
+                        <button onClick={() => fetchList(page + 1)} disabled={loading}
+                            className="px-5 py-2 rounded-md border border-gray-300 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                            {loading ? 'Loading…' : `Load next ${Math.min(LIMIT, total - rows.length)}`}
+                        </button>
+                    ) : (
+                        <span className="text-xs text-gray-400">End of {total} items in this view.</span>
+                    )}
+                </div>
             )}
         </div>
     );
