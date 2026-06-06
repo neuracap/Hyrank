@@ -789,6 +789,23 @@ function MockReview({ mockTestId, onChanged }) {
         finally { setBusyKey(null); }
     };
 
+    const translateHindi = async () => {
+        if (!confirm('Translate all GA / REASONING / QUANT questions to Hindi? This takes ~2-3 minutes.')) return;
+        setBusyKey('translate-hi');
+        setErr('');
+        try {
+            const res = await fetch(`/api/mock-test/${mockTestId}/translate-hindi`, { method: 'POST' });
+            const j = await parseResponse(res);
+            if (!res.ok || !j.success) throw new Error(j.error || `Translate failed (${res.status})`);
+            await load({ silent: true });
+            const c = j.counts || { processed: 0, failed: 0 };
+            const msg = `Translated ${c.processed} questions${c.failed ? `, ${c.failed} failed` : ''}. Opening Hindi review…`;
+            alert(msg);
+            window.location.href = `/mock-tests/${mockTestId}/hindi-review`;
+        } catch (e) { setErr(e.message); }
+        finally { setBusyKey(null); }
+    };
+
     const placeholderCount = useMemo(() => {
         if (!data) return 0;
         return data.sections.reduce((sum, s) => sum + s.items.filter(it => it.kind === 'placeholder').length, 0);
@@ -832,6 +849,20 @@ function MockReview({ mockTestId, onChanged }) {
                             className="px-3 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded hover:bg-blue-700 disabled:opacity-50">
                             {busyKey === 'publish' ? 'Publishing…' : 'Publish'}
                         </button>
+                    )}
+                    {(mock.status === 'APPROVED' || mock.status === 'PUBLISHED') && (
+                        <>
+                            <button onClick={translateHindi}
+                                disabled={busyKey === 'translate-hi'}
+                                title="Translate GA / REASONING / QUANT questions to Hindi (~2-3 min)"
+                                className="px-3 py-1.5 bg-purple-600 text-white text-sm font-semibold rounded hover:bg-purple-700 disabled:opacity-50">
+                                {busyKey === 'translate-hi' ? 'Translating…' : 'Translate to Hindi'}
+                            </button>
+                            <Link href={`/mock-tests/${mockTestId}/hindi-review`}
+                                className="px-3 py-1.5 border border-purple-300 text-purple-700 text-sm font-semibold rounded hover:bg-purple-50">
+                                Hindi review →
+                            </Link>
+                        </>
                     )}
                 </div>
             </div>
