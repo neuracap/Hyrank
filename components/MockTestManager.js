@@ -617,6 +617,146 @@ function ReviewQuestionCard({ q, onApprove, onReject, onSuggest, suggestions, on
 }
 
 // =========================================================
+// Tab: Topic Test — single-subtype 20Q drill (8 easy / 10 medium / 2 hard)
+// =========================================================
+function TopicTestPanel({ examId, onOpenMock }) {
+    const [subtypes, setSubtypes] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [selectedSubtype, setSelectedSubtype] = useState('');
+    const [creating, setCreating] = useState(false);
+    const [result, setResult] = useState(null);
+    const [feedback, setFeedback] = useState(null);
+
+    useEffect(() => {
+        if (!examId) return;
+        setLoading(true);
+        setSubtypes([]);
+        setSelectedSubtype('');
+        setResult(null);
+        setFeedback(null);
+        fetch(`/api/topic-test/subtypes?exam_id=${examId}`)
+            .then(r => r.json())
+            .then(d => setSubtypes(d.subtypes || []))
+            .catch(() => setSubtypes([]))
+            .finally(() => setLoading(false));
+    }, [examId]);
+
+    const selected = subtypes.find(s => s.subtype === selectedSubtype);
+    const poolOk = selected && selected.total_count >= 20;
+
+    const handleCreate = async () => {
+        if (!selectedSubtype) return;
+        setCreating(true);
+        setFeedback(null);
+        setResult(null);
+        try {
+            const res = await fetch('/api/topic-test/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ exam_id: examId, subtype: selectedSubtype }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                setFeedback({ type: 'error', msg: data.error || 'Failed to create topic test' });
+                return;
+            }
+            setResult(data);
+            setFeedback({ type: 'success', msg: `Created "${data.name}" — 20 questions ready for review.` });
+        } catch (e) {
+            setFeedback({ type: 'error', msg: e.message });
+        } finally {
+            setCreating(false);
+        }
+    };
+
+    return (
+        <div className="space-y-5">
+            <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 text-xs text-indigo-900">
+                <div className="font-bold mb-1">Topic Test — 20 questions, single subtype</div>
+                <div>
+                    Picks <strong>8 easy</strong>, <strong>10 medium</strong>, and <strong>2 hard</strong> questions of the chosen subtype.
+                    The section is auto-selected (where this subtype is most common in the exam). Tests are named
+                    <code className="mx-1">Topic N</code> per exam — the subtype is not exposed in the name.
+                </div>
+                <div className="mt-2 pt-2 border-t border-indigo-200 text-[11px] text-indigo-800">
+                    Pool excludes questions already used in <code>question_usage</code> or any DRAFT / IN_REVIEW / APPROVED mock for this exam.
+                    Same-exam PYQs are blocked; cross-exam PYQs are allowed.
+                </div>
+            </div>
+
+            {feedback && (
+                <div className={`text-sm px-4 py-2 rounded ${feedback.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                    {feedback.msg}
+                </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="md:col-span-2">
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Subtype</label>
+                    {loading ? (
+                        <div className="text-xs text-gray-400">Loading subtypes...</div>
+                    ) : subtypes.length === 0 ? (
+                        <div className="text-xs text-gray-400">No eligible subtypes found for this exam.</div>
+                    ) : (
+                        <select value={selectedSubtype} onChange={e => { setSelectedSubtype(e.target.value); setResult(null); setFeedback(null); }}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+                            <option value="">Select a subtype...</option>
+                            {subtypes.map(s => (
+                                <option key={s.subtype} value={s.subtype}>
+                                    {s.subtype} — {s.total_count} eligible ({s.best_section_code})
+                                </option>
+                            ))}
+                        </select>
+                    )}
+                    {selected && (
+                        <div className="text-xs text-gray-500 mt-1">
+                            Section: <strong>{selected.best_section_code}</strong> · pool size:{' '}
+                            <strong className={poolOk ? 'text-green-700' : 'text-red-700'}>{selected.total_count}</strong>
+                            {!poolOk && <span className="text-red-700"> (need 20)</span>}
+                        </div>
+                    )}
+                </div>
+
+                <div className="flex items-end">
+                    <button onClick={handleCreate} disabled={creating || !selectedSubtype || !poolOk}
+                        className="w-full px-5 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+                        {creating ? 'Generating...' : 'Create Topic Test'}
+                    </button>
+                </div>
+            </div>
+
+            {result && (
+                <div className="border border-green-200 bg-green-50 rounded-lg p-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <div className="font-bold text-green-900">{result.name}</div>
+                            <div className="text-xs text-green-800 mt-0.5">
+                                Subtype: <strong>{result.subtype}</strong> · Section: <strong>{result.section_code}</strong> ·
+                                Selected: <strong>{result.total_selected}/{result.total_target}</strong>
+                            </div>
+                            {result.stats?.difficulty && (
+                                <div className="text-xs text-green-800 mt-1">
+                                    Easy: <strong>{result.stats.difficulty.easy}</strong> · Medium: <strong>{result.stats.difficulty.medium}</strong> · Hard: <strong>{result.stats.difficulty.hard}</strong>
+                                </div>
+                            )}
+                        </div>
+                        <button onClick={() => onOpenMock(result.mock_test_id)}
+                            className="px-4 py-1.5 text-xs font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700">
+                            Open for Review
+                        </button>
+                    </div>
+                    {result.stats?.answer_balance && !result.stats.answer_balance.ok && (
+                        <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                            Answer balance warning: {(result.stats.answer_balance.issues || []).join('; ')}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
+// =========================================================
 // Tab: Export PYQs (download as JSON for cloning / re-ingest)
 // =========================================================
 function ExportPyqsPanel({ examId, examName }) {
@@ -783,7 +923,7 @@ function ExportPyqsPanel({ examId, examName }) {
 // =========================================================
 export default function MockTestManager({ exams }) {
     const [selectedExamId, setSelectedExamId] = useState('');
-    const [activeTab, setActiveTab] = useState('mocks'); // 'mocks' | 'create' | 'export'
+    const [activeTab, setActiveTab] = useState('mocks'); // 'mocks' | 'create' | 'topic' | 'export'
     const [reviewingMockId, setReviewingMockId] = useState(null);
 
     if (reviewingMockId) {
@@ -791,7 +931,7 @@ export default function MockTestManager({ exams }) {
     }
 
     const selectedExam = exams.find(e => e.exam_id === selectedExamId);
-    const tabLabels = { mocks: 'Existing Mocks', create: 'Create New', export: 'Export PYQs' };
+    const tabLabels = { mocks: 'Existing Mocks', create: 'Create New', topic: 'Topic Test', export: 'Export PYQs' };
 
     return (
         <div className="min-h-screen bg-gray-50">
@@ -808,7 +948,7 @@ export default function MockTestManager({ exams }) {
                     </select>
                     {selectedExamId && (
                         <div className="flex gap-1">
-                            {['mocks', 'create', 'export'].map(tab => (
+                            {['mocks', 'create', 'topic', 'export'].map(tab => (
                                 <button key={tab} onClick={() => setActiveTab(tab)}
                                     className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors ${activeTab === tab ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
                                     {tabLabels[tab]}
@@ -827,6 +967,8 @@ export default function MockTestManager({ exams }) {
                     <MocksList examId={selectedExamId} onOpenMock={setReviewingMockId} />
                 ) : activeTab === 'create' ? (
                     <BlueprintPanel examId={selectedExamId} />
+                ) : activeTab === 'topic' ? (
+                    <TopicTestPanel examId={selectedExamId} onOpenMock={setReviewingMockId} />
                 ) : (
                     <ExportPyqsPanel examId={selectedExamId} examName={selectedExam?.name} />
                 )}
