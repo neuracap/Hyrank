@@ -52,12 +52,20 @@ export async function GET(req) {
         // as /api/topic-test/create's pool query — and subtracting questions already
         // locked by a TOPIC test (published or DRAFT/IN_REVIEW/APPROVED).
         const res = await db.query(`
+            WITH linked AS (
+                SELECT DISTINCT english_question_id AS qid FROM question_links
+                  WHERE english_question_id IS NOT NULL
+                UNION
+                SELECT hindi_question_id FROM question_links
+                  WHERE hindi_question_id IS NOT NULL
+            )
             SELECT qv.subtype,
                    COUNT(*) AS total_count,
                    MIN(es.code) AS best_section_code,
                    COUNT(DISTINCT es.exam_id) AS exam_count
             FROM question_version qv
             JOIN exam_section es ON es.section_id = qv.exam_section_id
+            JOIN linked l ON l.qid = qv.question_id
             WHERE qv.exam_section_id = ANY($1)
               AND qv.language = 'EN'
               AND qv.solution_status = 'DONE'
@@ -69,20 +77,18 @@ export async function GET(req) {
                   es.exam_id != $2
                   OR qv.paper_session_id IS NULL
               )
-              AND EXISTS (
-                  SELECT 1 FROM question_links ql
-                  WHERE ql.english_question_id = qv.question_id
-                     OR ql.hindi_question_id = qv.question_id
+              AND NOT EXISTS (
+                  SELECT 1 FROM question_usage qu
+                  WHERE qu.question_id = qv.question_id
+                    AND qu.test_type = 'TOPIC'
+                    AND qu.difficulty_level = $3
               )
-              AND qv.question_id NOT IN (
-                  SELECT question_id FROM question_usage
-                  WHERE test_type = 'TOPIC' AND difficulty_level = $3
-              )
-              AND qv.question_id NOT IN (
-                  SELECT mtq.question_id
+              AND NOT EXISTS (
+                  SELECT 1
                   FROM mock_test_question mtq
                   JOIN mock_test mt ON mt.mock_test_id = mtq.mock_test_id
-                  WHERE mt.test_type = 'TOPIC'
+                  WHERE mtq.question_id = qv.question_id
+                    AND mt.test_type = 'TOPIC'
                     AND mt.difficulty_level = $3
                     AND mt.status IN ('DRAFT', 'IN_REVIEW', 'APPROVED')
               )
