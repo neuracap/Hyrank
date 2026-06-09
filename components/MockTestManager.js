@@ -683,31 +683,83 @@ function TopicTestPanel({ examId, onOpenMock }) {
         }
     };
 
+    const [bulkProgress, setBulkProgress] = useState(null);
+
     const handleBulk = async () => {
         if (!examId) return;
-        if (!confirm(`Generate up to ${maxPerSubtype} Topic test(s) per eligible subtype. This may take a minute. Continue?`)) return;
+        const candidates = subtypes.filter(s => s.total_count >= 20);
+        if (candidates.length === 0) return;
+        if (!confirm(`Generate up to ${maxPerSubtype} Topic test(s) per eligible subtype (${candidates.length} subtypes). Continue?`)) return;
+
         setBulkRunning(true);
         setBulkResult(null);
         setFeedback(null);
-        try {
-            const res = await fetch('/api/topic-test/bulk-generate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ exam_id: examId, max_per_subtype: maxPerSubtype }),
-            });
-            const data = await res.json();
-            if (!res.ok) {
-                setFeedback({ type: 'error', msg: data.error || 'Bulk generation failed' });
-                return;
+        const created = [];
+        const skipped = [];
+        const totalAttempts = candidates.length * maxPerSubtype;
+        let attemptIdx = 0;
+
+        for (const cand of candidates) {
+            const mocks = [];
+            for (let i = 0; i < maxPerSubtype; i++) {
+                attemptIdx += 1;
+                setBulkProgress({
+                    attempt: attemptIdx,
+                    total: totalAttempts,
+                    label: `${cand.subtype} (${i + 1}/${maxPerSubtype})`,
+                });
+                try {
+                    const res = await fetch('/api/topic-test/create', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ exam_id: examId, subtype: cand.subtype }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) {
+                        if (res.status === 409) {
+                            if (i === 0) skipped.push({ subtype: cand.subtype, reason: data.error });
+                            break;
+                        }
+                        skipped.push({ subtype: cand.subtype, reason: `After ${i} test(s): ${data.error}` });
+                        break;
+                    }
+                    mocks.push({
+                        mock_test_id: data.mock_test_id,
+                        name: data.name,
+                        section_code: data.section_code,
+                        difficulty: data.stats?.difficulty,
+                    });
+                } catch (e) {
+                    skipped.push({ subtype: cand.subtype, reason: `Network error: ${e.message}` });
+                    break;
+                }
             }
-            setBulkResult(data);
-            setFeedback({ type: 'success', msg: `Created ${data.total_created} Topic test(s) across ${data.created?.length || 0} subtype(s).` });
-            loadSubtypes();
-        } catch (e) {
-            setFeedback({ type: 'error', msg: e.message });
-        } finally {
-            setBulkRunning(false);
+            if (mocks.length > 0) {
+                created.push({ subtype: cand.subtype, count: mocks.length, mocks });
+                setBulkResult({
+                    total_created: created.reduce((s, c) => s + c.count, 0),
+                    total_skipped: skipped.length,
+                    created: [...created],
+                    skipped: [...skipped],
+                });
+            }
         }
+
+        const totalCreated = created.reduce((s, c) => s + c.count, 0);
+        setBulkResult({
+            total_created: totalCreated,
+            total_skipped: skipped.length,
+            created, skipped,
+        });
+        setBulkProgress(null);
+        setFeedback({
+            type: totalCreated > 0 ? 'success' : 'error',
+            msg: totalCreated > 0
+                ? `Created ${totalCreated} Topic test(s) across ${created.length} subtype(s).`
+                : 'No Topic tests were created.',
+        });
+        loadSubtypes();
+        setBulkRunning(false);
     };
 
     return (
@@ -784,6 +836,11 @@ function TopicTestPanel({ examId, onOpenMock }) {
                         {bulkRunning ? 'Running...' : 'Generate All'}
                     </button>
                 </div>
+                {bulkProgress && (
+                    <div className="mt-3 text-xs text-indigo-800 bg-indigo-50 border border-indigo-200 rounded px-3 py-2">
+                        Progress: {bulkProgress.attempt} / {bulkProgress.total} — {bulkProgress.label}
+                    </div>
+                )}
             </div>
 
             {result && (
@@ -919,31 +976,84 @@ function SectionTestPanel({ examId, onOpenMock }) {
         }
     };
 
+    const [bulkProgress, setBulkProgress] = useState(null);
+
     const handleBulk = async () => {
         if (!examId) return;
-        if (!confirm(`Generate up to ${maxPerSection} Section test(s) per section. Continue?`)) return;
+        const candidates = sections.filter(s => s.tests_possible > 0);
+        if (candidates.length === 0) return;
+        if (!confirm(`Generate up to ${maxPerSection} Section test(s) per section (${candidates.length} sections). Continue?`)) return;
+
         setBulkRunning(true);
         setBulkResult(null);
         setFeedback(null);
-        try {
-            const res = await fetch('/api/section-test/bulk-generate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ exam_id: examId, max_per_section: maxPerSection }),
-            });
-            const data = await res.json();
-            if (!res.ok) {
-                setFeedback({ type: 'error', msg: data.error || 'Bulk generation failed' });
-                return;
+        const created = [];
+        const skipped = [];
+        const totalAttempts = candidates.length * maxPerSection;
+        let attemptIdx = 0;
+
+        for (const cand of candidates) {
+            const mocks = [];
+            for (let i = 0; i < maxPerSection; i++) {
+                attemptIdx += 1;
+                setBulkProgress({
+                    attempt: attemptIdx,
+                    total: totalAttempts,
+                    label: `${cand.code} (${i + 1}/${maxPerSection})`,
+                });
+                try {
+                    const res = await fetch('/api/section-test/create', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ exam_id: examId, section_code: cand.code }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) {
+                        if (res.status === 409) {
+                            if (i === 0) skipped.push({ section_code: cand.code, reason: data.error });
+                            break;
+                        }
+                        skipped.push({ section_code: cand.code, reason: `After ${i} test(s): ${data.error}` });
+                        break;
+                    }
+                    mocks.push({
+                        mock_test_id: data.mock_test_id,
+                        name: data.name,
+                        section_code: data.section_code,
+                        target: data.total_target,
+                        selected: data.total_selected,
+                    });
+                } catch (e) {
+                    skipped.push({ section_code: cand.code, reason: `Network error: ${e.message}` });
+                    break;
+                }
             }
-            setBulkResult(data);
-            setFeedback({ type: 'success', msg: `Created ${data.total_created} Section test(s) across ${data.created?.length || 0} section(s).` });
-            loadSections();
-        } catch (e) {
-            setFeedback({ type: 'error', msg: e.message });
-        } finally {
-            setBulkRunning(false);
+            if (mocks.length > 0) {
+                created.push({ section_code: cand.code, count: mocks.length, mocks });
+                setBulkResult({
+                    total_created: created.reduce((s, c) => s + c.count, 0),
+                    total_skipped: skipped.length,
+                    created: [...created],
+                    skipped: [...skipped],
+                });
+            }
         }
+
+        const totalCreated = created.reduce((s, c) => s + c.count, 0);
+        setBulkResult({
+            total_created: totalCreated,
+            total_skipped: skipped.length,
+            created, skipped,
+        });
+        setBulkProgress(null);
+        setFeedback({
+            type: totalCreated > 0 ? 'success' : 'error',
+            msg: totalCreated > 0
+                ? `Created ${totalCreated} Section test(s) across ${created.length} section(s).`
+                : 'No Section tests were created.',
+        });
+        loadSections();
+        setBulkRunning(false);
     };
 
     const eligibleSections = sections.filter(s => s.tests_possible > 0).length;
@@ -1024,6 +1134,11 @@ function SectionTestPanel({ examId, onOpenMock }) {
                         {bulkRunning ? 'Running...' : 'Generate All'}
                     </button>
                 </div>
+                {bulkProgress && (
+                    <div className="mt-3 text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-3 py-2">
+                        Progress: {bulkProgress.attempt} / {bulkProgress.total} — {bulkProgress.label}
+                    </div>
+                )}
             </div>
 
             {result && (
