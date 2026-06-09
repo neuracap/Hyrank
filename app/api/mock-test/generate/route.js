@@ -44,18 +44,22 @@ export async function POST(req) {
             : blueprint.config_json;
         const targetExamId = blueprint.exam_id;
 
-        // 2. Get question_ids already used for this exam (across all test types)
+        // 2. Get question_ids already consumed by a FULL_MOCK for this exam.
+        //    (TOPIC and SECTION tests do not lock questions out of full mocks.)
         const usedRes = await client.query(`
-            SELECT DISTINCT question_id FROM question_usage WHERE exam_id = $1
+            SELECT DISTINCT question_id FROM question_usage
+            WHERE exam_id = $1 AND test_type = 'FULL_MOCK'
         `, [targetExamId]);
         const usedQuestionIds = new Set(usedRes.rows.map(r => r.question_id));
 
-        // Also exclude questions in current draft/in-review mocks for this exam
+        // Also exclude questions in current draft/in-review FULL_MOCK tests for this exam
         const draftUsedRes = await client.query(`
             SELECT DISTINCT mtq.question_id
             FROM mock_test_question mtq
             JOIN mock_test mt ON mt.mock_test_id = mtq.mock_test_id
-            WHERE mt.exam_id = $1 AND mt.status IN ('DRAFT', 'IN_REVIEW', 'APPROVED')
+            WHERE mt.exam_id = $1
+              AND mt.test_type = 'FULL_MOCK'
+              AND mt.status IN ('DRAFT', 'IN_REVIEW', 'APPROVED')
         `, [targetExamId]);
         for (const r of draftUsedRes.rows) usedQuestionIds.add(r.question_id);
 
@@ -270,8 +274,8 @@ export async function POST(req) {
 
         const mockRes = await client.query(`
             INSERT INTO mock_test
-            (blueprint_id, exam_id, name, slug, status, stats_json, created_by, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, 'DRAFT', $5, $6, NOW(), NOW())
+            (blueprint_id, exam_id, name, slug, status, test_type, stats_json, created_by, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, 'DRAFT', 'FULL_MOCK', $5, $6, NOW(), NOW())
             RETURNING mock_test_id
         `, [
             blueprint_id,

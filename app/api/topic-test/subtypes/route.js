@@ -45,7 +45,8 @@ export async function GET(req) {
         const allSectionIds = sectionsRes.rows.map(s => s.section_id);
 
         // Step 3: subtype counts across that union, using the same eligibility rules
-        // as /api/topic-test/create's pool query.
+        // as /api/topic-test/create's pool query — and subtracting questions already
+        // locked by a TOPIC test (published or DRAFT/IN_REVIEW/APPROVED).
         const res = await db.query(`
             SELECT qv.subtype,
                    COUNT(*) AS total_count,
@@ -68,6 +69,18 @@ export async function GET(req) {
                   SELECT 1 FROM question_links ql
                   WHERE ql.english_question_id = qv.question_id
                      OR ql.hindi_question_id = qv.question_id
+              )
+              AND qv.question_id NOT IN (
+                  SELECT question_id FROM question_usage
+                  WHERE exam_id = $2 AND test_type = 'TOPIC'
+              )
+              AND qv.question_id NOT IN (
+                  SELECT mtq.question_id
+                  FROM mock_test_question mtq
+                  JOIN mock_test mt ON mt.mock_test_id = mtq.mock_test_id
+                  WHERE mt.exam_id = $2
+                    AND mt.test_type = 'TOPIC'
+                    AND mt.status IN ('DRAFT', 'IN_REVIEW', 'APPROVED')
               )
             GROUP BY qv.subtype
             ORDER BY total_count DESC, qv.subtype ASC

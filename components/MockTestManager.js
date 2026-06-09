@@ -627,22 +627,35 @@ function TopicTestPanel({ examId, onOpenMock }) {
     const [result, setResult] = useState(null);
     const [feedback, setFeedback] = useState(null);
 
-    useEffect(() => {
+    const [maxPerSubtype, setMaxPerSubtype] = useState(3);
+    const [bulkRunning, setBulkRunning] = useState(false);
+    const [bulkResult, setBulkResult] = useState(null);
+
+    const loadSubtypes = () => {
         if (!examId) return;
         setLoading(true);
-        setSubtypes([]);
-        setSelectedSubtype('');
-        setResult(null);
-        setFeedback(null);
         fetch(`/api/topic-test/subtypes?exam_id=${examId}`)
             .then(r => r.json())
             .then(d => setSubtypes(d.subtypes || []))
             .catch(() => setSubtypes([]))
             .finally(() => setLoading(false));
+    };
+
+    useEffect(() => {
+        setSubtypes([]);
+        setSelectedSubtype('');
+        setResult(null);
+        setFeedback(null);
+        setBulkResult(null);
+        loadSubtypes();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [examId]);
 
     const selected = subtypes.find(s => s.subtype === selectedSubtype);
     const poolOk = selected && selected.total_count >= 20;
+
+    const eligibleForBulk = subtypes.filter(s => s.total_count >= 20).length;
+    const projectedBulk = subtypes.reduce((s, x) => s + Math.min(maxPerSubtype, Math.floor(x.total_count / 20)), 0);
 
     const handleCreate = async () => {
         if (!selectedSubtype) return;
@@ -662,10 +675,38 @@ function TopicTestPanel({ examId, onOpenMock }) {
             }
             setResult(data);
             setFeedback({ type: 'success', msg: `Created "${data.name}" — 20 questions ready for review.` });
+            loadSubtypes();
         } catch (e) {
             setFeedback({ type: 'error', msg: e.message });
         } finally {
             setCreating(false);
+        }
+    };
+
+    const handleBulk = async () => {
+        if (!examId) return;
+        if (!confirm(`Generate up to ${maxPerSubtype} Topic test(s) per eligible subtype. This may take a minute. Continue?`)) return;
+        setBulkRunning(true);
+        setBulkResult(null);
+        setFeedback(null);
+        try {
+            const res = await fetch('/api/topic-test/bulk-generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ exam_id: examId, max_per_subtype: maxPerSubtype }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                setFeedback({ type: 'error', msg: data.error || 'Bulk generation failed' });
+                return;
+            }
+            setBulkResult(data);
+            setFeedback({ type: 'success', msg: `Created ${data.total_created} Topic test(s) across ${data.created?.length || 0} subtype(s).` });
+            loadSubtypes();
+        } catch (e) {
+            setFeedback({ type: 'error', msg: e.message });
+        } finally {
+            setBulkRunning(false);
         }
     };
 
@@ -674,13 +715,11 @@ function TopicTestPanel({ examId, onOpenMock }) {
             <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 text-xs text-indigo-900">
                 <div className="font-bold mb-1">Topic Test — 20 questions, single subtype</div>
                 <div>
-                    Picks <strong>8 easy</strong>, <strong>10 medium</strong>, and <strong>2 hard</strong> questions of the chosen subtype.
-                    The section is auto-selected (where this subtype is most common in the exam). Tests are named
-                    <code className="mx-1">Topic N</code> per exam — the subtype is not exposed in the name.
+                    Picks <strong>8 easy</strong>, <strong>10 medium</strong>, <strong>2 hard</strong> of the chosen subtype.
+                    Section auto-selected. Named <code>Topic N</code> per exam.
                 </div>
                 <div className="mt-2 pt-2 border-t border-indigo-200 text-[11px] text-indigo-800">
-                    Pool excludes questions already used in <code>question_usage</code> or any DRAFT / IN_REVIEW / APPROVED mock for this exam.
-                    Same-exam PYQs are blocked; cross-exam PYQs are allowed.
+                    Pool excludes questions already locked by other TOPIC tests for this exam. Full-mock and section-test questions remain eligible.
                 </div>
             </div>
 
@@ -690,6 +729,7 @@ function TopicTestPanel({ examId, onOpenMock }) {
                 </div>
             )}
 
+            {/* Single create */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="md:col-span-2">
                     <label className="block text-xs font-semibold text-gray-700 mb-1">Subtype</label>
@@ -725,6 +765,27 @@ function TopicTestPanel({ examId, onOpenMock }) {
                 </div>
             </div>
 
+            {/* Bulk panel */}
+            <div className="border border-indigo-200 rounded-lg p-4 bg-white">
+                <div className="text-sm font-semibold text-gray-900 mb-2">Generate All Topic Tests</div>
+                <div className="text-xs text-gray-600 mb-3">
+                    {eligibleForBulk} subtype{eligibleForBulk === 1 ? '' : 's'} with ≥20 eligible questions.
+                    Projected output: <strong>{projectedBulk}</strong> Topic test{projectedBulk === 1 ? '' : 's'} at max {maxPerSubtype}/subtype.
+                </div>
+                <div className="flex items-end gap-3 flex-wrap">
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-700 mb-1">Max per subtype</label>
+                        <input type="number" min="1" max="10" value={maxPerSubtype}
+                            onChange={e => setMaxPerSubtype(Math.min(Math.max(parseInt(e.target.value, 10) || 1, 1), 10))}
+                            className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                    </div>
+                    <button onClick={handleBulk} disabled={bulkRunning || eligibleForBulk === 0}
+                        className="px-5 py-2 text-sm font-semibold bg-indigo-700 text-white rounded-lg hover:bg-indigo-800 disabled:opacity-50">
+                        {bulkRunning ? 'Running...' : 'Generate All'}
+                    </button>
+                </div>
+            </div>
+
             {result && (
                 <div className="border border-green-200 bg-green-50 rounded-lg p-4 space-y-2">
                     <div className="flex items-center justify-between">
@@ -748,6 +809,284 @@ function TopicTestPanel({ examId, onOpenMock }) {
                     {result.stats?.answer_balance && !result.stats.answer_balance.ok && (
                         <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
                             Answer balance warning: {(result.stats.answer_balance.issues || []).join('; ')}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {bulkResult && (
+                <div className="border border-green-200 bg-white rounded-lg p-4 space-y-3">
+                    <div className="text-sm font-bold text-gray-900">
+                        Bulk result: {bulkResult.total_created} created, {bulkResult.total_skipped} skipped
+                    </div>
+                    {bulkResult.created?.length > 0 && (
+                        <div>
+                            <div className="text-xs font-semibold text-gray-700 mb-1">Created</div>
+                            <div className="space-y-1">
+                                {bulkResult.created.map(c => (
+                                    <div key={c.subtype} className="text-xs text-gray-800">
+                                        <strong>{c.subtype}</strong> — {c.count} test{c.count === 1 ? '' : 's'}:{' '}
+                                        {c.mocks.map((m, i) => (
+                                            <button key={m.mock_test_id} onClick={() => onOpenMock(m.mock_test_id)}
+                                                className="underline text-indigo-700 hover:text-indigo-900 mr-1">
+                                                {m.name}{i < c.mocks.length - 1 ? ',' : ''}
+                                            </button>
+                                        ))}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                    {bulkResult.skipped?.length > 0 && (
+                        <div>
+                            <div className="text-xs font-semibold text-gray-700 mb-1">Skipped</div>
+                            <div className="space-y-1">
+                                {bulkResult.skipped.map((s, i) => (
+                                    <div key={i} className="text-xs text-gray-500">
+                                        <strong>{s.subtype}</strong> — {s.reason}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
+// =========================================================
+// Tab: Section Test — full-section mixed-subtype practice
+// =========================================================
+function SectionTestPanel({ examId, onOpenMock }) {
+    const [sections, setSections] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [selectedCode, setSelectedCode] = useState('');
+    const [creating, setCreating] = useState(false);
+    const [result, setResult] = useState(null);
+    const [feedback, setFeedback] = useState(null);
+
+    const [maxPerSection, setMaxPerSection] = useState(3);
+    const [bulkRunning, setBulkRunning] = useState(false);
+    const [bulkResult, setBulkResult] = useState(null);
+
+    const loadSections = () => {
+        if (!examId) return;
+        setLoading(true);
+        fetch(`/api/section-test/sections?exam_id=${examId}`)
+            .then(r => r.json())
+            .then(d => setSections(d.sections || []))
+            .catch(() => setSections([]))
+            .finally(() => setLoading(false));
+    };
+
+    useEffect(() => {
+        setSections([]);
+        setSelectedCode('');
+        setResult(null);
+        setFeedback(null);
+        setBulkResult(null);
+        loadSections();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [examId]);
+
+    const selected = sections.find(s => s.code === selectedCode);
+    const poolOk = selected && selected.pool_size >= selected.target;
+
+    const handleCreate = async () => {
+        if (!selectedCode) return;
+        setCreating(true);
+        setFeedback(null);
+        setResult(null);
+        try {
+            const res = await fetch('/api/section-test/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ exam_id: examId, section_code: selectedCode }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                setFeedback({ type: 'error', msg: data.error || 'Failed to create section test' });
+                return;
+            }
+            setResult(data);
+            setFeedback({ type: 'success', msg: `Created "${data.name}" — ${data.total_selected} questions.` });
+            loadSections();
+        } catch (e) {
+            setFeedback({ type: 'error', msg: e.message });
+        } finally {
+            setCreating(false);
+        }
+    };
+
+    const handleBulk = async () => {
+        if (!examId) return;
+        if (!confirm(`Generate up to ${maxPerSection} Section test(s) per section. Continue?`)) return;
+        setBulkRunning(true);
+        setBulkResult(null);
+        setFeedback(null);
+        try {
+            const res = await fetch('/api/section-test/bulk-generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ exam_id: examId, max_per_section: maxPerSection }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                setFeedback({ type: 'error', msg: data.error || 'Bulk generation failed' });
+                return;
+            }
+            setBulkResult(data);
+            setFeedback({ type: 'success', msg: `Created ${data.total_created} Section test(s) across ${data.created?.length || 0} section(s).` });
+            loadSections();
+        } catch (e) {
+            setFeedback({ type: 'error', msg: e.message });
+        } finally {
+            setBulkRunning(false);
+        }
+    };
+
+    const eligibleSections = sections.filter(s => s.tests_possible > 0).length;
+    const projectedBulk = sections.reduce((s, x) => s + Math.min(maxPerSection, x.tests_possible || 0), 0);
+
+    return (
+        <div className="space-y-5">
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 text-xs text-emerald-900">
+                <div className="font-bold mb-1">Section Test — full section, mixed subtypes</div>
+                <div>
+                    Size matches the section's normal length. Subtype mix is <strong>cap-2-then-proportional</strong> (every subtype gets at most 2 first, then remainder distributed by pool size).
+                    Difficulty mix scaled <strong>40/50/10</strong>. Named <code>{`{Section} Test N`}</code> per exam, per section.
+                </div>
+                <div className="mt-2 pt-2 border-t border-emerald-200 text-[11px] text-emerald-800">
+                    Pool excludes questions already locked by other SECTION tests for this exam. Topic-test and full-mock questions remain eligible.
+                </div>
+            </div>
+
+            {feedback && (
+                <div className={`text-sm px-4 py-2 rounded ${feedback.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                    {feedback.msg}
+                </div>
+            )}
+
+            {/* Single create */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="md:col-span-2">
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Section</label>
+                    {loading ? (
+                        <div className="text-xs text-gray-400">Loading sections...</div>
+                    ) : sections.length === 0 ? (
+                        <div className="text-xs text-gray-400">No sections found for this exam.</div>
+                    ) : (
+                        <select value={selectedCode} onChange={e => { setSelectedCode(e.target.value); setResult(null); setFeedback(null); }}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500">
+                            <option value="">Select a section...</option>
+                            {sections.map(s => (
+                                <option key={s.code} value={s.code}>
+                                    {s.code} ({s.name}) — pool {s.pool_size}, can build {s.tests_possible}, target {s.target}
+                                </option>
+                            ))}
+                        </select>
+                    )}
+                    {selected && (
+                        <div className="text-xs text-gray-500 mt-1">
+                            Section: <strong>{selected.code}</strong> · pool:{' '}
+                            <strong className={poolOk ? 'text-green-700' : 'text-red-700'}>{selected.pool_size}</strong>{' '}
+                            / target <strong>{selected.target}</strong>
+                            {!poolOk && <span className="text-red-700"> (not enough)</span>}
+                        </div>
+                    )}
+                </div>
+
+                <div className="flex items-end">
+                    <button onClick={handleCreate} disabled={creating || !selectedCode || !poolOk}
+                        className="w-full px-5 py-2 text-sm font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50">
+                        {creating ? 'Generating...' : 'Create Section Test'}
+                    </button>
+                </div>
+            </div>
+
+            {/* Bulk panel */}
+            <div className="border border-emerald-200 rounded-lg p-4 bg-white">
+                <div className="text-sm font-semibold text-gray-900 mb-2">Generate All Section Tests</div>
+                <div className="text-xs text-gray-600 mb-3">
+                    {eligibleSections} section{eligibleSections === 1 ? '' : 's'} with enough pool.
+                    Projected output: <strong>{projectedBulk}</strong> Section test{projectedBulk === 1 ? '' : 's'} at max {maxPerSection}/section.
+                </div>
+                <div className="flex items-end gap-3 flex-wrap">
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-700 mb-1">Max per section</label>
+                        <input type="number" min="1" max="10" value={maxPerSection}
+                            onChange={e => setMaxPerSection(Math.min(Math.max(parseInt(e.target.value, 10) || 1, 1), 10))}
+                            className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                    </div>
+                    <button onClick={handleBulk} disabled={bulkRunning || eligibleSections === 0}
+                        className="px-5 py-2 text-sm font-semibold bg-emerald-700 text-white rounded-lg hover:bg-emerald-800 disabled:opacity-50">
+                        {bulkRunning ? 'Running...' : 'Generate All'}
+                    </button>
+                </div>
+            </div>
+
+            {result && (
+                <div className="border border-green-200 bg-green-50 rounded-lg p-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <div className="font-bold text-green-900">{result.name}</div>
+                            <div className="text-xs text-green-800 mt-0.5">
+                                Section: <strong>{result.section_code}</strong> ·
+                                Selected: <strong>{result.total_selected}/{result.total_target}</strong>
+                            </div>
+                            {result.stats?.difficulty && (
+                                <div className="text-xs text-green-800 mt-1">
+                                    Easy: <strong>{result.stats.difficulty.easy}</strong> · Medium: <strong>{result.stats.difficulty.medium}</strong> · Hard: <strong>{result.stats.difficulty.hard}</strong>
+                                </div>
+                            )}
+                            {result.stats?.subtype_distribution && (
+                                <div className="text-[11px] text-green-800 mt-1">
+                                    Subtypes: {Object.entries(result.stats.subtype_distribution).map(([k, v]) => `${k}(${v})`).join(', ')}
+                                </div>
+                            )}
+                        </div>
+                        <button onClick={() => onOpenMock(result.mock_test_id)}
+                            className="px-4 py-1.5 text-xs font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700">
+                            Open for Review
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {bulkResult && (
+                <div className="border border-green-200 bg-white rounded-lg p-4 space-y-3">
+                    <div className="text-sm font-bold text-gray-900">
+                        Bulk result: {bulkResult.total_created} created, {bulkResult.total_skipped} skipped
+                    </div>
+                    {bulkResult.created?.length > 0 && (
+                        <div>
+                            <div className="text-xs font-semibold text-gray-700 mb-1">Created</div>
+                            <div className="space-y-1">
+                                {bulkResult.created.map(c => (
+                                    <div key={c.section_code} className="text-xs text-gray-800">
+                                        <strong>{c.section_code}</strong> — {c.count} test{c.count === 1 ? '' : 's'}:{' '}
+                                        {c.mocks.map((m, i) => (
+                                            <button key={m.mock_test_id} onClick={() => onOpenMock(m.mock_test_id)}
+                                                className="underline text-emerald-700 hover:text-emerald-900 mr-1">
+                                                {m.name}{i < c.mocks.length - 1 ? ',' : ''}
+                                            </button>
+                                        ))}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                    {bulkResult.skipped?.length > 0 && (
+                        <div>
+                            <div className="text-xs font-semibold text-gray-700 mb-1">Skipped</div>
+                            <div className="space-y-1">
+                                {bulkResult.skipped.map((s, i) => (
+                                    <div key={i} className="text-xs text-gray-500">
+                                        <strong>{s.section_code}</strong> — {s.reason}
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     )}
                 </div>
@@ -923,7 +1262,7 @@ function ExportPyqsPanel({ examId, examName }) {
 // =========================================================
 export default function MockTestManager({ exams }) {
     const [selectedExamId, setSelectedExamId] = useState('');
-    const [activeTab, setActiveTab] = useState('mocks'); // 'mocks' | 'create' | 'topic' | 'export'
+    const [activeTab, setActiveTab] = useState('mocks'); // 'mocks' | 'create' | 'topic' | 'section' | 'export'
     const [reviewingMockId, setReviewingMockId] = useState(null);
 
     if (reviewingMockId) {
@@ -931,7 +1270,7 @@ export default function MockTestManager({ exams }) {
     }
 
     const selectedExam = exams.find(e => e.exam_id === selectedExamId);
-    const tabLabels = { mocks: 'Existing Mocks', create: 'Create New', topic: 'Topic Test', export: 'Export PYQs' };
+    const tabLabels = { mocks: 'Existing Mocks', create: 'Create New', topic: 'Topic Test', section: 'Section Test', export: 'Export PYQs' };
 
     return (
         <div className="min-h-screen bg-gray-50">
@@ -948,7 +1287,7 @@ export default function MockTestManager({ exams }) {
                     </select>
                     {selectedExamId && (
                         <div className="flex gap-1">
-                            {['mocks', 'create', 'topic', 'export'].map(tab => (
+                            {['mocks', 'create', 'topic', 'section', 'export'].map(tab => (
                                 <button key={tab} onClick={() => setActiveTab(tab)}
                                     className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors ${activeTab === tab ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
                                     {tabLabels[tab]}
@@ -969,6 +1308,8 @@ export default function MockTestManager({ exams }) {
                     <BlueprintPanel examId={selectedExamId} />
                 ) : activeTab === 'topic' ? (
                     <TopicTestPanel examId={selectedExamId} onOpenMock={setReviewingMockId} />
+                ) : activeTab === 'section' ? (
+                    <SectionTestPanel examId={selectedExamId} onOpenMock={setReviewingMockId} />
                 ) : (
                     <ExportPyqsPanel examId={selectedExamId} examName={selectedExam?.name} />
                 )}
