@@ -6,14 +6,22 @@ import Latex from '@/components/Latex';
 const DIFF_LABELS = { 1: 'Easy', 2: 'Medium', 3: 'Hard' };
 const DIFF_COLORS = { 1: 'bg-green-100 text-green-700', 2: 'bg-yellow-100 text-yellow-700', 3: 'bg-red-100 text-red-700' };
 
+const LEVEL_LETTERS = { 1: 'A', 2: 'B', 3: 'C' };
+const LEVEL_LABELS  = { 1: 'Easy (A)', 2: 'Medium (B)', 3: 'Hard (C)' };
+const LEVEL_MIX_LABEL = { 1: '40 / 50 / 10', 2: '10 / 60 / 30', 3: '0 / 30 / 70' };
+
 // =========================================================
 // Tab: Existing Mocks List
 // =========================================================
 function MocksList({ examId, onOpenMock }) {
     const [mocks, setMocks] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [editingId, setEditingId] = useState(null);
+    const [editName, setEditName] = useState('');
+    const [saving, setSaving] = useState(false);
+    const [renameError, setRenameError] = useState(null);
 
-    useEffect(() => {
+    const reload = () => {
         if (!examId) return;
         setLoading(true);
         fetch(`/api/mock-test/list?exam_id=${examId}`)
@@ -21,7 +29,47 @@ function MocksList({ examId, onOpenMock }) {
             .then(d => setMocks(d.mocks || []))
             .catch(() => setMocks([]))
             .finally(() => setLoading(false));
-    }, [examId]);
+    };
+
+    useEffect(() => { reload(); /* eslint-disable-next-line */ }, [examId]);
+
+    const startEdit = (m) => {
+        setEditingId(m.mock_test_id);
+        setEditName(m.name);
+        setRenameError(null);
+    };
+    const cancelEdit = () => {
+        setEditingId(null);
+        setEditName('');
+        setRenameError(null);
+    };
+    const saveEdit = async (m) => {
+        const name = editName.trim();
+        if (!name || name === m.name) { cancelEdit(); return; }
+        setSaving(true);
+        setRenameError(null);
+        try {
+            const res = await fetch(`/api/mock-test/${m.mock_test_id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                setRenameError(data.error || 'Rename failed');
+                setSaving(false);
+                return;
+            }
+            setMocks(prev => prev.map(x =>
+                x.mock_test_id === m.mock_test_id ? { ...x, name: data.name } : x
+            ));
+            cancelEdit();
+        } catch (e) {
+            setRenameError(e.message);
+        } finally {
+            setSaving(false);
+        }
+    };
 
     if (loading) return <div className="text-sm text-gray-400 py-8 text-center">Loading mocks...</div>;
     if (mocks.length === 0) return <div className="text-sm text-gray-400 py-8 text-center">No mock tests yet for this exam.</div>;
@@ -39,8 +87,56 @@ function MocksList({ examId, onOpenMock }) {
             {mocks.map(m => (
                 <div key={m.mock_test_id} className="border border-gray-200 rounded-lg p-4 hover:border-blue-300 transition-colors">
                     <div className="flex items-center justify-between">
-                        <div>
-                            <div className="font-semibold text-gray-900">{m.name}</div>
+                        <div className="flex-1 min-w-0">
+                            {editingId === m.mock_test_id ? (
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <input
+                                        type="text"
+                                        value={editName}
+                                        autoFocus
+                                        onChange={e => setEditName(e.target.value)}
+                                        onKeyDown={e => {
+                                            if (e.key === 'Enter') saveEdit(m);
+                                            if (e.key === 'Escape') cancelEdit();
+                                        }}
+                                        disabled={saving}
+                                        className="text-sm font-semibold border border-blue-400 rounded px-2 py-1 focus:ring-2 focus:ring-blue-500"
+                                    />
+                                    <button onClick={() => saveEdit(m)} disabled={saving}
+                                        className="text-xs font-semibold bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 disabled:opacity-50">
+                                        {saving ? 'Saving…' : 'Save'}
+                                    </button>
+                                    <button onClick={cancelEdit} disabled={saving}
+                                        className="text-xs font-semibold bg-gray-100 text-gray-700 px-3 py-1 rounded hover:bg-gray-200">
+                                        Cancel
+                                    </button>
+                                    {renameError && <span className="text-xs text-red-600">{renameError}</span>}
+                                </div>
+                            ) : (
+                                <div className="font-semibold text-gray-900 flex items-center gap-2 flex-wrap">
+                                    {m.name}
+                                    <button onClick={() => startEdit(m)}
+                                        title="Rename"
+                                        className="text-gray-400 hover:text-blue-600 text-xs">
+                                        ✎
+                                    </button>
+                                    {m.test_type && m.test_type !== 'FULL_MOCK' && (
+                                        <span className="text-[10px] font-semibold bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
+                                            {m.test_type}
+                                        </span>
+                                    )}
+                                    {m.difficulty_level && (
+                                        <span className="text-[10px] font-semibold bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">
+                                            Level {LEVEL_LETTERS[m.difficulty_level] || '?'}
+                                        </span>
+                                    )}
+                                    {m.exam_name && m.test_type !== 'FULL_MOCK' && (
+                                        <span className="text-[10px] font-normal text-gray-400">
+                                            origin: {m.exam_name}
+                                        </span>
+                                    )}
+                                </div>
+                            )}
                             <div className="text-xs text-gray-500 mt-0.5">
                                 {m.blueprint_name && <span className="mr-3">Blueprint: {m.blueprint_name}</span>}
                                 Created: {new Date(m.created_at).toLocaleDateString('en-IN')}
@@ -623,6 +719,7 @@ function TopicTestPanel({ examId, onOpenMock }) {
     const [subtypes, setSubtypes] = useState([]);
     const [loading, setLoading] = useState(false);
     const [selectedSubtype, setSelectedSubtype] = useState('');
+    const [selectedLevel, setSelectedLevel] = useState(1);
     const [creating, setCreating] = useState(false);
     const [result, setResult] = useState(null);
     const [feedback, setFeedback] = useState(null);
@@ -631,10 +728,10 @@ function TopicTestPanel({ examId, onOpenMock }) {
     const [bulkRunning, setBulkRunning] = useState(false);
     const [bulkResult, setBulkResult] = useState(null);
 
-    const loadSubtypes = () => {
+    const loadSubtypes = (level = selectedLevel) => {
         if (!examId) return;
         setLoading(true);
-        fetch(`/api/topic-test/subtypes?exam_id=${examId}`)
+        fetch(`/api/topic-test/subtypes?exam_id=${examId}&difficulty_level=${level}`)
             .then(r => r.json())
             .then(d => setSubtypes(d.subtypes || []))
             .catch(() => setSubtypes([]))
@@ -647,9 +744,9 @@ function TopicTestPanel({ examId, onOpenMock }) {
         setResult(null);
         setFeedback(null);
         setBulkResult(null);
-        loadSubtypes();
+        loadSubtypes(selectedLevel);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [examId]);
+    }, [examId, selectedLevel]);
 
     const selected = subtypes.find(s => s.subtype === selectedSubtype);
     const poolOk = selected && selected.total_count >= 20;
@@ -666,7 +763,7 @@ function TopicTestPanel({ examId, onOpenMock }) {
             const res = await fetch('/api/topic-test/create', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ exam_id: examId, subtype: selectedSubtype }),
+                body: JSON.stringify({ exam_id: examId, subtype: selectedSubtype, difficulty_level: selectedLevel }),
             });
             const data = await res.json();
             if (!res.ok) {
@@ -675,7 +772,7 @@ function TopicTestPanel({ examId, onOpenMock }) {
             }
             setResult(data);
             setFeedback({ type: 'success', msg: `Created "${data.name}" — 20 questions ready for review.` });
-            loadSubtypes();
+            loadSubtypes(selectedLevel);
         } catch (e) {
             setFeedback({ type: 'error', msg: e.message });
         } finally {
@@ -689,7 +786,7 @@ function TopicTestPanel({ examId, onOpenMock }) {
         if (!examId) return;
         const candidates = subtypes.filter(s => s.total_count >= 20);
         if (candidates.length === 0) return;
-        if (!confirm(`Generate up to ${maxPerSubtype} Topic test(s) per eligible subtype (${candidates.length} subtypes). Continue?`)) return;
+        if (!confirm(`Generate up to ${maxPerSubtype} Topic test(s) per eligible subtype at Level ${LEVEL_LETTERS[selectedLevel]} (${candidates.length} subtypes). Continue?`)) return;
 
         setBulkRunning(true);
         setBulkResult(null);
@@ -712,7 +809,7 @@ function TopicTestPanel({ examId, onOpenMock }) {
                     const res = await fetch('/api/topic-test/create', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ exam_id: examId, subtype: cand.subtype }),
+                        body: JSON.stringify({ exam_id: examId, subtype: cand.subtype, difficulty_level: selectedLevel }),
                     });
                     const data = await res.json();
                     if (!res.ok) {
@@ -758,7 +855,7 @@ function TopicTestPanel({ examId, onOpenMock }) {
                 ? `Created ${totalCreated} Topic test(s) across ${created.length} subtype(s).`
                 : 'No Topic tests were created.',
         });
-        loadSubtypes();
+        loadSubtypes(selectedLevel);
         setBulkRunning(false);
     };
 
@@ -767,11 +864,27 @@ function TopicTestPanel({ examId, onOpenMock }) {
             <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 text-xs text-indigo-900">
                 <div className="font-bold mb-1">Topic Test — 20 questions, single subtype</div>
                 <div>
-                    Picks <strong>8 easy</strong>, <strong>10 medium</strong>, <strong>2 hard</strong> of the chosen subtype.
-                    Section auto-selected. Named <code>Topic N</code> per exam.
+                    Difficulty mix depends on Level:{' '}
+                    <strong>A</strong> = {LEVEL_MIX_LABEL[1]} (E/M/H),{' '}
+                    <strong>B</strong> = {LEVEL_MIX_LABEL[2]},{' '}
+                    <strong>C</strong> = {LEVEL_MIX_LABEL[3]}.
+                    Named <code>Topic A1</code>, <code>Topic B1</code>, <code>Topic C1</code> — counter per level, shared across all exams whose profile matches.
                 </div>
                 <div className="mt-2 pt-2 border-t border-indigo-200 text-[11px] text-indigo-800">
-                    Pool excludes questions already locked by other TOPIC tests for this exam. Full-mock and section-test questions remain eligible.
+                    Pool excludes questions already locked by other TOPIC tests at this level. Tests at different levels and other test types (FULL_MOCK, SECTION) keep the question eligible.
+                </div>
+            </div>
+
+            {/* Level picker */}
+            <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Difficulty level</label>
+                <div className="flex gap-2 flex-wrap">
+                    {[1, 2, 3].map(L => (
+                        <button key={L} onClick={() => setSelectedLevel(L)}
+                            className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors ${selectedLevel === L ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                            {LEVEL_LABELS[L]} — {LEVEL_MIX_LABEL[L]}
+                        </button>
+                    ))}
                 </div>
             </div>
 
@@ -847,7 +960,12 @@ function TopicTestPanel({ examId, onOpenMock }) {
                 <div className="border border-green-200 bg-green-50 rounded-lg p-4 space-y-2">
                     <div className="flex items-center justify-between">
                         <div>
-                            <div className="font-bold text-green-900">{result.name}</div>
+                            <div className="font-bold text-green-900 flex items-center gap-2">
+                                {result.name}
+                                <span className="text-[10px] font-semibold bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">
+                                    Level {LEVEL_LETTERS[result.difficulty_level] || '?'}
+                                </span>
+                            </div>
                             <div className="text-xs text-green-800 mt-0.5">
                                 Subtype: <strong>{result.subtype}</strong> · Section: <strong>{result.section_code}</strong> ·
                                 Selected: <strong>{result.total_selected}/{result.total_target}</strong>
@@ -919,6 +1037,7 @@ function SectionTestPanel({ examId, onOpenMock }) {
     const [sections, setSections] = useState([]);
     const [loading, setLoading] = useState(false);
     const [selectedCode, setSelectedCode] = useState('');
+    const [selectedLevel, setSelectedLevel] = useState(1);
     const [creating, setCreating] = useState(false);
     const [result, setResult] = useState(null);
     const [feedback, setFeedback] = useState(null);
@@ -927,10 +1046,10 @@ function SectionTestPanel({ examId, onOpenMock }) {
     const [bulkRunning, setBulkRunning] = useState(false);
     const [bulkResult, setBulkResult] = useState(null);
 
-    const loadSections = () => {
+    const loadSections = (level = selectedLevel) => {
         if (!examId) return;
         setLoading(true);
-        fetch(`/api/section-test/sections?exam_id=${examId}`)
+        fetch(`/api/section-test/sections?exam_id=${examId}&difficulty_level=${level}`)
             .then(r => r.json())
             .then(d => setSections(d.sections || []))
             .catch(() => setSections([]))
@@ -943,9 +1062,9 @@ function SectionTestPanel({ examId, onOpenMock }) {
         setResult(null);
         setFeedback(null);
         setBulkResult(null);
-        loadSections();
+        loadSections(selectedLevel);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [examId]);
+    }, [examId, selectedLevel]);
 
     const selected = sections.find(s => s.code === selectedCode);
     const poolOk = selected && selected.pool_size >= selected.target;
@@ -959,7 +1078,7 @@ function SectionTestPanel({ examId, onOpenMock }) {
             const res = await fetch('/api/section-test/create', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ exam_id: examId, section_code: selectedCode }),
+                body: JSON.stringify({ exam_id: examId, section_code: selectedCode, difficulty_level: selectedLevel }),
             });
             const data = await res.json();
             if (!res.ok) {
@@ -968,7 +1087,7 @@ function SectionTestPanel({ examId, onOpenMock }) {
             }
             setResult(data);
             setFeedback({ type: 'success', msg: `Created "${data.name}" — ${data.total_selected} questions.` });
-            loadSections();
+            loadSections(selectedLevel);
         } catch (e) {
             setFeedback({ type: 'error', msg: e.message });
         } finally {
@@ -982,7 +1101,7 @@ function SectionTestPanel({ examId, onOpenMock }) {
         if (!examId) return;
         const candidates = sections.filter(s => s.tests_possible > 0);
         if (candidates.length === 0) return;
-        if (!confirm(`Generate up to ${maxPerSection} Section test(s) per section (${candidates.length} sections). Continue?`)) return;
+        if (!confirm(`Generate up to ${maxPerSection} Section test(s) per section at Level ${LEVEL_LETTERS[selectedLevel]} (${candidates.length} sections). Continue?`)) return;
 
         setBulkRunning(true);
         setBulkResult(null);
@@ -1005,7 +1124,7 @@ function SectionTestPanel({ examId, onOpenMock }) {
                     const res = await fetch('/api/section-test/create', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ exam_id: examId, section_code: cand.code }),
+                        body: JSON.stringify({ exam_id: examId, section_code: cand.code, difficulty_level: selectedLevel }),
                     });
                     const data = await res.json();
                     if (!res.ok) {
@@ -1052,7 +1171,7 @@ function SectionTestPanel({ examId, onOpenMock }) {
                 ? `Created ${totalCreated} Section test(s) across ${created.length} section(s).`
                 : 'No Section tests were created.',
         });
-        loadSections();
+        loadSections(selectedLevel);
         setBulkRunning(false);
     };
 
@@ -1064,11 +1183,28 @@ function SectionTestPanel({ examId, onOpenMock }) {
             <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 text-xs text-emerald-900">
                 <div className="font-bold mb-1">Section Test — full section, mixed subtypes</div>
                 <div>
-                    Size matches the section's normal length. Subtype mix is <strong>cap-2-then-proportional</strong> (every subtype gets at most 2 first, then remainder distributed by pool size).
-                    Difficulty mix scaled <strong>40/50/10</strong>. Named <code>{`{Section} Test N`}</code> per exam, per section.
+                    Size matches the section's normal length. Subtype mix is <strong>cap-2-then-proportional</strong>.
+                    Difficulty mix depends on Level:{' '}
+                    <strong>A</strong> = {LEVEL_MIX_LABEL[1]} (E/M/H),{' '}
+                    <strong>B</strong> = {LEVEL_MIX_LABEL[2]},{' '}
+                    <strong>C</strong> = {LEVEL_MIX_LABEL[3]}.
+                    Named <code>Quant A1</code>, <code>Reasoning B1</code> etc. — counter per (section, level), shared across exams whose profile matches.
                 </div>
                 <div className="mt-2 pt-2 border-t border-emerald-200 text-[11px] text-emerald-800">
-                    Pool excludes questions already locked by other SECTION tests for this exam. Topic-test and full-mock questions remain eligible.
+                    Pool excludes questions already locked by other SECTION tests at this level. Tests at different levels and other test types (TOPIC, FULL_MOCK) keep the question eligible.
+                </div>
+            </div>
+
+            {/* Level picker */}
+            <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Difficulty level</label>
+                <div className="flex gap-2 flex-wrap">
+                    {[1, 2, 3].map(L => (
+                        <button key={L} onClick={() => setSelectedLevel(L)}
+                            className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors ${selectedLevel === L ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                            {LEVEL_LABELS[L]} — {LEVEL_MIX_LABEL[L]}
+                        </button>
+                    ))}
                 </div>
             </div>
 
@@ -1145,7 +1281,12 @@ function SectionTestPanel({ examId, onOpenMock }) {
                 <div className="border border-green-200 bg-green-50 rounded-lg p-4 space-y-2">
                     <div className="flex items-center justify-between">
                         <div>
-                            <div className="font-bold text-green-900">{result.name}</div>
+                            <div className="font-bold text-green-900 flex items-center gap-2">
+                                {result.name}
+                                <span className="text-[10px] font-semibold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">
+                                    Level {LEVEL_LETTERS[result.difficulty_level] || '?'}
+                                </span>
+                            </div>
                             <div className="text-xs text-green-800 mt-0.5">
                                 Section: <strong>{result.section_code}</strong> ·
                                 Selected: <strong>{result.total_selected}/{result.total_target}</strong>

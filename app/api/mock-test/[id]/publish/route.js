@@ -19,7 +19,8 @@ export async function POST(req, { params }) {
     try {
         // 1. Verify mock exists and is approved
         const mockRes = await client.query(
-            `SELECT mock_test_id, exam_id, name, status FROM mock_test WHERE mock_test_id = $1`, [id]
+            `SELECT mock_test_id, exam_id, name, status, test_type, difficulty_level
+             FROM mock_test WHERE mock_test_id = $1`, [id]
         );
 
         if (mockRes.rows.length === 0) {
@@ -56,21 +57,26 @@ export async function POST(req, { params }) {
             WHERE mock_test_id = $1
         `, [id]);
 
-        // 4. Record all questions in question_usage for this exam
-        //    This prevents these questions from being used in future tests for the same exam
+        // 4. Record all questions in question_usage with the test_type + level
+        //    of the publishing mock. FULL_MOCK locks per exam; TOPIC/SECTION lock
+        //    per (test_type, difficulty_level) globally.
         await client.query(`
-            INSERT INTO question_usage (question_id, exam_id, usage_type, usage_ref_id, usage_label, created_at)
+            INSERT INTO question_usage
+            (question_id, exam_id, usage_type, usage_ref_id, usage_label,
+             test_type, difficulty_level, created_at)
             SELECT
                 mtq.question_id,
                 $2,
                 'MOCK_TEST',
                 $1,
                 $3,
+                $4,
+                $5,
                 NOW()
             FROM mock_test_question mtq
             WHERE mtq.mock_test_id = $1
             ON CONFLICT (question_id, usage_ref_id) DO NOTHING
-        `, [id, mock.exam_id, mock.name]);
+        `, [id, mock.exam_id, mock.name, mock.test_type || 'FULL_MOCK', mock.difficulty_level]);
 
         await client.query('COMMIT');
 

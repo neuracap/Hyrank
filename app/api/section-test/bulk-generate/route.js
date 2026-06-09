@@ -22,9 +22,13 @@ export async function POST(req) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { exam_id, max_per_section } = await req.json();
+    const { exam_id, max_per_section, difficulty_level } = await req.json();
     if (!exam_id) {
         return NextResponse.json({ error: 'exam_id is required' }, { status: 400 });
+    }
+    const level = parseInt(difficulty_level, 10);
+    if (![1, 2, 3].includes(level)) {
+        return NextResponse.json({ error: 'difficulty_level must be 1, 2 or 3' }, { status: 400 });
     }
     const cap = Math.max(1, Math.min(10, parseInt(max_per_section, 10) || DEFAULT_MAX_PER_SECTION));
 
@@ -49,7 +53,7 @@ export async function POST(req) {
             for (let i = 0; i < cap; i++) {
                 try {
                     const r = await generateSectionTest(client, {
-                        exam_id, section_code: code, user_id: user.id,
+                        exam_id, section_code: code, difficulty_level: level, user_id: user.id,
                     });
                     mocks.push({
                         mock_test_id: r.mock_test_id,

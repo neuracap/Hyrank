@@ -16,15 +16,15 @@ export async function POST(req) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { exam_id, section_code } = await req.json();
-    if (!exam_id || !section_code) {
-        return NextResponse.json({ error: 'exam_id and section_code are required' }, { status: 400 });
+    const { exam_id, section_code, difficulty_level } = await req.json();
+    if (!exam_id || !section_code || !difficulty_level) {
+        return NextResponse.json({ error: 'exam_id, section_code, and difficulty_level are required' }, { status: 400 });
     }
 
     const client = await db.connect();
     try {
         const result = await generateSectionTest(client, {
-            exam_id, section_code, user_id: user.id,
+            exam_id, section_code, difficulty_level, user_id: user.id,
         });
         return NextResponse.json({ success: true, ...result });
     } catch (e) {

@@ -127,3 +127,44 @@ export async function GET(req, { params }) {
         return NextResponse.json({ error: e.message }, { status: 500 });
     }
 }
+
+/**
+ * PATCH /api/mock-test/[id]
+ * Rename a mock test.
+ * Body: { name }
+ */
+export async function PATCH(req, { params }) {
+    const user = await getCurrentUser();
+    if (!user?.isAdmin) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { id } = await params;
+    const body = await req.json();
+    const name = (body?.name || '').trim();
+
+    if (!name) {
+        return NextResponse.json({ error: 'name is required' }, { status: 400 });
+    }
+    if (name.length > 200) {
+        return NextResponse.json({ error: 'name must be ≤ 200 chars' }, { status: 400 });
+    }
+
+    try {
+        const res = await db.query(`
+            UPDATE mock_test
+            SET name = $1, updated_at = NOW()
+            WHERE mock_test_id = $2
+            RETURNING mock_test_id, name
+        `, [name, id]);
+
+        if (res.rows.length === 0) {
+            return NextResponse.json({ error: 'Mock test not found' }, { status: 404 });
+        }
+
+        return NextResponse.json({ success: true, mock_test_id: res.rows[0].mock_test_id, name: res.rows[0].name });
+    } catch (e) {
+        console.error('mock-test/[id] PATCH error:', e);
+        return NextResponse.json({ error: e.message }, { status: 500 });
+    }
+}

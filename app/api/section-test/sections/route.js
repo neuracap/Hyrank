@@ -16,8 +16,12 @@ export async function GET(req) {
 
     const { searchParams } = new URL(req.url);
     const exam_id = searchParams.get('exam_id');
+    const difficulty_level = parseInt(searchParams.get('difficulty_level'), 10);
     if (!exam_id) {
         return NextResponse.json({ error: 'exam_id is required' }, { status: 400 });
+    }
+    if (![1, 2, 3].includes(difficulty_level)) {
+        return NextResponse.json({ error: 'difficulty_level must be 1, 2 or 3' }, { status: 400 });
     }
 
     try {
@@ -58,15 +62,15 @@ export async function GET(req) {
                   )
                   AND qv.question_id NOT IN (
                       SELECT question_id FROM question_usage
-                      WHERE exam_id = $2 AND test_type = 'SECTION'
+                      WHERE test_type = 'SECTION' AND difficulty_level = $3
                   )
                   AND qv.question_id NOT IN (
                       SELECT mtq.question_id FROM mock_test_question mtq
                       JOIN mock_test mt ON mt.mock_test_id = mtq.mock_test_id
-                      WHERE mt.exam_id = $2 AND mt.test_type = 'SECTION'
+                      WHERE mt.test_type = 'SECTION' AND mt.difficulty_level = $3
                         AND mt.status IN ('DRAFT','IN_REVIEW','APPROVED')
                   )
-            `, [allSectionIds, exam_id]);
+            `, [allSectionIds, exam_id, difficulty_level]);
 
             const target = section.num_questions && section.num_questions > 0 ? section.num_questions : 25;
             const pool_size = parseInt(poolRes.rows[0].cnt, 10);

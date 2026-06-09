@@ -28,9 +28,13 @@ export async function POST(req) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { exam_id, max_per_subtype } = await req.json();
+    const { exam_id, max_per_subtype, difficulty_level } = await req.json();
     if (!exam_id) {
         return NextResponse.json({ error: 'exam_id is required' }, { status: 400 });
+    }
+    const level = parseInt(difficulty_level, 10);
+    if (![1, 2, 3].includes(level)) {
+        return NextResponse.json({ error: 'difficulty_level must be 1, 2 or 3' }, { status: 400 });
     }
     const cap = Math.max(1, Math.min(10, parseInt(max_per_subtype, 10) || DEFAULT_MAX_PER_SUBTYPE));
 
@@ -71,17 +75,17 @@ export async function POST(req) {
               )
               AND qv.question_id NOT IN (
                   SELECT question_id FROM question_usage
-                  WHERE exam_id = $2 AND test_type = 'TOPIC'
+                  WHERE test_type = 'TOPIC' AND difficulty_level = $3
               )
               AND qv.question_id NOT IN (
                   SELECT mtq.question_id FROM mock_test_question mtq
                   JOIN mock_test mt ON mt.mock_test_id = mtq.mock_test_id
-                  WHERE mt.exam_id = $2 AND mt.test_type = 'TOPIC'
+                  WHERE mt.test_type = 'TOPIC' AND mt.difficulty_level = $3
                     AND mt.status IN ('DRAFT','IN_REVIEW','APPROVED')
               )
             GROUP BY qv.subtype
             ORDER BY cnt DESC, qv.subtype ASC
-        `, [allSectionIds, exam_id]);
+        `, [allSectionIds, exam_id, level]);
 
         const created = [];
         const skipped = [];
@@ -105,7 +109,7 @@ export async function POST(req) {
             for (let i = 0; i < cap; i++) {
                 try {
                     const r = await generateTopicTest(client, {
-                        exam_id, subtype, user_id: user.id,
+                        exam_id, subtype, difficulty_level: level, user_id: user.id,
                     });
                     mocks.push({
                         mock_test_id: r.mock_test_id,
