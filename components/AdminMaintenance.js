@@ -335,7 +335,7 @@ function RcUploadCard() {
     const [status, setStatus] = useState('idle');
     const [result, setResult] = useState(null);
     const [fileName, setFileName] = useState('');
-    const [skipHindi, setSkipHindi] = useState(false);
+    const [skipHindi, setSkipHindi] = useState(true);
     const [subtype, setSubtype] = useState('comprehension_rc');
     const [sourceTag, setSourceTag] = useState('');
 
@@ -368,7 +368,7 @@ function RcUploadCard() {
         if (!parsed || (validation?.errors?.length || 0) > 0) return;
         const passageCount = validation.passageCount;
         const questionCount = validation.questionCount;
-        if (!confirm(`Insert ${passageCount} passage${passageCount === 1 ? '' : 's'} with ${questionCount} total questions as APPROVED?${skipHindi ? '' : '\n\n(Hindi translation ON — may take 10-30 sec per passage.)'}`)) return;
+        if (!confirm(`Insert ${passageCount} passage${passageCount === 1 ? '' : 's'} with ${questionCount} total questions as APPROVED?${skipHindi ? '\n\n(Hindi translation OFF — HI rows will be empty; backfill later.)' : '\n\n(Hindi translation ON — may take 10-30 sec per passage.)'}`)) return;
         setStatus('running');
         setResult(null);
         try {
@@ -437,7 +437,7 @@ function RcUploadCard() {
                     checked={skipHindi}
                     onChange={(e) => setSkipHindi(e.target.checked)}
                 />
-                Skip Hindi translation (faster — HI rows get empty body; fill via /api/translate later)
+                Skip Hindi translation <span className="text-xs text-gray-500">(default ON for RC — HI rows get empty body; backfill later via /api/translate)</span>
             </label>
 
             <div className="flex items-center gap-3 mb-3">
