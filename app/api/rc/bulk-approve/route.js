@@ -159,13 +159,15 @@ export async function POST(req) {
         const passageId = p.passage_id || null;
         const questions = Array.isArray(p.questions) ? p.questions : [];
 
-        // Validate passage + each member
-        const errs = [];
-        if (!passageText) errs.push('passage_text missing');
-        if (questions.length === 0) errs.push('questions array empty');
+        // Validate passage; bad-question rows are SKIPPED individually,
+        // but the passage still proceeds if at least one valid question remains.
+        const passageErrs = [];
+        if (!passageText) passageErrs.push('passage_text missing');
+        if (questions.length === 0) passageErrs.push('questions array empty');
 
-        // Normalize each question
+        // Normalize each question; collect drops with reasons.
         const normalized = [];
+        const droppedQuestions = [];
         for (let qIdx = 0; qIdx < questions.length; qIdx++) {
             const q = questions[qIdx] || {};
             const stem = String(q.stem || '').trim();
@@ -178,7 +180,11 @@ export async function POST(req) {
             if (!ans) localErrs.push('answer invalid');
             if (!diff) localErrs.push('difficulty invalid');
             if (localErrs.length > 0) {
-                errs.push(`q[${qIdx}]${q.qid ? ` (${q.qid})` : ''}: ${localErrs.join(', ')}`);
+                droppedQuestions.push({
+                    q_index: qIdx,
+                    qid: q.qid || null,
+                    reasons: localErrs,
+                });
                 continue;
             }
             normalized.push({
@@ -192,8 +198,17 @@ export async function POST(req) {
             });
         }
 
-        if (errs.length > 0) {
-            skipped.push({ index: pIdx, passage_id: passageId, reason: `validation: ${errs.join('; ')}` });
+        // Skip whole passage only if passage-level fail OR no valid questions left
+        if (passageErrs.length > 0 || normalized.length === 0) {
+            const reason = passageErrs.length > 0
+                ? `passage: ${passageErrs.join('; ')}`
+                : 'no valid questions left (all dropped during validation)';
+            skipped.push({
+                index: pIdx,
+                passage_id: passageId,
+                reason,
+                dropped_questions: droppedQuestions,
+            });
             continue;
         }
 
@@ -411,6 +426,7 @@ export async function POST(req) {
                 passage_question_id: newPassageQid,
                 member_count: memberRecords.length,
                 members: memberRecords,
+                dropped_questions: droppedQuestions,
             });
         } catch (e) {
             await client.query('ROLLBACK').catch(() => {});
@@ -424,11 +440,16 @@ export async function POST(req) {
         }
     }
 
+    const droppedQuestionTotal =
+        inserted.reduce((s, p) => s + (p.dropped_questions?.length || 0), 0) +
+        skipped.reduce((s, p) => s + (p.dropped_questions?.length || 0), 0);
+
     return NextResponse.json({
         success: true,
         inserted_count: inserted.length,
         skipped_count: skipped.length,
         member_count_total: inserted.reduce((s, p) => s + p.member_count, 0),
+        dropped_question_total: droppedQuestionTotal,
         inserted,
         skipped,
     });

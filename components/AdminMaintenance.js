@@ -282,22 +282,29 @@ function CurrentAffairsUploadCard() {
 }
 
 function validateRcPayload(parsed) {
+    // errors   -> block the submit (whole-file or whole-passage problems)
+    // warnings -> non-blocking; offending questions get dropped server-side
+    //             but the rest of the passage proceeds.
     const errors = [];
+    const warnings = [];
     if (!parsed || typeof parsed !== 'object') {
         errors.push('Root must be an object.');
-        return { errors, passageCount: 0, questionCount: 0, difficultyCounts: {} };
+        return { errors, warnings, passageCount: 0, questionCount: 0, validQuestionCount: 0, droppedQuestionCount: 0, difficultyCounts: {} };
     }
     if (!Array.isArray(parsed.passages) || parsed.passages.length === 0) {
         errors.push('"passages" must be a non-empty array.');
-        return { errors, passageCount: 0, questionCount: 0, difficultyCounts: {} };
+        return { errors, warnings, passageCount: 0, questionCount: 0, validQuestionCount: 0, droppedQuestionCount: 0, difficultyCounts: {} };
     }
     let questionCount = 0;
+    let validQuestionCount = 0;
+    let droppedQuestionCount = 0;
     const difficultyCounts = {};
     // RC convention: easy/medium/hard -> 2/3/4. Difficulty 1 is reserved
     // for very-easy GD/newbie questions (must be passed explicitly as 1).
     const diffMap = { easy: 2, e: 2, medium: 3, m: 3, hard: 4, h: 4, very_hard: 4, 'very hard': 4, vh: 4 };
     parsed.passages.forEach((p, idx) => {
         if (!p || typeof p !== 'object') { errors.push(`passages[${idx}]: not an object.`); return; }
+        let pValid = 0;
         if (!p.passage_text || !String(p.passage_text).trim()) errors.push(`passages[${idx}]: passage_text missing.`);
         if (!Array.isArray(p.questions) || p.questions.length === 0) {
             errors.push(`passages[${idx}]: questions empty.`);
@@ -306,27 +313,39 @@ function validateRcPayload(parsed) {
         p.questions.forEach((q, qi) => {
             questionCount++;
             const tag = `passages[${idx}].questions[${qi}]${q?.qid ? ` (${q.qid})` : ''}`;
-            if (!q || typeof q !== 'object') { errors.push(`${tag}: not an object.`); return; }
-            if (!q.stem || !String(q.stem).trim()) errors.push(`${tag}: stem missing.`);
+            const qIssues = [];
+            if (!q || typeof q !== 'object') { warnings.push(`${tag}: not an object.`); droppedQuestionCount++; return; }
+            if (!q.stem || !String(q.stem).trim()) qIssues.push('stem missing');
             // options can be array or object
             let optsOk = false;
             if (Array.isArray(q.options) && q.options.length >= 4) optsOk = true;
             else if (q.options && typeof q.options === 'object') {
                 optsOk = ['A', 'B', 'C', 'D'].every(k => q.options[k] || q.options[k.toLowerCase()]);
             }
-            if (!optsOk) errors.push(`${tag}: options missing or fewer than 4.`);
+            if (!optsOk) qIssues.push('options missing or fewer than 4');
             const ansMatch = q.answer && String(q.answer).match(/[A-Da-d]/);
-            if (!ansMatch) errors.push(`${tag}: answer invalid.`);
+            if (!ansMatch) qIssues.push('answer invalid');
             // difficulty
             const d = q.difficulty;
             let dn = null;
             if (typeof d === 'number') dn = [1, 2, 3, 4].includes(d) ? d : null;
             else if (typeof d === 'string') dn = diffMap[d.trim().toLowerCase()] || ([1, 2, 3, 4].includes(parseInt(d, 10)) ? parseInt(d, 10) : null);
-            if (!dn) errors.push(`${tag}: difficulty invalid (use easy|medium|hard or 1-4).`);
+            if (!dn) qIssues.push('difficulty invalid (use easy|medium|hard or 1-4)');
             else difficultyCounts[dn] = (difficultyCounts[dn] || 0) + 1;
+            if (qIssues.length > 0) {
+                warnings.push(`${tag}: ${qIssues.join(', ')}`);
+                droppedQuestionCount++;
+            } else {
+                pValid++;
+                validQuestionCount++;
+            }
         });
+        // Passage-level error if every question got dropped
+        if (Array.isArray(p.questions) && p.questions.length > 0 && pValid === 0) {
+            errors.push(`passages[${idx}]: all questions are invalid — passage would be skipped.`);
+        }
     });
-    return { errors, passageCount: parsed.passages.length, questionCount, difficultyCounts };
+    return { errors, warnings, passageCount: parsed.passages.length, questionCount, validQuestionCount, droppedQuestionCount, difficultyCounts };
 }
 
 function RcUploadCard() {
@@ -381,7 +400,7 @@ function RcUploadCard() {
         const baseSubtype = subtype || parsed.subtype || 'comprehension_rc';
         const baseSourceTag = sourceTag || parsed.source_tag || parsed?.meta?.title || null;
         const passages = parsed.passages || [];
-        const totals = { inserted_count: 0, skipped_count: 0, member_count_total: 0, inserted: [], skipped: [] };
+        const totals = { inserted_count: 0, skipped_count: 0, member_count_total: 0, dropped_question_total: 0, inserted: [], skipped: [] };
 
         setProgress({ done: 0, total: passages.length, current: null });
 
@@ -428,6 +447,7 @@ function RcUploadCard() {
                 totals.inserted_count += data.inserted_count || 0;
                 totals.skipped_count += data.skipped_count || 0;
                 totals.member_count_total += data.member_count_total || 0;
+                totals.dropped_question_total += data.dropped_question_total || 0;
                 if (Array.isArray(data.inserted)) {
                     for (const ins of data.inserted) totals.inserted.push({ ...ins, batch_index: i });
                 }
@@ -445,6 +465,7 @@ function RcUploadCard() {
     }
 
     const errCount = validation?.errors?.length || 0;
+    const warnCount = validation?.warnings?.length || 0;
     const canSubmit = !!parsed && errCount === 0 && status !== 'running';
     const diffLabel = (d) => ({ 1: 'very_easy', 2: 'easy', 3: 'medium', 4: 'hard' }[d] || `?(${d})`);
 
@@ -526,10 +547,15 @@ function RcUploadCard() {
                     <div className="flex items-center gap-4 mb-2 flex-wrap">
                         <span className="text-gray-700">
                             <span className="font-semibold">{validation.passageCount}</span> passages,{' '}
-                            <span className="font-semibold">{validation.questionCount}</span> total questions
+                            <span className="font-semibold">{validation.validQuestionCount}</span> valid questions
+                            {validation.droppedQuestionCount > 0 && (
+                                <span className="text-amber-700"> · {validation.droppedQuestionCount} to skip</span>
+                            )}
                         </span>
                         {errCount > 0 ? (
-                            <span className="text-red-700 font-medium">{errCount} validation error{errCount === 1 ? '' : 's'}</span>
+                            <span className="text-red-700 font-medium">{errCount} blocking error{errCount === 1 ? '' : 's'}</span>
+                        ) : warnCount > 0 ? (
+                            <span className="text-amber-700 font-medium">✓ valid (with {warnCount} skip{warnCount === 1 ? '' : 's'})</span>
                         ) : (
                             <span className="text-green-700 font-medium">✓ valid</span>
                         )}
@@ -542,10 +568,21 @@ function RcUploadCard() {
                         </div>
                     )}
                     {errCount > 0 && (
-                        <ul className="text-xs text-red-700 bg-red-50 rounded-md px-3 py-2 max-h-40 overflow-auto list-disc list-inside">
+                        <ul className="text-xs text-red-700 bg-red-50 rounded-md px-3 py-2 max-h-40 overflow-auto list-disc list-inside mb-2">
                             {validation.errors.slice(0, 50).map((e, i) => <li key={i}>{e}</li>)}
                             {validation.errors.length > 50 && <li>… and {validation.errors.length - 50} more</li>}
                         </ul>
+                    )}
+                    {warnCount > 0 && (
+                        <details className="text-xs text-amber-800 bg-amber-50 rounded-md px-3 py-2 max-h-48 overflow-auto">
+                            <summary className="cursor-pointer font-medium">
+                                {warnCount} question{warnCount === 1 ? '' : 's'} will be skipped (rest of the passage proceeds)
+                            </summary>
+                            <ul className="list-disc list-inside mt-1">
+                                {validation.warnings.slice(0, 50).map((w, i) => <li key={i}>{w}</li>)}
+                                {validation.warnings.length > 50 && <li>… and {validation.warnings.length - 50} more</li>}
+                            </ul>
+                        </details>
                     )}
                 </div>
             )}
@@ -578,8 +615,27 @@ function RcUploadCard() {
                     {status === 'done' ? (
                         <div>
                             <div className="font-semibold mb-1">
-                                Inserted: {result.inserted_count} passages ({result.member_count_total} questions) · Skipped: {result.skipped_count}
+                                Inserted: {result.inserted_count} passages ({result.member_count_total} questions)
+                                {' · '}Skipped passages: {result.skipped_count}
+                                {result.dropped_question_total > 0 && (
+                                    <span> · Dropped questions: {result.dropped_question_total}</span>
+                                )}
                             </div>
+                            {result.dropped_question_total > 0 && (
+                                <details className="mt-2">
+                                    <summary className="cursor-pointer">Dropped questions by passage</summary>
+                                    <ul className="text-xs mt-1 font-mono list-disc list-inside max-h-40 overflow-auto">
+                                        {result.inserted
+                                            .filter(p => p.dropped_questions && p.dropped_questions.length > 0)
+                                            .map((p, i) => (
+                                                <li key={`d-${i}`}>
+                                                    {p.passage_id || `#${p.batch_index ?? p.index}`}:{' '}
+                                                    {p.dropped_questions.map(dq => `${dq.qid || `q[${dq.q_index}]`} (${dq.reasons.join(', ')})`).join('; ')}
+                                                </li>
+                                            ))}
+                                    </ul>
+                                </details>
+                            )}
                             {result.skipped_count > 0 && (
                                 <details className="mt-2">
                                     <summary className="cursor-pointer">Skipped passages</summary>
