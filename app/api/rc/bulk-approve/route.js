@@ -60,20 +60,36 @@ function normalizeOptions(raw) {
 }
 
 /**
- * Normalize difficulty: "easy"|"medium"|"hard"|"very_hard" -> 1/2/3/4, ints 1-4 -> same.
+ * Normalize difficulty.
+ *
+ * Word labels (what authors actually type in RC files):
+ *   easy   -> 2
+ *   medium -> 3
+ *   hard   -> 4
+ *
+ * Difficulty 1 is reserved for "very easy" newbie-level questions
+ * (e.g. GD Constable / practice for beginners) — RC questions should
+ * never land at 1 because real RC is never that trivial. To land at 1
+ * the author must pass the explicit integer 1 or string "1".
+ *
+ * Explicit numeric input (1|2|3|4 or "1"|"2"|"3"|"4") is passed through
+ * unchanged so authors can override.
  */
 function normalizeDifficulty(raw) {
-    if (raw == null) return 2;
+    if (raw == null) return 3; // default = medium under the new convention
     if (typeof raw === 'number') {
         const n = Math.round(raw);
         return [1, 2, 3, 4].includes(n) ? n : null;
     }
     const s = String(raw).trim().toLowerCase();
     const map = {
-        'easy': 1, 'e': 1, '1': 1,
-        'medium': 2, 'med': 2, 'm': 2, '2': 2,
-        'hard': 3, 'h': 3, '3': 3,
-        'very_hard': 4, 'very hard': 4, 'vh': 4, '4': 4,
+        // explicit numeric strings pass through
+        '1': 1, '2': 2, '3': 3, '4': 4,
+        // word labels — RC convention (easy/medium/hard -> 2/3/4)
+        'easy': 2, 'e': 2,
+        'medium': 3, 'med': 3, 'm': 3,
+        'hard': 4, 'h': 4,
+        'very_hard': 4, 'very hard': 4, 'vh': 4,
     };
     return map[s] ?? null;
 }

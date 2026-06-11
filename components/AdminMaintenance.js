@@ -293,7 +293,9 @@ function validateRcPayload(parsed) {
     }
     let questionCount = 0;
     const difficultyCounts = {};
-    const diffMap = { easy: 1, e: 1, medium: 2, m: 2, hard: 3, h: 3, very_hard: 4, 'very hard': 4, vh: 4 };
+    // RC convention: easy/medium/hard -> 2/3/4. Difficulty 1 is reserved
+    // for very-easy GD/newbie questions (must be passed explicitly as 1).
+    const diffMap = { easy: 2, e: 2, medium: 3, m: 3, hard: 4, h: 4, very_hard: 4, 'very hard': 4, vh: 4 };
     parsed.passages.forEach((p, idx) => {
         if (!p || typeof p !== 'object') { errors.push(`passages[${idx}]: not an object.`); return; }
         if (!p.passage_text || !String(p.passage_text).trim()) errors.push(`passages[${idx}]: passage_text missing.`);
@@ -395,7 +397,7 @@ function RcUploadCard() {
 
     const errCount = validation?.errors?.length || 0;
     const canSubmit = !!parsed && errCount === 0 && status !== 'running';
-    const diffLabel = (d) => ({ 1: 'easy', 2: 'medium', 3: 'hard', 4: 'very_hard' }[d] || `?(${d})`);
+    const diffLabel = (d) => ({ 1: 'very_easy', 2: 'easy', 3: 'medium', 4: 'hard' }[d] || `?(${d})`);
 
     return (
         <div className="border border-gray-200 rounded-lg p-5 bg-white">
