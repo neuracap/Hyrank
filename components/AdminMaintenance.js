@@ -340,11 +340,13 @@ function RcUploadCard() {
     const [skipHindi, setSkipHindi] = useState(true);
     const [subtype, setSubtype] = useState('comprehension_rc');
     const [sourceTag, setSourceTag] = useState('');
+    const [progress, setProgress] = useState({ done: 0, total: 0, current: null });
 
     function tryParse(text) {
         setRaw(text);
         setResult(null);
         setStatus('idle');
+        setProgress({ done: 0, total: 0, current: null });
         if (!text.trim()) { setParsed(null); setParseError(null); setValidation(null); return; }
         try {
             const obj = JSON.parse(text);
@@ -370,28 +372,75 @@ function RcUploadCard() {
         if (!parsed || (validation?.errors?.length || 0) > 0) return;
         const passageCount = validation.passageCount;
         const questionCount = validation.questionCount;
-        if (!confirm(`Insert ${passageCount} passage${passageCount === 1 ? '' : 's'} with ${questionCount} total questions as APPROVED?${skipHindi ? '\n\n(Hindi translation OFF — HI rows will be empty; backfill later.)' : '\n\n(Hindi translation ON — may take 10-30 sec per passage.)'}`)) return;
+        if (!confirm(`Insert ${passageCount} passage${passageCount === 1 ? '' : 's'} with ${questionCount} total questions as APPROVED?${skipHindi ? '\n\n(Hindi translation OFF — HI rows will be empty; backfill later.)' : '\n\n(Hindi translation ON — may take 10-30 sec per passage.)'}\n\nProcessing one passage per request to avoid timeouts.`)) return;
         setStatus('running');
         setResult(null);
+
+        // Process one passage per request — avoids Railway 60s function timeout
+        // on multi-passage payloads.
+        const baseSubtype = subtype || parsed.subtype || 'comprehension_rc';
+        const baseSourceTag = sourceTag || parsed.source_tag || parsed?.meta?.title || null;
+        const passages = parsed.passages || [];
+        const totals = { inserted_count: 0, skipped_count: 0, member_count_total: 0, inserted: [], skipped: [] };
+
+        setProgress({ done: 0, total: passages.length, current: null });
+
         try {
-            const body = {
-                ...parsed,
-                subtype: subtype || parsed.subtype || 'comprehension_rc',
-                skip_hindi: skipHindi,
-                source_tag: sourceTag || parsed.source_tag || parsed?.meta?.title || null,
-            };
-            const res = await fetch('/api/rc/bulk-approve', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Request failed');
+            for (let i = 0; i < passages.length; i++) {
+                const p = passages[i];
+                setProgress({ done: i, total: passages.length, current: p?.passage_id || `#${i}` });
+                const body = {
+                    ...parsed,
+                    passages: [p],
+                    subtype: baseSubtype,
+                    skip_hindi: skipHindi,
+                    source_tag: baseSourceTag,
+                };
+                const res = await fetch('/api/rc/bulk-approve', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                let data;
+                try {
+                    data = await res.json();
+                } catch {
+                    // Non-JSON response (e.g. Railway "upstream error" 502).
+                    const txt = await res.text().catch(() => '');
+                    totals.skipped_count++;
+                    totals.skipped.push({
+                        index: i,
+                        passage_id: p?.passage_id || null,
+                        reason: `HTTP ${res.status}: ${txt.slice(0, 200) || 'no body'}`,
+                    });
+                    continue;
+                }
+                if (!res.ok) {
+                    totals.skipped_count++;
+                    totals.skipped.push({
+                        index: i,
+                        passage_id: p?.passage_id || null,
+                        reason: data?.error || `HTTP ${res.status}`,
+                    });
+                    continue;
+                }
+                // Merge per-request results into running totals.
+                totals.inserted_count += data.inserted_count || 0;
+                totals.skipped_count += data.skipped_count || 0;
+                totals.member_count_total += data.member_count_total || 0;
+                if (Array.isArray(data.inserted)) {
+                    for (const ins of data.inserted) totals.inserted.push({ ...ins, batch_index: i });
+                }
+                if (Array.isArray(data.skipped)) {
+                    for (const s of data.skipped) totals.skipped.push({ ...s, batch_index: i });
+                }
+            }
+            setProgress({ done: passages.length, total: passages.length, current: null });
             setStatus('done');
-            setResult(data);
+            setResult({ success: true, ...totals });
         } catch (e) {
             setStatus('error');
-            setResult({ error: e.message });
+            setResult({ error: e.message, partial: totals });
         }
     }
 
@@ -501,11 +550,24 @@ function RcUploadCard() {
                 </div>
             )}
 
-            <div className="mt-4 flex justify-end">
+            <div className="mt-4 flex items-center justify-between gap-4">
+                {status === 'running' && progress.total > 0 ? (
+                    <div className="flex-1 flex items-center gap-3">
+                        <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div
+                                className="h-full bg-indigo-500 transition-all"
+                                style={{ width: `${(progress.done / progress.total) * 100}%` }}
+                            />
+                        </div>
+                        <span className="text-xs text-gray-600 whitespace-nowrap">
+                            {progress.done} / {progress.total}{progress.current ? ` (${progress.current})` : ''}
+                        </span>
+                    </div>
+                ) : <div />}
                 <button
                     onClick={submit}
                     disabled={!canSubmit}
-                    className="px-4 py-2 rounded-md text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-4 py-2 rounded-md text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
                 >
                     {status === 'running' ? 'Uploading...' : `Insert as APPROVED${validation?.passageCount ? ` (${validation.passageCount}p / ${validation.questionCount}q)` : ''}`}
                 </button>
@@ -523,14 +585,21 @@ function RcUploadCard() {
                                     <summary className="cursor-pointer">Skipped passages</summary>
                                     <ul className="text-xs mt-1 font-mono list-disc list-inside max-h-40 overflow-auto">
                                         {result.skipped.map((s, i) => (
-                                            <li key={i}>#{s.index}{s.passage_id ? ` (${s.passage_id})` : ''}: {s.reason}</li>
+                                            <li key={i}>#{s.batch_index ?? s.index}{s.passage_id ? ` (${s.passage_id})` : ''}: {s.reason}</li>
                                         ))}
                                     </ul>
                                 </details>
                             )}
                         </div>
                     ) : (
-                        <div className="font-mono">{result.error}</div>
+                        <div>
+                            <div className="font-mono mb-1">{result.error}</div>
+                            {result.partial && (result.partial.inserted_count > 0 || result.partial.skipped_count > 0) && (
+                                <div className="text-xs">
+                                    Partial: {result.partial.inserted_count} inserted, {result.partial.skipped_count} skipped before the error.
+                                </div>
+                            )}
+                        </div>
                     )}
                 </div>
             )}
