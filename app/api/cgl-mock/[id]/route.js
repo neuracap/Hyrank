@@ -42,7 +42,7 @@ export async function GET(req, { params }) {
             SELECT mtq.position, mtq.slot_subtype, mtq.slot_difficulty,
                    mtq.exam_section_id, mtq.group_id, mtq.review_status,
                    qv.question_id, qv.version_no, qv.language,
-                   qv.subtype, qv.difficulty,
+                   qv.subtype, qv.difficulty, qv.group_order,
                    qv.leaf_topic_id, qv.correct_option_label,
                    qv.body_json, qv.solution_status, qv.solution_json,
                    qv.has_image,
@@ -122,6 +122,7 @@ export async function GET(req, { params }) {
                 has_image: r.has_image,
                 options: optsByQid[r.question_id] || {},
                 group_id: r.group_id,
+                group_order: r.group_order,
                 stimulus: stimulus,
             });
         }

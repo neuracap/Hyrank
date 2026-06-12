@@ -44,6 +44,18 @@ function profileMatchesConfig(profile, config) {
 }
 
 /**
+ * Cloze members in the bank ship without a stem — only the passage carries the
+ * actual prompt. The default stem ("Which option best fits blank N?") is what
+ * reviewers want shown in place of the empty stem. N comes from qv.group_order
+ * if the bank set it, otherwise from the question's position within its group
+ * (computed by the caller).
+ */
+function defaultClozeStem(blankNumber) {
+    const n = blankNumber || 1;
+    return `Which option best fits blank ${n}?`;
+}
+
+/**
  * Wrap a stem/option in `$...$` math delimiters so KaTeX renders the LaTeX
  * commands inside (\sin, \csc, \text, \frac, …) instead of showing them as
  * literal text. Markdown/KaTeX requires explicit delimiters; without them
@@ -983,20 +995,38 @@ function MockReview({ mockTestId, onChanged }) {
                             </div>
                             <div className="p-3 space-y-2">
                                 {sec.items.length === 0 && <div className="text-sm text-gray-400 italic">No items.</div>}
-                                {sec.items.map((it, idx) => (
-                                    <QuestionCard
-                                        key={`${it.kind}-${it.position}-${it.question_id || it.placeholder_id}-${idx}`}
-                                        item={it}
-                                        sectionCode={sec.code}
-                                        busyKey={busyKey}
-                                        onSwap={swap}
-                                        onEdit={editQuestion}
-                                        onEditPassage={editPassage}
-                                        onJunk={junkQuestion}
-                                        onOpenBrowse={() => setBrowseTarget({ section_code: sec.code, question_id_to_remove: it.question_id })}
-                                        onOpenFill={() => setFillTarget({ section_code: sec.code, placeholder_id: it.placeholder_id, position: it.position })}
-                                    />
-                                ))}
+                                {sec.items.map((it, idx) => {
+                                    // For cloze members, compute the blank number from group_order if
+                                    // the bank set it; otherwise derive position-within-group from the
+                                    // current section's items (cloze members travel contiguously).
+                                    let blankNumber = null;
+                                    if (it.kind === 'question' && it.stimulus?.group_type === 'CLOZE') {
+                                        if (it.group_order) {
+                                            blankNumber = it.group_order;
+                                        } else if (it.group_id) {
+                                            const peers = sec.items
+                                                .filter(x => x.kind === 'question' && x.group_id === it.group_id)
+                                                .sort((a, b) => (a.position || 0) - (b.position || 0));
+                                            const idxInGroup = peers.findIndex(x => x.question_id === it.question_id);
+                                            blankNumber = idxInGroup >= 0 ? idxInGroup + 1 : null;
+                                        }
+                                    }
+                                    return (
+                                        <QuestionCard
+                                            key={`${it.kind}-${it.position}-${it.question_id || it.placeholder_id}-${idx}`}
+                                            item={it}
+                                            sectionCode={sec.code}
+                                            blankNumber={blankNumber}
+                                            busyKey={busyKey}
+                                            onSwap={swap}
+                                            onEdit={editQuestion}
+                                            onEditPassage={editPassage}
+                                            onJunk={junkQuestion}
+                                            onOpenBrowse={() => setBrowseTarget({ section_code: sec.code, question_id_to_remove: it.question_id })}
+                                            onOpenFill={() => setFillTarget({ section_code: sec.code, placeholder_id: it.placeholder_id, position: it.position })}
+                                        />
+                                    );
+                                })}
                             </div>
                         </div>
                     ))}
@@ -1325,7 +1355,7 @@ function specSubtypesForSection(code) {
     return [...set].sort();
 }
 
-function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onEditPassage, onJunk, onOpenBrowse, onOpenFill }) {
+function QuestionCard({ item, sectionCode, blankNumber, busyKey, onSwap, onEdit, onEditPassage, onJunk, onOpenBrowse, onOpenFill }) {
     const anchor = `q-${sectionCode}-${item.position}`;
     const [editing, setEditing] = useState(false);
     const [draftStem, setDraftStem] = useState('');
@@ -1732,9 +1762,29 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onEditPassag
 
             {!isEditing ? (
                 <>
-                    <div className="p-3 bg-gray-50 border border-gray-100 rounded text-sm">
-                        <Latex>{item.body_json?.text || ''}</Latex>
-                    </div>
+                    {(() => {
+                        // Cloze members in the bank often ship without a stem — only the
+                        // passage carries the actual prompt. If the saved stem is empty
+                        // and this is a cloze member, render a synthetic placeholder so
+                        // the reviewer knows what's expected (and can edit→save to make it
+                        // permanent via the 'Use default stem' button in edit mode).
+                        const savedStem = item.body_json?.text || '';
+                        const isClozeMember = item.stimulus?.group_type === 'CLOZE';
+                        const isStemEmpty = !savedStem || !savedStem.trim();
+                        if (isStemEmpty && isClozeMember && blankNumber) {
+                            return (
+                                <div className="p-3 bg-amber-50 border border-amber-200 border-dashed rounded text-sm">
+                                    <div className="text-[10px] font-bold text-amber-700 uppercase mb-1">Default stem (not saved)</div>
+                                    <Latex>{defaultClozeStem(blankNumber)}</Latex>
+                                </div>
+                            );
+                        }
+                        return (
+                            <div className="p-3 bg-gray-50 border border-gray-100 rounded text-sm">
+                                <Latex>{savedStem}</Latex>
+                            </div>
+                        );
+                    })()}
                     <div className="space-y-1.5 mt-2">
                         {['A', 'B', 'C', 'D'].map(k => (
                             <div key={k} className={`flex gap-2 p-2 rounded border text-sm
@@ -1754,6 +1804,14 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onEditPassag
                         <div className="flex items-baseline justify-between gap-2">
                             <span className="text-[10px] font-bold text-gray-500 uppercase">Stem</span>
                             <div className="flex items-center gap-2">
+                                {item.stimulus?.group_type === 'CLOZE' && blankNumber && (
+                                    <button type="button"
+                                        onClick={() => setDraftStem(defaultClozeStem(blankNumber))}
+                                        title={`Insert the default cloze stem for blank ${blankNumber} ("Which option best fits blank ${blankNumber}?")`}
+                                        className="text-[10px] font-semibold px-2 py-0.5 rounded border border-amber-400 text-amber-700 bg-white hover:bg-amber-50">
+                                        Use default stem
+                                    </button>
+                                )}
                                 <button type="button"
                                     onClick={() => setDraftStem(prev => wrapAsMath(prev))}
                                     title="Wrap LaTeX commands (\sin, \csc, \text{...}, \frac, …) in $…$ so KaTeX renders them as math"
