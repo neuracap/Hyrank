@@ -44,6 +44,36 @@ function profileMatchesConfig(profile, config) {
 }
 
 /**
+ * Wrap a stem/option in `$...$` math delimiters so KaTeX renders the LaTeX
+ * commands inside (\sin, \csc, \text, \frac, …) instead of showing them as
+ * literal text. Markdown/KaTeX requires explicit delimiters; without them
+ * a stem like '\text{If } \sin A + \csc A = 2' renders as raw backslash text.
+ *
+ * Behavior:
+ *  - If the text already contains a `$` (assumed partially or fully wrapped),
+ *    return as-is — don't double-wrap.
+ *  - If the text has no LaTeX command (no `\<word>`), return as-is.
+ *  - Otherwise wrap the whole thing in `$...$`.
+ *  - For multi-line text, each non-empty paragraph is wrapped independently
+ *    so blank lines between items are preserved.
+ */
+function wrapAsMath(text) {
+    if (!text || typeof text !== 'string') return text || '';
+    if (text.includes('$')) return text;
+    if (!/\\[a-zA-Z]+/.test(text)) return text;
+    // Split on blank lines so paragraph breaks survive; wrap each non-empty paragraph.
+    return text
+        .split(/\n\s*\n/)
+        .map(part => {
+            const trimmed = part.trim();
+            if (!trimmed) return part;
+            if (!/\\[a-zA-Z]+/.test(trimmed)) return part;
+            return `$${trimmed}$`;
+        })
+        .join('\n\n');
+}
+
+/**
  * Insert blank-line breaks before labeled items so parajumble / statement-conclusion
  * / numbered-list stems render with one line per item instead of a flat paragraph.
  *
@@ -1725,6 +1755,12 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onEditPassag
                             <span className="text-[10px] font-bold text-gray-500 uppercase">Stem</span>
                             <div className="flex items-center gap-2">
                                 <button type="button"
+                                    onClick={() => setDraftStem(prev => wrapAsMath(prev))}
+                                    title="Wrap LaTeX commands (\sin, \csc, \text{...}, \frac, …) in $…$ so KaTeX renders them as math"
+                                    className="text-[10px] font-semibold px-2 py-0.5 rounded border border-purple-300 text-purple-700 bg-white hover:bg-purple-50">
+                                    Wrap math
+                                </button>
+                                <button type="button"
                                     onClick={() => setDraftStem(prev => splitLabeledLines(prev))}
                                     title="Put each labeled item (A./B./I./II./1./Statements:/Conclusions:) on its own line"
                                     className="text-[10px] font-semibold px-2 py-0.5 rounded border border-blue-300 text-blue-700 bg-white hover:bg-blue-50">
@@ -1741,10 +1777,18 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onEditPassag
                     </div>
                     {['A', 'B', 'C', 'D'].map(k => (
                         <div key={k}>
-                            <div className="flex items-baseline justify-between">
+                            <div className="flex items-baseline justify-between gap-2">
                                 <span className="text-[10px] font-bold text-gray-500 uppercase">Option {k}</span>
-                                <ImageUploadButton target={k} uploadingTo={uploadingTo}
-                                    onPick={(file) => uploadImage(file, k)} />
+                                <div className="flex items-center gap-2">
+                                    <button type="button"
+                                        onClick={() => setDraftOpts(o => ({ ...o, [k]: wrapAsMath(o[k]) }))}
+                                        title="Wrap LaTeX in $…$ so it renders as math"
+                                        className="text-[10px] font-semibold px-2 py-0.5 rounded border border-purple-300 text-purple-700 bg-white hover:bg-purple-50">
+                                        Wrap math
+                                    </button>
+                                    <ImageUploadButton target={k} uploadingTo={uploadingTo}
+                                        onPick={(file) => uploadImage(file, k)} />
+                                </div>
                             </div>
                             <input type="text" value={draftOpts[k]}
                                 onChange={e => setDraftOpts(o => ({ ...o, [k]: e.target.value }))}
