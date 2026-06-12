@@ -68,7 +68,9 @@ const DEFAULT_CONFIG = {
     include_quant_di: true,
     reasoning_img_placeholder_count: 0,
     rc_min_passage_chars: 1400,
+    rc_max_passage_chars: 1200,
     cloze_min_passage_chars: 700,
+    cloze_max_passage_chars: 900,
     ca_freshness_quarters: 4,
 };
 
@@ -261,24 +263,44 @@ function ConfigModal({ config, setConfig, difficultyProfile, setDifficultyProfil
                 <div className="space-y-2 mt-2">
                     <CheckRow label="Include English RC set (5 Q)" checked={config.include_english_rc} onChange={v => upd('include_english_rc', v)} />
                     {config.include_english_rc && (
-                        <div className="pl-6 flex items-center gap-2">
-                            <span className="text-[11px] text-gray-500">RC passage minimum:</span>
-                            <input type="number" min={0} max={5000} step={100}
-                                value={config.rc_min_passage_chars}
-                                onChange={e => upd('rc_min_passage_chars', Math.max(0, Math.min(5000, parseInt(e.target.value || '0', 10) || 0)))}
-                                className="w-20 text-xs border border-gray-300 rounded px-2 py-1" />
-                            <span className="text-[11px] text-gray-400">chars (≈ {Math.round(config.rc_min_passage_chars / 7)} words)</span>
+                        <div className="pl-6 space-y-1">
+                            <div className="flex items-center gap-2">
+                                <span className="text-[11px] text-gray-500 w-32">RC passage min:</span>
+                                <input type="number" min={0} max={5000} step={100}
+                                    value={config.rc_min_passage_chars}
+                                    onChange={e => upd('rc_min_passage_chars', Math.max(0, Math.min(5000, parseInt(e.target.value || '0', 10) || 0)))}
+                                    className="w-20 text-xs border border-gray-300 rounded px-2 py-1" />
+                                <span className="text-[11px] text-gray-400">chars (≈ {Math.round(config.rc_min_passage_chars / 7)} words)</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-[11px] text-gray-500 w-32">RC passage max:</span>
+                                <input type="number" min={100} max={5000} step={100}
+                                    value={config.rc_max_passage_chars}
+                                    onChange={e => upd('rc_max_passage_chars', Math.max(100, Math.min(5000, parseInt(e.target.value || '0', 10) || 0)))}
+                                    className="w-20 text-xs border border-gray-300 rounded px-2 py-1" />
+                                <span className="text-[11px] text-gray-400">chars (≈ {Math.round(config.rc_max_passage_chars / 7)} words)</span>
+                            </div>
                         </div>
                     )}
                     <CheckRow label="Include English Cloze set (5 Q)" checked={config.include_english_cloze} onChange={v => upd('include_english_cloze', v)} />
                     {config.include_english_cloze && (
-                        <div className="pl-6 flex items-center gap-2">
-                            <span className="text-[11px] text-gray-500">Cloze passage minimum:</span>
-                            <input type="number" min={0} max={5000} step={100}
-                                value={config.cloze_min_passage_chars}
-                                onChange={e => upd('cloze_min_passage_chars', Math.max(0, Math.min(5000, parseInt(e.target.value || '0', 10) || 0)))}
-                                className="w-20 text-xs border border-gray-300 rounded px-2 py-1" />
-                            <span className="text-[11px] text-gray-400">chars (≈ {Math.round(config.cloze_min_passage_chars / 7)} words)</span>
+                        <div className="pl-6 space-y-1">
+                            <div className="flex items-center gap-2">
+                                <span className="text-[11px] text-gray-500 w-32">Cloze passage min:</span>
+                                <input type="number" min={0} max={5000} step={100}
+                                    value={config.cloze_min_passage_chars}
+                                    onChange={e => upd('cloze_min_passage_chars', Math.max(0, Math.min(5000, parseInt(e.target.value || '0', 10) || 0)))}
+                                    className="w-20 text-xs border border-gray-300 rounded px-2 py-1" />
+                                <span className="text-[11px] text-gray-400">chars (≈ {Math.round(config.cloze_min_passage_chars / 7)} words)</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-[11px] text-gray-500 w-32">Cloze passage max:</span>
+                                <input type="number" min={100} max={5000} step={100}
+                                    value={config.cloze_max_passage_chars}
+                                    onChange={e => upd('cloze_max_passage_chars', Math.max(100, Math.min(5000, parseInt(e.target.value || '0', 10) || 0)))}
+                                    className="w-20 text-xs border border-gray-300 rounded px-2 py-1" />
+                                <span className="text-[11px] text-gray-400">chars (≈ {Math.round(config.cloze_max_passage_chars / 7)} words)</span>
+                            </div>
                         </div>
                     )}
                     <CheckRow label="Include Quant DI set (~3 Q)" checked={config.include_quant_di} onChange={v => upd('include_quant_di', v)} />

@@ -205,6 +205,109 @@ export async function POST(req) {
             ]);
         }
 
+        // 6) Auto-fill REASONING image placeholders from the PYQ visual-reasoning pool.
+        // Subtype-varied: round-robin across distinct visual subtypes (cube_dice,
+        // mirror_image, paper_folding, figure_series, embedded_figure, …) so the 5
+        // visual slots cover ≥4 subtypes by default. Excludes anything already in
+        // any CGL T1 mock — including questions the picker itself just inserted.
+        const reasoningPlaceholders = (picker.placeholders || [])
+            .filter(p => p.section_code === 'REASONING' && p.placeholder_id?.startsWith('PLACEHOLDER_REAS_IMG'))
+            .sort((a, b) => (a.position || 0) - (b.position || 0));
+
+        const visualFills = [];
+        const visualErrors = [];
+        if (reasoningPlaceholders.length > 0) {
+            const visRes = await client.query(`
+                SELECT qv.question_id, qv.subtype, qv.difficulty
+                FROM question_version qv
+                JOIN exam_section es ON es.section_id = qv.exam_section_id
+                WHERE qv.paper_session_id IS NOT NULL
+                  AND qv.language = 'EN'
+                  AND qv.question_type = 'MCQ'
+                  AND qv.correct_option_label IS NOT NULL
+                  AND COALESCE(qv.status, '') != 'JUNK'
+                  AND qv.has_image = true
+                  AND es.code IN ('REASONING', 'GIR', 'GI')
+                  AND NOT EXISTS (
+                      SELECT 1 FROM mock_test_question mtq2
+                      JOIN mock_test mt ON mt.mock_test_id = mtq2.mock_test_id
+                      WHERE mtq2.question_id = qv.question_id AND mt.exam_id = $1
+                  )
+                ORDER BY qv.subtype, qv.difficulty
+            `, [CGL_T1_EXAM_ID]);
+
+            // Bucket by subtype, then round-robin pick — 1 per subtype per pass.
+            const bySubtype = {};
+            for (const r of visRes.rows) {
+                const k = r.subtype || 'unknown';
+                if (!bySubtype[k]) bySubtype[k] = [];
+                bySubtype[k].push(r);
+            }
+            // Shuffle subtype order so we don't always lead with 'cube_dice'
+            const subtypeOrder = Object.keys(bySubtype).sort(() => 0.5 - ((mockTestId.charCodeAt(0) % 7) / 7));
+            // Shuffle within each subtype too (lightweight, seeded by mockTestId)
+            for (const k of subtypeOrder) {
+                bySubtype[k].sort((a, b) => (a.question_id < b.question_id ? -1 : 1));
+            }
+            const picked = [];
+            const want = reasoningPlaceholders.length;
+            while (picked.length < want) {
+                let progressed = false;
+                for (const s of subtypeOrder) {
+                    if (picked.length >= want) break;
+                    if (bySubtype[s].length === 0) continue;
+                    picked.push(bySubtype[s].shift());
+                    progressed = true;
+                }
+                if (!progressed) break;
+            }
+
+            const filledPositions = new Set();
+            for (let i = 0; i < picked.length; i++) {
+                const ph = reasoningPlaceholders[i];
+                const q = picked[i];
+                await client.query(`
+                    INSERT INTO mock_test_question
+                      (mock_test_id, question_id, exam_section_id, position,
+                       slot_subtype, slot_difficulty, group_id, review_status, created_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, NULL, 'PENDING', NOW())
+                `, [
+                    mockTestId,
+                    q.question_id,
+                    TARGET_SECTION_IDS.REASONING,
+                    ph.position,
+                    'visual_reasoning',
+                    q.difficulty != null ? String(q.difficulty) : null,
+                ]);
+                visualFills.push({
+                    position: ph.position,
+                    placeholder_id: ph.placeholder_id,
+                    question_id: q.question_id,
+                    subtype: q.subtype,
+                    difficulty: q.difficulty,
+                });
+                filledPositions.add(ph.position);
+            }
+
+            // Any placeholders we couldn't fill stay in stats_json.placeholders
+            // so the reviewer can still pick manually.
+            const remaining = picker.placeholders.filter(p => !filledPositions.has(p.position));
+            if (remaining.length !== picker.placeholders.length) {
+                await client.query(`
+                    UPDATE mock_test
+                    SET stats_json = jsonb_set(
+                        jsonb_set(stats_json, '{placeholders}', $1::jsonb, true),
+                        '{auto_filled_visuals}', $2::jsonb, true
+                    ),
+                    updated_at = NOW()
+                    WHERE mock_test_id = $3
+                `, [JSON.stringify(remaining), JSON.stringify(visualFills), mockTestId]);
+            }
+            if (picked.length < want) {
+                visualErrors.push(`Filled ${picked.length}/${want} visual placeholders; PYQ pool exhausted for the rest.`);
+            }
+        }
+
         await client.query('COMMIT');
 
         return NextResponse.json({
@@ -213,7 +316,8 @@ export async function POST(req) {
             name,
             section_stats: picker.section_stats,
             placeholders: picker.placeholders,
-            notes: picker.notes,
+            notes: [...picker.notes, ...visualErrors],
+            auto_filled_visuals: visualFills,
         });
     } catch (e) {
         await client.query('ROLLBACK').catch(() => {});
