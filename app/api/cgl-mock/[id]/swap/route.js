@@ -232,11 +232,34 @@ export async function POST(req, { params }) {
         }
         const effectiveDifficulty = parsedDifficulty != null ? parsedDifficulty : slot.difficulty;
 
-        // Build the LIKE patterns to match the spec_subtype family. Use the
-        // SUBTYPE_PREFIXES map when the spec key is known; fall back to a
-        // single prefix from the old behavior otherwise.
-        const likePatterns = SUBTYPE_PREFIXES[effectiveSpecSubtype]
-            || [`${effectiveSpecSubtype}%`];
+        // Build the LIKE patterns to match the spec_subtype family.
+        // Resolution order (fixes bank-PYQ naming gap, e.g. bank's
+        // 'series_number_series' vs PYQ's bare 'series'):
+        //   1. SUBTYPE_PREFIXES[effectiveSpecSubtype] — direct hit when the slot
+        //      stored a known bucket/canonical name.
+        //   2. Find which bucket the bank slot.subtype belongs to and use ITS
+        //      prefixes — they now cover both bank ('series_%') and PYQ ('series%')
+        //      shapes. This is the path that catches user-plan-mode slots whose
+        //      slot_subtype = the fine-grained bank subtype.
+        //   3. As a last resort, use the first segment of the bank subtype.
+        let likePatterns = SUBTYPE_PREFIXES[effectiveSpecSubtype];
+        if (!likePatterns) {
+            const matchSubtype = slot.subtype || effectiveSpecSubtype;
+            for (const [bucket, prefixes] of Object.entries(SUBTYPE_PREFIXES)) {
+                for (const p of prefixes) {
+                    const stripped = p.endsWith('%') ? p.slice(0, -1) : p;
+                    if (matchSubtype && matchSubtype.startsWith(stripped)) {
+                        likePatterns = prefixes;
+                        break;
+                    }
+                }
+                if (likePatterns) break;
+            }
+        }
+        if (!likePatterns) {
+            const firstSeg = (slot.subtype || effectiveSpecSubtype).split('_')[0];
+            likePatterns = SUBTYPE_PREFIXES[firstSeg] || [`${firstSeg}%`];
+        }
 
         // If a source filter was passed, restrict to it; otherwise allow both bank and PYQ.
         // PYQs additionally require paper_session_id (the marker the search-pyq route uses too).
