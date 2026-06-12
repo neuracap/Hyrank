@@ -1065,18 +1065,14 @@ function MockReview({ mockTestId, onChanged }) {
         return data.sections.reduce((sum, s) => sum + s.items.filter(it => it.kind === 'placeholder').length, 0);
     }, [data]);
 
-    if (loading) return <div className="p-6 text-gray-400">Loading mock…</div>;
-    if (err) return <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded text-sm">{err}</div>;
-    if (!data) return null;
-
-    const { mock, sections } = data;
-    const stats = mock.stats || {};
-    const notes = Array.isArray(stats.notes) ? stats.notes : [];
-
     // Tally junk-flagged questions across the whole mock for the finalization banner.
+    // MUST sit above the conditional early returns below, or React will see a
+    // different hook count between loading/error renders and the loaded render
+    // (React error #310 — "rendered fewer hooks than expected").
     const junkHits = useMemo(() => {
         const hits = [];
-        for (const sec of (sections || [])) {
+        if (!data) return hits;
+        for (const sec of (data.sections || [])) {
             for (const it of (sec.items || [])) {
                 if (it.kind !== 'question') continue;
                 const h = findJunkInItem(it);
@@ -1084,7 +1080,15 @@ function MockReview({ mockTestId, onChanged }) {
             }
         }
         return hits;
-    }, [sections]);
+    }, [data]);
+
+    if (loading) return <div className="p-6 text-gray-400">Loading mock…</div>;
+    if (err) return <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded text-sm">{err}</div>;
+    if (!data) return null;
+
+    const { mock, sections } = data;
+    const stats = mock.stats || {};
+    const notes = Array.isArray(stats.notes) ? stats.notes : [];
 
     const scrollTo = (id) => {
         const el = document.getElementById(id);
