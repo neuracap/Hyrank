@@ -1571,9 +1571,15 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onEditPassag
                     ) : (
                         <div className="relative inline-flex" ref={swapMenuRef}>
                             <button onClick={() => onSwap(item.question_id)} disabled={isSwapping || isEditing}
-                                title="Swap with another question of the same subtype family"
+                                title="Swap with another question of the same subtype family (bank or PYQ)"
                                 className="text-xs font-semibold px-2 py-1 rounded-l border border-red-300 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50">
                                 {isSwapping ? '…' : 'Delete & swap'}
+                            </button>
+                            <button onClick={() => onSwap(item.question_id, { prefer_source: 'pyq' })}
+                                disabled={isSwapping || isEditing}
+                                title="Delete and bring in a same-subtype question from CHSL PYQ"
+                                className="text-xs font-semibold px-2 py-1 border-y border-red-300 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50">
+                                {isSwapping ? '…' : 'Swap (PYQ)'}
                             </button>
                             <button onClick={() => setSwapMenuOpen(o => !o)} disabled={isSwapping || isEditing}
                                 title="Swap with a different subtype or difficulty"

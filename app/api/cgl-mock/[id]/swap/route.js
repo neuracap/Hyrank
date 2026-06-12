@@ -35,6 +35,14 @@ export async function POST(req, { params }) {
     const { question_id, target_spec_subtype, target_difficulty } = body;
     if (!question_id) return NextResponse.json({ error: 'question_id required' }, { status: 400 });
 
+    // Optional source filter: 'bank' | 'pyq' | null. When set, the single-question
+    // swap restricts candidates to that source_type — used by the "Swap (PYQ)"
+    // button to bring in a same-subtype PYQ replacement. Group swap ignores this.
+    const preferSource = body?.prefer_source;
+    if (preferSource != null && !['bank', 'pyq'].includes(preferSource)) {
+        return NextResponse.json({ error: 'prefer_source must be "bank" or "pyq"' }, { status: 400 });
+    }
+
     // Optional cap on passage length for group swaps (RC passages get long; for CGL T1
     // the reviewer often wants a tighter passage). Applied only to grouped slots whose
     // group_type carries a passage (RC, CLOZE). Ignored for single-question swaps.
@@ -230,11 +238,14 @@ export async function POST(req, { params }) {
         const likePatterns = SUBTYPE_PREFIXES[effectiveSpecSubtype]
             || [`${effectiveSpecSubtype}%`];
 
+        // If a source filter was passed, restrict to it; otherwise allow both bank and PYQ.
+        // PYQs additionally require paper_session_id (the marker the search-pyq route uses too).
+        const sourceTypes = preferSource ? [preferSource] : ['bank', 'pyq'];
         const candRes = await client.query(`
             SELECT qv.question_id, qv.subtype, qv.difficulty, qv.leaf_topic_id,
-                   qv.correct_option_label
+                   qv.correct_option_label, qv.source_type
             FROM question_version qv
-            WHERE qv.source_type = 'bank' AND qv.question_type = 'MCQ' AND qv.language = 'EN'
+            WHERE qv.source_type = ANY($4) AND qv.question_type = 'MCQ' AND qv.language = 'EN'
               AND qv.solution_status = 'DONE'
               AND qv.correct_option_label IS NOT NULL
               AND COALESCE(qv.status, '') != 'JUNK'
@@ -243,13 +254,14 @@ export async function POST(req, { params }) {
               AND qv.subtype LIKE ANY($3)
               AND qv.group_id IS NULL
             LIMIT 200
-        `, [bankSectionId, effectiveDifficulty, likePatterns]);
+        `, [bankSectionId, effectiveDifficulty, likePatterns, sourceTypes]);
 
         const fresh = candRes.rows.filter(r => !excluded.has(r.question_id));
         if (fresh.length === 0) {
             await client.query('ROLLBACK');
+            const sourceLabel = preferSource ? ` (source=${preferSource})` : '';
             return NextResponse.json({
-                error: `No fresh replacement available for spec_subtype="${effectiveSpecSubtype}" at difficulty L${effectiveDifficulty}.`,
+                error: `No fresh replacement${sourceLabel} for spec_subtype="${effectiveSpecSubtype}" at difficulty L${effectiveDifficulty}.`,
             }, { status: 409 });
         }
         // Prefer a different bank-subtype than the old one (variation diversity).
@@ -290,6 +302,7 @@ export async function POST(req, { params }) {
             new_subtype: pick.subtype,
             new_difficulty: pick.difficulty,
             new_slot_subtype: newSlotSubtype,
+            new_source: pick.source_type || 'bank',
         });
     } catch (e) {
         await client.query('ROLLBACK').catch(() => {});
