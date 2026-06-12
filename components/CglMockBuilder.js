@@ -44,6 +44,54 @@ function profileMatchesConfig(profile, config) {
 }
 
 /**
+ * Detect promo/junk text that leaks into questions from upstream ingest —
+ * Telegram handles (@Exams_Pdfss), TG channel callouts, subscription pitches
+ * ('Test Prime SUBSCRIPTION'), brand mentions ('Pinnacle', 'Aglasem', 'Testbook'),
+ * question/option ID metadata, etc. Returns the FIRST match (substring) so the
+ * caller can show it in a tooltip; null if clean.
+ */
+const JUNK_PATTERNS = [
+    /@[A-Za-z0-9_]{3,}/,                            // @Handle
+    /\bTG\s*@/i,                                    // TG @something
+    /\bTelegram\s*[:\-@]/i,                         // Telegram:, Telegram@
+    /\b(Pinnacle|Aglasem|Adda247|Testbook|Oliveboard|Gradeup|Byju'?s)\b/i,
+    /Test\s*Prime.*?SUBSCRIPTION/i,
+    /ALL\s*EXAMS.*?SUBSCRIPTION/i,
+    /Personalised\s*Report\s*Card/i,
+    /\d+,?\d*\+?\s*Mock\s*Tests?/i,                 // "5000+ Mock Tests"
+    /\d+\+?\s*Exam\s*Covered/i,
+    /Question\s*ID\s*[:=]\s*\d/i,
+    /Option\s*\d+\s*ID\s*[:=]\s*\d/i,
+    /Chosen\s*Option\s*[:=]\s*\d/i,
+    /\bjoin\s*(?:our|us|the)\s*(?:telegram|channel|group)/i,
+];
+
+function findJunkInText(text) {
+    if (!text || typeof text !== 'string') return null;
+    for (const p of JUNK_PATTERNS) {
+        const m = text.match(p);
+        if (m) return m[0];
+    }
+    return null;
+}
+
+function findJunkInItem(item) {
+    if (!item || item.kind !== 'question') return null;
+    const fields = [
+        ['stem', item.body_json?.text],
+        ['option A', item.options?.A?.text],
+        ['option B', item.options?.B?.text],
+        ['option C', item.options?.C?.text],
+        ['option D', item.options?.D?.text],
+    ];
+    for (const [label, text] of fields) {
+        const hit = findJunkInText(text);
+        if (hit) return { field: label, snippet: hit };
+    }
+    return null;
+}
+
+/**
  * Cloze members in the bank ship without a stem — only the passage carries the
  * actual prompt. The default stem ("Which option best fits blank N?") is what
  * reviewers want shown in place of the empty stem. N comes from qv.group_order
@@ -53,6 +101,57 @@ function profileMatchesConfig(profile, config) {
 function defaultClozeStem(blankNumber) {
     const n = blankNumber || 1;
     return `Which option best fits blank ${n}?`;
+}
+
+/**
+ * Convert a chemistry-looking token (NaCl, H2O, CO2, NH3, H2SO4, …) into the
+ * KaTeX equivalent: `\text{element}_{digit}` pairs joined. Elements without
+ * digit suffixes become bare `\text{…}` blocks.
+ */
+function chemicalToLatex(word) {
+    const parts = word.match(/[A-Z][a-z]?\d*/g);
+    if (!parts) return word;
+    return parts.map(part => {
+        const m = part.match(/^([A-Z][a-z]?)(\d+)?$/);
+        if (!m) return part;
+        const [, elem, num] = m;
+        return num ? `\\text{${elem}}_{${num}}` : `\\text{${elem}}`;
+    }).join('');
+}
+
+/**
+ * Suggest a LaTeX-corrected version of `text`. Today's pass:
+ *  - Chemistry tokens (NaCl, H2O, CO2, NH3, H2SO4, …) get rewritten with
+ *    proper \text{...}_{n} subscripts.
+ *  - The whole expression is wrapped in `$…$` so KaTeX renders it as math.
+ *  - Text that already contains `$` is left alone (don't double-wrap).
+ *  - Text with no recognizable LaTeX-able tokens passes through unchanged.
+ *
+ * Conservative: only touches tokens that start with an uppercase letter and
+ * match the chemistry-formula shape; numbers like "21" or words like "Apple"
+ * are NOT rewritten. Reviewers can still edit manually after suggestion.
+ */
+function suggestLatex(text) {
+    if (!text || typeof text !== 'string') return text || '';
+    if (text.includes('$')) return text;
+
+    let touched = false;
+    // Chemistry token pattern. Two alternatives so both NaCl (multi-element,
+    // no digit) and H2 (single element + digit) are caught.
+    const out = text.replace(
+        /\b([A-Z][a-z]?(?:\d*[A-Z][a-z]?)+\d*|[A-Z][a-z]?\d+)\b/g,
+        (match) => {
+            if (!/^([A-Z][a-z]?\d*)+$/.test(match)) return match;
+            // Need at least one digit OR multiple elements — otherwise a stray
+            // single letter like "I" gets needlessly wrapped.
+            const hasDigit = /\d/.test(match);
+            const elemCount = (match.match(/[A-Z]/g) || []).length;
+            if (!hasDigit && elemCount < 2) return match;
+            touched = true;
+            return chemicalToLatex(match);
+        }
+    );
+    return touched ? `$${out}$` : out;
 }
 
 /**
@@ -914,6 +1013,19 @@ function MockReview({ mockTestId, onChanged }) {
     const stats = mock.stats || {};
     const notes = Array.isArray(stats.notes) ? stats.notes : [];
 
+    // Tally junk-flagged questions across the whole mock for the finalization banner.
+    const junkHits = useMemo(() => {
+        const hits = [];
+        for (const sec of (sections || [])) {
+            for (const it of (sec.items || [])) {
+                if (it.kind !== 'question') continue;
+                const h = findJunkInItem(it);
+                if (h) hits.push({ section: sec.code, position: it.position, field: h.field, snippet: h.snippet });
+            }
+        }
+        return hits;
+    }, [sections]);
+
     const scrollTo = (id) => {
         const el = document.getElementById(id);
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -968,6 +1080,22 @@ function MockReview({ mockTestId, onChanged }) {
                     <ul className="list-disc pl-5">
                         {notes.map((n, i) => <li key={i}>{n}</li>)}
                     </ul>
+                </div>
+            )}
+
+            {junkHits.length > 0 && (
+                <div className="px-5 py-2 bg-red-50 border-b border-red-200 text-xs text-red-800">
+                    <div className="font-bold mb-1">⚠ {junkHits.length} question(s) flagged with junk content — fix before publish</div>
+                    <div className="flex flex-wrap gap-1.5">
+                        {junkHits.map((h, i) => (
+                            <button key={i}
+                                onClick={() => scrollTo(`q-${h.section}-${h.position}`)}
+                                title={`${h.field}: "${h.snippet}"`}
+                                className="px-2 py-0.5 rounded border border-red-400 bg-white text-red-700 hover:bg-red-100 font-mono text-[10px]">
+                                {h.section} #{h.position}
+                            </button>
+                        ))}
+                    </div>
                 </div>
             )}
 
@@ -1328,15 +1456,24 @@ function SectionNav({ section, stats, onJump }) {
                 {section.items.map((it, idx) => {
                     const isPh = it.kind === 'placeholder';
                     const isGroup = it.group_id;
-                    const colors = isPh
+                    // Junk takes precedence over every other color so finalization-stage
+                    // reviewers see flagged questions at a glance from the nav grid.
+                    const junk = isPh ? null : findJunkInItem(it);
+                    const colors = junk
+                        ? 'bg-red-100 text-red-800 border-red-400 hover:bg-red-200 ring-1 ring-red-400'
+                        : isPh
                         ? 'bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200'
                         : isGroup
                             ? 'bg-purple-100 text-purple-800 border-purple-300 hover:bg-purple-200'
                             : 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100';
+                    const title = junk
+                        ? `Q.${it.position} · JUNK in ${junk.field}: "${junk.snippet}"`
+                        : isPh ? it.placeholder_id
+                        : `Q.${it.position} · ${it.subtype}`;
                     return (
                         <button key={idx} onClick={() => onJump(`q-${section.code}-${it.position}`)}
                             className={`text-[10px] font-bold border rounded px-1 py-1.5 ${colors}`}
-                            title={isPh ? it.placeholder_id : `Q.${it.position} · ${it.subtype}`}>
+                            title={title}>
                             {it.position}
                         </button>
                     );
@@ -1538,8 +1675,18 @@ function QuestionCard({ item, sectionCode, blankNumber, busyKey, onSwap, onEdit,
         } catch (e) { setEditErr(e.message); }
     };
 
+    const junk = findJunkInItem(item);
+
     return (
-        <div id={anchor} className="border border-gray-200 rounded p-3 bg-white">
+        <div id={anchor}
+            className={`border-2 rounded p-3 bg-white ${junk ? 'border-red-400 ring-1 ring-red-200' : 'border-gray-200'}`}>
+            {junk && (
+                <div className="mb-2 px-2 py-1 rounded bg-red-50 border border-red-200 text-[11px] text-red-800 flex items-center gap-2">
+                    <span className="font-bold">⚠ Junk content detected</span>
+                    <span className="font-mono">{junk.field}: "{junk.snippet}"</span>
+                    <span className="text-red-600">— edit to remove before publish</span>
+                </div>
+            )}
             <div className="flex items-center gap-2 mb-2 flex-wrap text-xs">
                 <span className="font-bold text-gray-500">#{item.position}</span>
                 {item.group_id && (
@@ -1813,6 +1960,12 @@ function QuestionCard({ item, sectionCode, blankNumber, busyKey, onSwap, onEdit,
                                     </button>
                                 )}
                                 <button type="button"
+                                    onClick={() => setDraftStem(prev => suggestLatex(prev))}
+                                    title="Convert chemistry formulas (NaCl, H2O, CO2, NH3, H2SO4) to KaTeX subscripts and wrap in $…$"
+                                    className="text-[10px] font-semibold px-2 py-0.5 rounded border border-emerald-400 text-emerald-700 bg-white hover:bg-emerald-50">
+                                    Suggest LaTeX
+                                </button>
+                                <button type="button"
                                     onClick={() => setDraftStem(prev => wrapAsMath(prev))}
                                     title="Wrap LaTeX commands (\sin, \csc, \text{...}, \frac, …) in $…$ so KaTeX renders them as math"
                                     className="text-[10px] font-semibold px-2 py-0.5 rounded border border-purple-300 text-purple-700 bg-white hover:bg-purple-50">
@@ -1838,6 +1991,12 @@ function QuestionCard({ item, sectionCode, blankNumber, busyKey, onSwap, onEdit,
                             <div className="flex items-baseline justify-between gap-2">
                                 <span className="text-[10px] font-bold text-gray-500 uppercase">Option {k}</span>
                                 <div className="flex items-center gap-2">
+                                    <button type="button"
+                                        onClick={() => setDraftOpts(o => ({ ...o, [k]: suggestLatex(o[k]) }))}
+                                        title="Convert chemistry formulas (NaCl, H2O, CO2, …) to KaTeX subscripts and wrap in $…$"
+                                        className="text-[10px] font-semibold px-2 py-0.5 rounded border border-emerald-400 text-emerald-700 bg-white hover:bg-emerald-50">
+                                        Suggest LaTeX
+                                    </button>
                                     <button type="button"
                                         onClick={() => setDraftOpts(o => ({ ...o, [k]: wrapAsMath(o[k]) }))}
                                         title="Wrap LaTeX in $…$ so it renders as math"
