@@ -43,6 +43,37 @@ function profileMatchesConfig(profile, config) {
     return true;
 }
 
+/**
+ * Insert blank-line breaks before labeled items so parajumble / statement-conclusion
+ * / numbered-list stems render with one line per item instead of a flat paragraph.
+ *
+ * Markdown collapses single newlines, so we insert `\n\n` (a paragraph break) before
+ * each labeled item. Handles A.-F. / (A)-(F), Roman I-VI / (I)-(VI), digit 1-99 / (1)-(99),
+ * and Statements:/Conclusions: headers. Idempotent: collapses 3+ consecutive
+ * newlines back to 2 so clicking twice produces the same output as once.
+ */
+function splitLabeledLines(text) {
+    if (!text || typeof text !== 'string') return text || '';
+    let out = text;
+    // Headers first (Statements:/Conclusions:/Assumptions:/etc.).
+    out = out.replace(
+        /(\s|^)(Statements?|Conclusions?|Assumptions?|Arguments?|Inferences?|Courses? of Action)(\s*:)/gi,
+        (_, before, kw, colon) => `\n\n${kw}${colon}`
+    );
+    // Roman numerals I–VI, then (I)–(VI). Longest first so 'VI' beats 'V'+'I'.
+    out = out.replace(/(\s|^)(VI|V|IV|III|II|I)\.\s/g, (_, b, r) => `\n\n${r}. `);
+    out = out.replace(/(\s|^)\((VI|V|IV|III|II|I)\)\s/g, (_, b, r) => `\n\n(${r}) `);
+    // Capital letter labels A–F (parajumble: A.–F. and (A)–(F)).
+    out = out.replace(/(\s|^)([A-F])\.\s/g, (_, b, l) => `\n\n${l}. `);
+    out = out.replace(/(\s|^)\(([A-F])\)\s/g, (_, b, l) => `\n\n(${l}) `);
+    // Digit labels 1.-99. (avoid splitting decimals like 2.5).
+    out = out.replace(/(\s|^)(\d{1,2})\.\s(?!\d)/g, (_, b, n) => `\n\n${n}. `);
+    out = out.replace(/(\s|^)\((\d{1,2})\)\s/g, (_, b, n) => `\n\n(${n}) `);
+    // Collapse 3+ newlines to a single paragraph break (keeps idempotency).
+    out = out.replace(/\n{3,}/g, '\n\n');
+    return out.trim();
+}
+
 // Map a bank's full qv.subtype to its spec-slug (e.g. arithmetic_percentage_chain → 'arithmetic')
 function specSlugForSubtype(bankSubtype) {
     if (!bankSubtype) return null;
@@ -1684,10 +1715,18 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onEditPassag
                         ⚠ Editing updates the source question in place — bank questions are shared across other uses.
                     </div>
                     <div>
-                        <div className="flex items-baseline justify-between">
+                        <div className="flex items-baseline justify-between gap-2">
                             <span className="text-[10px] font-bold text-gray-500 uppercase">Stem</span>
-                            <ImageUploadButton target="stem" uploadingTo={uploadingTo}
-                                onPick={(file) => uploadImage(file, 'stem')} />
+                            <div className="flex items-center gap-2">
+                                <button type="button"
+                                    onClick={() => setDraftStem(prev => splitLabeledLines(prev))}
+                                    title="Put each labeled item (A./B./I./II./1./Statements:/Conclusions:) on its own line"
+                                    className="text-[10px] font-semibold px-2 py-0.5 rounded border border-blue-300 text-blue-700 bg-white hover:bg-blue-50">
+                                    Split lines
+                                </button>
+                                <ImageUploadButton target="stem" uploadingTo={uploadingTo}
+                                    onPick={(file) => uploadImage(file, 'stem')} />
+                            </div>
                         </div>
                         <textarea rows={3} value={draftStem}
                             onChange={e => setDraftStem(e.target.value)}
