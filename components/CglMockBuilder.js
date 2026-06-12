@@ -75,6 +75,29 @@ function findJunkInText(text) {
     return null;
 }
 
+/**
+ * Strip every JUNK_PATTERNS match from `text` and tidy the residual whitespace.
+ * Used by the 'Clean junk' button so reviewers don't have to hand-edit every
+ * leaked Telegram handle / promo phrase. Returns the input unchanged if no
+ * patterns matched (idempotent).
+ */
+function cleanJunkInText(text) {
+    if (!text || typeof text !== 'string') return text || '';
+    let out = text;
+    for (const p of JUNK_PATTERNS) {
+        // Force the global flag so every occurrence is removed, not just the first.
+        const flags = p.flags.includes('g') ? p.flags : p.flags + 'g';
+        out = out.replace(new RegExp(p.source, flags), '');
+    }
+    // Tidy: collapse runs of whitespace and orphaned punctuation left by the strip.
+    out = out
+        .replace(/\s+/g, ' ')
+        .replace(/\s+([,;.!?])/g, '$1')
+        .replace(/[ ]+/g, ' ')
+        .trim();
+    return out;
+}
+
 function findJunkInItem(item) {
     if (!item || item.kind !== 'question') return null;
 
@@ -1997,6 +2020,12 @@ function QuestionCard({ item, sectionCode, blankNumber, busyKey, onSwap, onEdit,
                                     </button>
                                 )}
                                 <button type="button"
+                                    onClick={() => setDraftStem(prev => cleanJunkInText(prev))}
+                                    title="Strip leaked Telegram handles, brand promos, and similar junk text"
+                                    className="text-[10px] font-semibold px-2 py-0.5 rounded border border-red-400 text-red-700 bg-white hover:bg-red-50">
+                                    Clean junk
+                                </button>
+                                <button type="button"
                                     onClick={() => setDraftStem(prev => suggestLatex(prev))}
                                     title="Convert chemistry formulas (NaCl, H2O, CO2, NH3, H2SO4) to KaTeX subscripts and wrap in $…$"
                                     className="text-[10px] font-semibold px-2 py-0.5 rounded border border-emerald-400 text-emerald-700 bg-white hover:bg-emerald-50">
@@ -2028,6 +2057,12 @@ function QuestionCard({ item, sectionCode, blankNumber, busyKey, onSwap, onEdit,
                             <div className="flex items-baseline justify-between gap-2">
                                 <span className="text-[10px] font-bold text-gray-500 uppercase">Option {k}</span>
                                 <div className="flex items-center gap-2">
+                                    <button type="button"
+                                        onClick={() => setDraftOpts(o => ({ ...o, [k]: cleanJunkInText(o[k]) }))}
+                                        title="Strip leaked Telegram handles, brand promos, and similar junk text"
+                                        className="text-[10px] font-semibold px-2 py-0.5 rounded border border-red-400 text-red-700 bg-white hover:bg-red-50">
+                                        Clean junk
+                                    </button>
                                     <button type="button"
                                         onClick={() => setDraftOpts(o => ({ ...o, [k]: suggestLatex(o[k]) }))}
                                         title="Convert chemistry formulas (NaCl, H2O, CO2, …) to KaTeX subscripts and wrap in $…$"
