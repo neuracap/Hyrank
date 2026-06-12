@@ -823,6 +823,8 @@ function MockReview({ mockTestId, onChanged }) {
     const [busyKey, setBusyKey] = useState(null);
     const [fillTarget, setFillTarget] = useState(null); // { section_code, placeholder_id, position }
     const [browseTarget, setBrowseTarget] = useState(null); // { section_code, question_id_to_remove }
+    const [editingName, setEditingName] = useState(false);
+    const [draftName, setDraftName] = useState('');
 
     // Quiet-reload tracking: first load shows the loading spinner; subsequent
     // reloads keep the current view (no flash) and restore scroll position.
@@ -902,6 +904,29 @@ function MockReview({ mockTestId, onChanged }) {
                 };
             });
         } catch (e) { setErr(e.message); throw e; }
+        finally { setBusyKey(null); }
+    };
+
+    const renameMock = async () => {
+        const next = draftName.trim();
+        if (!next || next === data?.mock?.name) {
+            setEditingName(false);
+            return;
+        }
+        setBusyKey('rename');
+        setErr('');
+        try {
+            const res = await fetch(`/api/cgl-mock/${mockTestId}/rename`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: next }),
+            });
+            const j = await res.json();
+            if (!res.ok || !j.success) throw new Error(j.error || 'Rename failed');
+            // Patch the loaded data locally — no need to refetch the whole mock.
+            setData(prev => prev ? { ...prev, mock: { ...prev.mock, name: j.name } } : prev);
+            setEditingName(false);
+            onChanged?.();
+        } catch (e) { setErr(e.message); }
         finally { setBusyKey(null); }
     };
 
@@ -1098,9 +1123,32 @@ function MockReview({ mockTestId, onChanged }) {
     return (
         <div className="bg-gray-50 rounded-lg border border-gray-200">
             <div className="px-5 py-3 border-b bg-white flex items-center justify-between rounded-t-lg">
-                <div>
-                    <div className="font-bold text-gray-800">{mock.name}</div>
-                    <div className="text-xs text-gray-500">
+                <div className="flex-1 min-w-0">
+                    {editingName ? (
+                        <input
+                            type="text"
+                            value={draftName}
+                            onChange={e => setDraftName(e.target.value)}
+                            onBlur={renameMock}
+                            onKeyDown={e => {
+                                if (e.key === 'Enter') { e.preventDefault(); renameMock(); }
+                                if (e.key === 'Escape') { setEditingName(false); }
+                            }}
+                            autoFocus
+                            disabled={busyKey === 'rename'}
+                            maxLength={200}
+                            className="font-bold text-gray-800 border border-blue-400 rounded px-2 py-0.5 w-full max-w-md focus:outline-none focus:ring-2 focus:ring-blue-300"
+                        />
+                    ) : (
+                        <button
+                            type="button"
+                            onClick={() => { setDraftName(mock.name || ''); setEditingName(true); }}
+                            title="Click to rename this mock"
+                            className="font-bold text-gray-800 hover:bg-gray-100 rounded px-1 py-0.5 -mx-1 text-left max-w-full truncate">
+                            {mock.name} <span className="text-[10px] text-gray-400 font-normal">✎ edit</span>
+                        </button>
+                    )}
+                    <div className="text-xs text-gray-500 mt-0.5">
                         Status: <span className="font-semibold">{mock.status}</span> · {new Date(mock.created_at).toLocaleString()}
                         {placeholderCount > 0 && <span className="ml-2 text-amber-700 font-semibold">{placeholderCount} placeholder(s) unfilled</span>}
                     </div>
