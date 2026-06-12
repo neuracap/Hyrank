@@ -1334,7 +1334,14 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onEditPassag
     // Upload an image (File blob) and append \includegraphics{path} to the
     // chosen field's draft. `target` is 'stem' or one of 'A'/'B'/'C'/'D'.
     const uploadImage = async (fileBlob, target) => {
-        if (!fileBlob || !item.question_id || !item.version_no) return;
+        if (!fileBlob) {
+            setEditErr('Paste produced no image blob (clipboard had no image data).');
+            return;
+        }
+        if (!item.question_id) {
+            setEditErr('Image upload requires a saved question.');
+            return;
+        }
         setUploadingTo(target);
         setEditErr('');
         try {
@@ -1351,13 +1358,16 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onEditPassag
                     data: dataUrl,
                     question_id: item.question_id,
                     language: item.language || 'EN',
-                    version_no: item.version_no,
+                    // Default to 1 when missing — the upload route already does
+                    // COALESCE($2, 1) so this is just defensive against the
+                    // frontend item lacking version_no on some response shapes.
+                    version_no: item.version_no || 1,
                     role: target === 'stem' ? 'stem' : 'option',
                     option_key: target === 'stem' ? '__STEM__' : target,
                 }),
             });
             const data = await res.json();
-            if (!data.latexPath) throw new Error(data.error || 'Upload failed');
+            if (!res.ok || !data.latexPath) throw new Error(data.error || `Upload failed (HTTP ${res.status})`);
             const tag = `\\includegraphics{${data.latexPath}}`;
             if (target === 'stem') {
                 setDraftStem(prev => (prev ? `${prev}\n\n${tag}` : tag));
@@ -1365,19 +1375,34 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onEditPassag
                 setDraftOpts(prev => ({ ...prev, [target]: prev[target] ? `${prev[target]} ${tag}` : tag }));
             }
         } catch (e) {
-            setEditErr(e.message);
+            setEditErr(`Image upload failed: ${e.message}`);
         } finally {
             setUploadingTo(null);
         }
     };
 
     const handlePaste = (e, target) => {
-        const items = e.clipboardData?.items;
-        if (!items) return;
+        // Browsers expose clipboard images two ways depending on source:
+        //   1. clipboardData.items (most cases — screenshots, copy-from-page)
+        //   2. clipboardData.files (some drag-and-drop into clipboard scenarios)
+        // Check both. If neither yields an image, fall through to default text paste.
+        const dt = e.clipboardData;
+        if (!dt) return;
+        const items = dt.items || [];
         for (const it of items) {
-            if (it.type && it.type.startsWith('image/')) {
+            if (it.kind === 'file' && it.type && it.type.startsWith('image/')) {
                 e.preventDefault();
-                uploadImage(it.getAsFile(), target);
+                const blob = it.getAsFile();
+                if (blob) uploadImage(blob, target);
+                else setEditErr('Paste blocked — clipboard item could not be read as a file.');
+                return;
+            }
+        }
+        const files = dt.files || [];
+        for (const f of files) {
+            if (f.type && f.type.startsWith('image/')) {
+                e.preventDefault();
+                uploadImage(f, target);
                 return;
             }
         }
