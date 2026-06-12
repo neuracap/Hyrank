@@ -183,16 +183,36 @@ export async function POST(req) {
         }
 
         // Suggested defaults: for each spec target, distribute across bank subtypes.
-        // If the bucket has a TOPIC layer (BUCKET_TOPICS[specSlug]), round-robin across
-        // TOPICS first (1 per topic, then 2, ...) up to MAX_PER_TOPIC — same logic as
-        // the picker's auto mode. Without a topic layer, fall back to per-bank-subtype
-        // round-robin (legacy behavior, e.g. REASONING analogy/series/etc. already
-        // map 1:1 to their own spec slugs).
+        // BEFORE distributing, trim targets so their sum matches s.inventory_needed
+        // (= SECTION_TOTAL - placeholders - groupSlots). Without this trim, REASONING
+        // with 3 image placeholders gets a 25-question plan against a 22-question
+        // budget — 3 over, and the picker silently clips them at insert time.
+        // Round-robin trim across non-protected slugs, ranked by pool size descending,
+        // mirrors what pickSection does internally so the plan and the picker agree.
         const suggested_plan = {};
         for (const s of sections) {
             const spec = SECTION_SPEC[s.code] || {};
-            const targets = spec.targets || {};
+            const targets = { ...(spec.targets || {}) };
             suggested_plan[s.code] = {};
+
+            const protectedSet = new Set(spec.protected_targets || []);
+            const slugPool = (slug) => (s.bank_pool_by_spec[slug] || []).reduce((acc, c) => acc + c.pool, 0);
+            const budget = s.inventory_needed ?? SECTION_TOTAL;
+            let overflow = Object.values(targets).reduce((a, b) => a + b, 0) - budget;
+            if (overflow > 0) {
+                const trimOrder = Object.keys(targets)
+                    .filter(k => !protectedSet.has(k))
+                    .sort((a, b) => slugPool(b) - slugPool(a));
+                let i = 0;
+                while (overflow > 0) {
+                    const remaining = trimOrder.filter(k => targets[k] > 0);
+                    if (remaining.length === 0) break;
+                    targets[remaining[i % remaining.length]]--;
+                    overflow--;
+                    i++;
+                }
+            }
+
             for (const [specSlug, want] of Object.entries(targets)) {
                 if (want <= 0) continue;
                 const candidates = (s.bank_pool_by_spec[specSlug] || []).filter(c => c.pool > 0);
