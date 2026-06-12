@@ -24,40 +24,74 @@ export async function GET(req) {
     const { searchParams } = new URL(req.url);
     const kind = searchParams.get('kind') || 'visual_reasoning';
     const q = (searchParams.get('q') || '').trim();
+    const subtype = (searchParams.get('subtype') || '').trim();         // exact bank subtype filter
+    const excludeRaw = (searchParams.get('exclude_subtypes') || '').trim();
+    const excludeSubtypes = excludeRaw ? excludeRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
     const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') || '20', 10)));
     const offset = Math.max(0, parseInt(searchParams.get('offset') || '0', 10));
 
-    const conditions = [
+    // Base conditions apply to both the listing AND the subtype-bucket aggregation.
+    const baseConditions = [
         `qv.paper_session_id IS NOT NULL`,
         `qv.language = 'EN'`,
         `qv.question_type = 'MCQ'`,
         `qv.correct_option_label IS NOT NULL`,
     ];
-    const params = [];
+    const baseParams = [];
 
     if (kind === 'visual_reasoning') {
-        conditions.push(`qv.has_image = true`);
-        conditions.push(`es.code IN ('REASONING','GIR','GI')`);
+        baseConditions.push(`qv.has_image = true`);
+        baseConditions.push(`es.code IN ('REASONING','GIR','GI')`);
     } else {
         return NextResponse.json({ error: `Unknown kind: ${kind}` }, { status: 400 });
     }
+
+    // Exclude anything used in any prior CGL T1 mock (any status).
+    baseParams.push(CGL_T1_EXAM_ID);
+    baseConditions.push(`NOT EXISTS (
+        SELECT 1 FROM mock_test_question mtq
+        JOIN mock_test mt ON mt.mock_test_id = mtq.mock_test_id
+        WHERE mtq.question_id = qv.question_id AND mt.exam_id = $${baseParams.length}
+    )`);
+
+    const baseWhere = baseConditions.join(' AND ');
+
+    // Listing conditions add text/subtype/exclude filters on top of the base.
+    const conditions = [...baseConditions];
+    const params = [...baseParams];
 
     if (q) {
         params.push(`%${q}%`);
         conditions.push(`(qv.body_json->>'text') ILIKE $${params.length}`);
     }
-
-    // Exclude any question used in any CGL T1 mock (any status).
-    params.push(CGL_T1_EXAM_ID);
-    conditions.push(`NOT EXISTS (
-        SELECT 1 FROM mock_test_question mtq
-        JOIN mock_test mt ON mt.mock_test_id = mtq.mock_test_id
-        WHERE mtq.question_id = qv.question_id AND mt.exam_id = $${params.length}
-    )`);
+    if (subtype) {
+        params.push(subtype);
+        conditions.push(`qv.subtype = $${params.length}`);
+    }
+    if (excludeSubtypes.length > 0) {
+        params.push(excludeSubtypes);
+        conditions.push(`(qv.subtype IS NULL OR qv.subtype != ALL($${params.length}::text[]))`);
+    }
 
     const where = conditions.join(' AND ');
     const client = await db.connect();
     try {
+        // Subtype buckets (counts per subtype, ignoring text/subtype/exclude filters
+        // so the UI can see ALL available subtypes — including the already-used ones,
+        // which it can mark distinctly).
+        const bucketRes = await client.query(`
+            SELECT qv.subtype, COUNT(*)::int AS cnt
+            FROM question_version qv
+            JOIN exam_section es ON es.section_id = qv.exam_section_id
+            WHERE ${baseWhere}
+            GROUP BY qv.subtype
+            ORDER BY cnt DESC
+        `, baseParams);
+        const subtype_buckets = bucketRes.rows.map(r => ({
+            subtype: r.subtype || 'unknown',
+            count: r.cnt,
+        }));
+
         const countRes = await client.query(`
             SELECT COUNT(*)::int AS c
             FROM question_version qv
@@ -89,7 +123,7 @@ export async function GET(req) {
             LIMIT $${params.length - 1} OFFSET $${params.length}
         `, params);
 
-        return NextResponse.json({ success: true, total, rows: listRes.rows });
+        return NextResponse.json({ success: true, total, rows: listRes.rows, subtype_buckets });
     } catch (e) {
         console.error('cgl-mock/search-pyq error:', e);
         return NextResponse.json({ error: e.message }, { status: 500 });

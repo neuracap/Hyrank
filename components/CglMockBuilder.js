@@ -925,11 +925,28 @@ function MockReview({ mockTestId, onChanged }) {
                     onPick={(qid) => fillWithExisting(fillTarget.placeholder_id, qid)}
                     onClose={() => setFillTarget(null)}
                     busy={busyKey?.startsWith('fill-')}
+                    // Subtypes already filled into the REASONING section — modal pre-selects a
+                    // subtype not on this list so the 5 image slots cover ≥4 distinct subtypes.
+                    usedSubtypes={(() => {
+                        const reas = sections.find(s => s.code === 'REASONING');
+                        if (!reas) return [];
+                        return [...new Set(reas.items
+                            .filter(it => it.kind === 'question' && it.subtype)
+                            .map(it => it.subtype))];
+                    })()}
                 />
             )}
             {fillTarget && fillTarget.section_code === 'GA' && (
                 <CaEditorModal
                     onSubmit={(payload) => fillWithCa(fillTarget.placeholder_id, payload)}
+                    onClose={() => setFillTarget(null)}
+                    busy={busyKey?.startsWith('fill-')}
+                />
+            )}
+            {fillTarget && (fillTarget.section_code === 'QUANT' || fillTarget.section_code === 'ENGLISH') && (
+                <BankBrowserModal
+                    section={fillTarget.section_code}
+                    onPick={(qid) => fillWithExisting(fillTarget.placeholder_id, qid)}
                     onClose={() => setFillTarget(null)}
                     busy={busyKey?.startsWith('fill-')}
                 />
@@ -1256,19 +1273,40 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onEditPassag
         return () => document.removeEventListener('mousedown', onDocMouseDown);
     }, [swapMenuOpen]);
 
+    // RC group swap menu (cap on passage word count, since RC passages vary widely)
+    const [groupSwapMenuOpen, setGroupSwapMenuOpen] = useState(false);
+    const [maxWords, setMaxWords] = useState('');
+    const groupSwapMenuRef = useRef(null);
+    useEffect(() => {
+        if (!groupSwapMenuOpen) return;
+        const onDocMouseDown = (e) => {
+            if (groupSwapMenuRef.current && !groupSwapMenuRef.current.contains(e.target)) {
+                setGroupSwapMenuOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', onDocMouseDown);
+        return () => document.removeEventListener('mousedown', onDocMouseDown);
+    }, [groupSwapMenuOpen]);
+
     if (item.kind === 'placeholder') {
-        const isReasoning = sectionCode === 'REASONING';
         const isFilling = busyKey === `fill-${item.placeholder_id}`;
+        // Section dictates the fill UX:
+        //   REASONING → PYQ image picker
+        //   GA        → manual CA editor (the only section that authors fresh CA Qs)
+        //   QUANT/ENGLISH → bank-question picker (the slot is empty because we junked
+        //                   a Quant/English Q; user picks a replacement from the bank)
+        const fillUx =
+            sectionCode === 'REASONING' ? { msg: 'Visual reasoning slot — pick a PYQ image question.', btn: 'Pick PYQ image →' }
+          : sectionCode === 'GA'        ? { msg: 'Current-affairs slot — add manually.',                btn: 'Add CA question →' }
+          : { msg: `${sectionCode} slot — pick a question from the bank.`, btn: 'Pick from bank →' };
         return (
             <div id={anchor} className="border-2 border-dashed border-amber-300 bg-amber-50 rounded p-3 flex items-center gap-3">
                 <span className="text-xs font-bold text-amber-700">#{item.position}</span>
                 <span className="px-2 py-0.5 rounded bg-amber-200 text-amber-900 text-xs font-mono">{item.placeholder_id}</span>
-                <span className="text-amber-700 text-xs flex-1">
-                    {isReasoning ? 'Visual reasoning slot — pick a PYQ image question.' : 'Current-affairs slot — add manually.'}
-                </span>
+                <span className="text-amber-700 text-xs flex-1">{fillUx.msg}</span>
                 <button onClick={onOpenFill} disabled={isFilling}
                     className="text-xs font-semibold px-3 py-1.5 rounded bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50">
-                    {isFilling ? '…' : isReasoning ? 'Pick PYQ image →' : 'Add CA question →'}
+                    {isFilling ? '…' : fillUx.btn}
                 </button>
             </div>
         );
@@ -1386,11 +1424,72 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onEditPassag
                         </button>
                     )}
                     {item.group_id ? (
-                        <button onClick={() => onSwap(item.question_id)} disabled={isSwapping || isEditing}
-                            title="Swap with another group of the same type"
-                            className="text-xs font-semibold px-2 py-1 rounded border border-red-300 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50">
-                            {isSwapping ? '…' : 'Swap group'}
-                        </button>
+                        item.stimulus?.group_type === 'RC' ? (
+                            // RC group: split button. Plain "Swap group" picks any RC group;
+                            // the ▾ opens a popover that takes a max word count for the new passage
+                            // (current is shown for reference; ~6 chars per word for the conversion).
+                            <div className="relative inline-flex" ref={groupSwapMenuRef}>
+                                <button onClick={() => onSwap(item.question_id)} disabled={isSwapping || isEditing}
+                                    title="Swap with another RC group of the same size (any passage length)"
+                                    className="text-xs font-semibold px-2 py-1 rounded-l border border-red-300 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50">
+                                    {isSwapping ? '…' : 'Swap group'}
+                                </button>
+                                <button onClick={() => setGroupSwapMenuOpen(o => !o)} disabled={isSwapping || isEditing}
+                                    title="Swap with a shorter/longer RC passage"
+                                    aria-label="Swap RC group with passage length cap"
+                                    className="text-xs font-semibold px-1.5 py-1 rounded-r border border-l-0 border-red-300 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50">
+                                    ▾
+                                </button>
+                                {groupSwapMenuOpen && (() => {
+                                    const passageText = item.stimulus?.passage_body?.text || '';
+                                    const currentChars = passageText.length;
+                                    const currentWords = currentChars > 0
+                                        ? passageText.trim().split(/\s+/).filter(Boolean).length
+                                        : 0;
+                                    return (
+                                        <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-md shadow-lg p-3 w-72">
+                                            <div className="text-[10px] font-bold text-gray-500 uppercase mb-2">Swap RC group with…</div>
+                                            <div className="text-[11px] text-gray-600 mb-2">
+                                                Current passage: <span className="font-mono">{currentWords} words · {currentChars} chars</span>
+                                            </div>
+                                            <label className="block mb-3">
+                                                <span className="text-[10px] font-semibold text-gray-600 uppercase">Max words for new passage</span>
+                                                <input type="number" min="20" max="500" step="10"
+                                                    value={maxWords}
+                                                    onChange={e => setMaxWords(e.target.value)}
+                                                    placeholder="e.g. 150"
+                                                    className="w-full text-xs border border-gray-300 rounded px-2 py-1 mt-0.5 font-mono" />
+                                                <span className="block text-[10px] text-gray-500 mt-1">
+                                                    Picks an RC group whose passage is at or below this. ~6 chars/word.
+                                                </span>
+                                            </label>
+                                            <div className="flex gap-2 justify-end">
+                                                <button onClick={() => { setGroupSwapMenuOpen(false); setMaxWords(''); }}
+                                                    className="text-xs px-2 py-1 border border-gray-300 rounded hover:bg-gray-50">Cancel</button>
+                                                <button onClick={() => {
+                                                    const w = parseInt(maxWords, 10);
+                                                    if (!Number.isInteger(w) || w < 20) return;
+                                                    const maxChars = Math.max(100, Math.min(5000, w * 6));
+                                                    setGroupSwapMenuOpen(false);
+                                                    onSwap(item.question_id, { max_passage_chars: maxChars });
+                                                    setMaxWords('');
+                                                }}
+                                                    disabled={!maxWords || parseInt(maxWords, 10) < 20}
+                                                    className="text-xs px-3 py-1 rounded bg-red-600 text-white font-semibold hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                                                    Swap →
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
+                            </div>
+                        ) : (
+                            <button onClick={() => onSwap(item.question_id)} disabled={isSwapping || isEditing}
+                                title="Swap with another group of the same type"
+                                className="text-xs font-semibold px-2 py-1 rounded border border-red-300 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50">
+                                {isSwapping ? '…' : 'Swap group'}
+                            </button>
+                        )
                     ) : (
                         <div className="relative inline-flex" ref={swapMenuRef}>
                             <button onClick={() => onSwap(item.question_id)} disabled={isSwapping || isEditing}
@@ -1602,15 +1701,18 @@ function QuestionCard({ item, sectionCode, busyKey, onSwap, onEdit, onEditPassag
 
 // ---------- Visual reasoning picker ----------
 
-function PyqPickerModal({ onPick, onClose, busy }) {
+function PyqPickerModal({ onPick, onClose, busy, usedSubtypes = [] }) {
     const [q, setQ] = useState('');
     const [debouncedQ, setDebouncedQ] = useState('');
+    const [subtype, setSubtype] = useState('');           // exact bank subtype filter (chip-driven)
     const [rows, setRows] = useState([]);
     const [total, setTotal] = useState(0);
+    const [buckets, setBuckets] = useState([]);
     const [loading, setLoading] = useState(false);
     const [err, setErr] = useState('');
     const [chosenId, setChosenId] = useState(null);
     const debounceRef = useRef(null);
+    const usedSet = useMemo(() => new Set(usedSubtypes), [usedSubtypes]);
 
     useEffect(() => {
         clearTimeout(debounceRef.current);
@@ -1623,16 +1725,27 @@ function PyqPickerModal({ onPick, onClose, busy }) {
         (async () => {
             setLoading(true); setErr('');
             try {
-                const res = await fetch(`/api/cgl-mock/search-pyq?kind=visual_reasoning&q=${encodeURIComponent(debouncedQ)}&limit=20`);
+                // Default: exclude subtypes already in this mock's REASONING section, so
+                // the 5 image placeholders cover ≥4 distinct visual subtypes by default.
+                // If user explicitly clicks a chip, the `subtype` filter overrides.
+                const usedCsv = subtype ? '' : usedSubtypes.join(',');
+                const params = new URLSearchParams({
+                    kind: 'visual_reasoning',
+                    q: debouncedQ,
+                    limit: '20',
+                });
+                if (subtype) params.set('subtype', subtype);
+                if (usedCsv) params.set('exclude_subtypes', usedCsv);
+                const res = await fetch(`/api/cgl-mock/search-pyq?${params}`);
                 const j = await res.json();
                 if (cancelled) return;
                 if (!res.ok || !j.success) throw new Error(j.error || 'Search failed');
-                setRows(j.rows); setTotal(j.total);
+                setRows(j.rows); setTotal(j.total); setBuckets(j.subtype_buckets || []);
             } catch (e) { if (!cancelled) setErr(e.message); }
             finally { if (!cancelled) setLoading(false); }
         })();
         return () => { cancelled = true; };
-    }, [debouncedQ]);
+    }, [debouncedQ, subtype, usedSubtypes]);
 
     return (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -1648,6 +1761,34 @@ function PyqPickerModal({ onPick, onClose, busy }) {
                     <input type="text" value={q} onChange={e => setQ(e.target.value)}
                         placeholder="Search stems… (e.g. 'cube', 'water image', 'mirror')"
                         className="w-full text-sm border border-gray-300 rounded px-3 py-1.5" />
+                    {/* Subtype chips: click one to filter. "All fresh" excludes subtypes
+                        already used in this mock's REASONING section. Used chips are
+                        marked so the reviewer can spread the 5 picks across subtypes. */}
+                    {buckets.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                            <button onClick={() => setSubtype('')}
+                                className={`text-[11px] px-2 py-0.5 rounded-full border
+                                    ${subtype === '' ? 'border-green-500 bg-green-50 text-green-800 font-bold' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}>
+                                All fresh ({usedSubtypes.length > 0 ? `excl. ${usedSubtypes.length} used` : 'no exclusions'})
+                            </button>
+                            {buckets.map(b => {
+                                const used = usedSet.has(b.subtype);
+                                const active = subtype === b.subtype;
+                                return (
+                                    <button key={b.subtype} onClick={() => setSubtype(active ? '' : b.subtype)}
+                                        className={`text-[11px] px-2 py-0.5 rounded-full border
+                                            ${active
+                                                ? 'border-blue-500 bg-blue-50 text-blue-800 font-bold'
+                                                : used
+                                                ? 'border-amber-300 bg-amber-50 text-amber-700 line-through'
+                                                : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+                                        title={used ? 'Already in this mock' : `${b.count} available`}>
+                                        {b.subtype} ({b.count}){used ? ' · used' : ''}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
                     <div className="text-[11px] text-gray-500 mt-1">
                         {loading ? 'Searching…' : `${total} matches`}
                     </div>
@@ -1661,8 +1802,14 @@ function PyqPickerModal({ onPick, onClose, busy }) {
                         <button key={r.question_id} onClick={() => setChosenId(r.question_id)}
                             className={`block w-full text-left rounded border p-3 text-sm
                                 ${chosenId === r.question_id ? 'border-green-500 ring-2 ring-green-300 bg-green-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
-                            <div className="flex items-center gap-2 text-[11px] text-gray-500 mb-1">
+                            <div className="flex items-center gap-2 text-[11px] text-gray-500 mb-1 flex-wrap">
                                 <span className="font-mono">{r.section_code}</span>
+                                {r.subtype && (
+                                    <span className={`px-1.5 py-0 rounded font-mono
+                                        ${usedSet.has(r.subtype) ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}`}>
+                                        {r.subtype}{usedSet.has(r.subtype) ? ' · used' : ''}
+                                    </span>
+                                )}
                                 <span className="px-1.5 py-0 rounded bg-gray-100">{r.exam_code || '?'}</span>
                                 <span>{r.paper_date ? new Date(r.paper_date).toLocaleDateString() : ''}</span>
                                 <span>L{r.difficulty}</span>

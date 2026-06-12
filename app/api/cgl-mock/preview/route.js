@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import {
     CGL_T1_EXAM_ID, BANK_SECTION_IDS, SECTION_CODES, SECTION_TOTAL,
     SECTION_SPEC, SUBTYPE_PREFIXES, SECTION_DIFFICULTY_BASE,
+    BUCKET_TOPICS, MAX_PER_TOPIC, ALLOWED_SOURCE_TYPES, PYQ_CAP_PER_SECTION,
     normalizeConfig, buildPlaceholderTemplates, placeholderCountsBySection,
 } from '@/lib/cgl-mock-spec';
 
@@ -42,10 +43,14 @@ export async function POST(req) {
         const now = new Date();
         const currentYq = now.getFullYear() * 4 + (Math.floor(now.getMonth() / 3) + 1);
         const caCutoffYq = currentYq - (config.ca_freshness_quarters || 4);
+        // Pool depths now include CHSL bank + CHSL PYQ (source_type IN ('bank','pyq')).
+        // The picker prefers bank within each subtype but allows up to
+        // PYQ_CAP_PER_SECTION (= 10) PYQ picks per section. CA freshness applies only
+        // to bank `ca_*` rows (PYQ ca questions don't carry relevance_year metadata).
         const poolRes = await client.query(`
-            SELECT qv.exam_section_id, qv.subtype, qv.difficulty, COUNT(*)::int AS c
+            SELECT qv.exam_section_id, qv.subtype, qv.difficulty, qv.source_type, COUNT(*)::int AS c
             FROM question_version qv
-            WHERE qv.source_type='bank' AND qv.question_type='MCQ' AND qv.language='EN'
+            WHERE qv.source_type = ANY($4) AND qv.question_type='MCQ' AND qv.language='EN'
               AND qv.solution_status='DONE' AND qv.correct_option_label IS NOT NULL
               AND COALESCE(qv.status,'') != 'JUNK'
               AND COALESCE((qv.meta_json->'resolve'->>'match')::boolean, true) = true
@@ -53,6 +58,7 @@ export async function POST(req) {
               AND qv.difficulty IN (1,2,3,4)
               AND (
                 qv.subtype NOT LIKE 'ca\\_%' ESCAPE '\\'
+                OR qv.source_type != 'bank'
                 OR (
                     (qv.meta_json->>'relevance_year')::int * 4
                     + (qv.meta_json->>'relevance_quarter')::int >= $3
@@ -63,9 +69,9 @@ export async function POST(req) {
                   JOIN mock_test mt ON mt.mock_test_id = mtq.mock_test_id
                   WHERE mtq.question_id = qv.question_id AND mt.exam_id = $2
               )
-            GROUP BY qv.exam_section_id, qv.subtype, qv.difficulty
+            GROUP BY qv.exam_section_id, qv.subtype, qv.difficulty, qv.source_type
             ORDER BY qv.exam_section_id, COUNT(*) DESC
-        `, [bankSectionIds, CGL_T1_EXAM_ID, caCutoffYq]);
+        `, [bankSectionIds, CGL_T1_EXAM_ID, caCutoffYq, ALLOWED_SOURCE_TYPES]);
 
         // 2. Available groups (RC/Cloze/DI) per section + size + passage length
         // Passage text lives on a question_version row referenced by qg.passage_question_id.
@@ -95,14 +101,21 @@ export async function POST(req) {
         const sections = SECTION_CODES.map(code => {
             const bankId = BANK_SECTION_IDS[code];
             const rowsHere = poolRes.rows.filter(r => r.exam_section_id === bankId);
-            // bank_subtype → { pool, L1, L2, L3, L4 }
+            // bank_subtype → { pool, L1, L2, L3, L4, bank_pool, pyq_pool }
+            // pool = total (bank + pyq); bank_pool / pyq_pool break it out for UI.
             const bankPool = new Map();
             for (const row of rowsHere) {
                 if (!bankPool.has(row.subtype)) {
-                    bankPool.set(row.subtype, { bank_subtype: row.subtype, pool: 0, L1: 0, L2: 0, L3: 0, L4: 0 });
+                    bankPool.set(row.subtype, {
+                        bank_subtype: row.subtype,
+                        pool: 0, bank_pool: 0, pyq_pool: 0,
+                        L1: 0, L2: 0, L3: 0, L4: 0,
+                    });
                 }
                 const e = bankPool.get(row.subtype);
                 e.pool += row.c;
+                if (row.source_type === 'bank') e.bank_pool += row.c;
+                else if (row.source_type === 'pyq') e.pyq_pool += row.c;
                 if (row.difficulty === 1) e.L1 += row.c;
                 else if (row.difficulty === 2) e.L2 += row.c;
                 else if (row.difficulty === 3) e.L3 += row.c;
@@ -169,8 +182,12 @@ export async function POST(req) {
             s.inventory_needed = SECTION_TOTAL - s.placeholder_count - groupSlotsClaimed;
         }
 
-        // Suggested defaults: for each spec target, distribute across the
-        // largest-pool variations as 1's (then 2's if still short, etc.).
+        // Suggested defaults: for each spec target, distribute across bank subtypes.
+        // If the bucket has a TOPIC layer (BUCKET_TOPICS[specSlug]), round-robin across
+        // TOPICS first (1 per topic, then 2, ...) up to MAX_PER_TOPIC — same logic as
+        // the picker's auto mode. Without a topic layer, fall back to per-bank-subtype
+        // round-robin (legacy behavior, e.g. REASONING analogy/series/etc. already
+        // map 1:1 to their own spec slugs).
         const suggested_plan = {};
         for (const s of sections) {
             const spec = SECTION_SPEC[s.code] || {};
@@ -180,22 +197,12 @@ export async function POST(req) {
                 if (want <= 0) continue;
                 const candidates = (s.bank_pool_by_spec[specSlug] || []).filter(c => c.pool > 0);
                 if (candidates.length === 0) continue;
-                let remaining = want;
-                let perCandidate = 1;
-                // Round-robin: give each candidate 1, then 2, until quota met or pool exhausted
-                while (remaining > 0) {
-                    let progressed = false;
-                    for (const c of candidates) {
-                        const cur = suggested_plan[s.code][c.bank_subtype] || 0;
-                        if (cur < perCandidate && cur < c.pool) {
-                            suggested_plan[s.code][c.bank_subtype] = cur + 1;
-                            remaining--;
-                            progressed = true;
-                            if (remaining <= 0) break;
-                        }
-                    }
-                    if (!progressed) break;
-                    perCandidate++;
+
+                const topicMap = BUCKET_TOPICS[specSlug];
+                if (topicMap) {
+                    distributeAcrossTopics(suggested_plan[s.code], candidates, want, topicMap, MAX_PER_TOPIC[specSlug] ?? 2);
+                } else {
+                    distributePerBankSubtype(suggested_plan[s.code], candidates, want);
                 }
             }
         }
@@ -207,6 +214,8 @@ export async function POST(req) {
             suggested_plan,
             difficulty_base: SECTION_DIFFICULTY_BASE,
             placeholder_counts: placeholderCountsBySection(config),
+            pyq_cap_per_section: PYQ_CAP_PER_SECTION,
+            source_split: 'bank-preferred, PYQ falls through within each topic; section-wide PYQ cap = 10 (40%)',
         });
     } catch (e) {
         console.error('cgl-mock/preview error:', e);
@@ -225,4 +234,112 @@ function specSlugFor(bankSubtype) {
         }
     }
     return null;
+}
+
+/**
+ * Round-robin per BANK SUBTYPE (legacy; clusters when many bank subtypes share a topic).
+ * Mutates `out` in place: { bank_subtype: count }.
+ */
+function distributePerBankSubtype(out, candidates, want) {
+    let remaining = want;
+    let perCandidate = 1;
+    while (remaining > 0) {
+        let progressed = false;
+        for (const c of candidates) {
+            const cur = out[c.bank_subtype] || 0;
+            if (cur < perCandidate && cur < c.pool) {
+                out[c.bank_subtype] = cur + 1;
+                remaining--;
+                progressed = true;
+                if (remaining <= 0) break;
+            }
+        }
+        if (!progressed) break;
+        perCandidate++;
+    }
+}
+
+/**
+ * Round-robin across TOPICS first (1 per topic, 2 per topic, ... up to maxPerTopic).
+ * Inside each topic, pick the bank subtype with the largest pool that hasn't been
+ * given a count yet, then growing. Mirrors the picker's auto-mode logic.
+ * Mutates `out` in place: { bank_subtype: count }.
+ */
+function distributeAcrossTopics(out, candidates, want, topicMap, maxPerTopic) {
+    const topicNames = Object.keys(topicMap);
+    const byTopic = { _other: [] };
+    for (const t of topicNames) byTopic[t] = [];
+
+    for (const c of candidates) {
+        let placed = false;
+        for (const t of topicNames) {
+            for (const p of topicMap[t]) {
+                const stripped = p.endsWith('%') ? p.slice(0, -1) : p;
+                if (c.bank_subtype.startsWith(stripped)) {
+                    byTopic[t].push(c);
+                    placed = true;
+                    break;
+                }
+            }
+            if (placed) break;
+        }
+        if (!placed) byTopic._other.push(c);
+    }
+    // Largest-pool bank subtype first within each topic (so suggested defaults
+    // surface the deepest variation; user can swap in PlanModal if they want).
+    for (const t of Object.keys(byTopic)) byTopic[t].sort((a, b) => b.pool - a.pool);
+
+    const givenPerTopic = {};
+    for (const t of topicNames) givenPerTopic[t] = 0;
+
+    let remaining = want;
+    for (let pass = 1; pass <= maxPerTopic && remaining > 0; pass++) {
+        for (const t of topicNames) {
+            if (remaining <= 0) break;
+            if (givenPerTopic[t] >= pass) continue;
+            const bucket = byTopic[t];
+            if (!bucket || bucket.length === 0) continue;
+            // Prefer a bank subtype within this topic that hasn't been used yet
+            // (so pass 2 within a topic surfaces a DIFFERENT variation, not the
+            // same bank subtype with count incremented). Fall back to any with
+            // room left if every subtype has already been touched.
+            let chosen = null;
+            for (const c of bucket) {
+                if ((out[c.bank_subtype] || 0) === 0 && c.pool > 0) { chosen = c; break; }
+            }
+            if (!chosen) {
+                for (const c of bucket) {
+                    const cur = out[c.bank_subtype] || 0;
+                    if (cur < c.pool) { chosen = c; break; }
+                }
+            }
+            if (!chosen) continue;
+            out[chosen.bank_subtype] = (out[chosen.bank_subtype] || 0) + 1;
+            givenPerTopic[t]++;
+            remaining--;
+        }
+    }
+    // Still short: drain _other.
+    while (remaining > 0 && byTopic._other.length > 0) {
+        const c = byTopic._other[0];
+        const cur = out[c.bank_subtype] || 0;
+        if (cur < c.pool) {
+            out[c.bank_subtype] = cur + 1;
+            remaining--;
+        } else {
+            byTopic._other.shift();
+        }
+    }
+    // Still short: drain past cap across all topics, largest pool first.
+    if (remaining > 0) {
+        const flat = candidates.slice().sort((a, b) => b.pool - a.pool);
+        for (const c of flat) {
+            if (remaining <= 0) break;
+            const cur = out[c.bank_subtype] || 0;
+            if (cur < c.pool) {
+                out[c.bank_subtype] = cur + 1;
+                remaining--;
+            }
+        }
+    }
 }

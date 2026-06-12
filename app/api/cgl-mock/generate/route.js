@@ -3,7 +3,8 @@ import { getCurrentUser } from '@/lib/auth-edge';
 import { NextResponse } from 'next/server';
 import {
     CGL_T1_EXAM_ID, TARGET_SECTION_IDS, BANK_SECTION_IDS,
-    SECTION_CODES, normalizeConfig, normalizeDifficultyProfile,
+    SECTION_CODES, ALLOWED_SOURCE_TYPES,
+    normalizeConfig, normalizeDifficultyProfile,
 } from '@/lib/cgl-mock-spec';
 import { buildMock } from '@/lib/cgl-mock-picker';
 
@@ -56,14 +57,20 @@ export async function POST(req) {
         const now = new Date();
         const currentYq = now.getFullYear() * 4 + (Math.floor(now.getMonth() / 3) + 1);
         const caCutoffYq = currentYq - (config.ca_freshness_quarters || 4);
+        // Pool: CHSL bank + CHSL PYQ (source_type IN ('bank', 'pyq')). Same quality
+        // bar for both: solution_status='DONE', has answer key, not JUNK. CA freshness
+        // applies only to CHSL-bank ca_* subtypes (PYQ ca rows don't carry
+        // relevance_year/quarter). Group-bound questions remain bank-only — the
+        // picker's group join below stays unchanged.
         const poolRes = await client.query(`
             SELECT qv.question_id, qv.exam_section_id, qv.subtype, qv.difficulty,
                    qv.leaf_topic_id, qv.group_id, qv.group_order,
                    qv.correct_option_label,
                    qv.body_json,
+                   qv.source_type,
                    (qv.meta_json->>'variation') AS variation
             FROM question_version qv
-            WHERE qv.source_type = 'bank'
+            WHERE qv.source_type = ANY($3)
               AND qv.question_type = 'MCQ'
               AND qv.language = 'EN'
               AND qv.solution_status = 'DONE'
@@ -74,12 +81,13 @@ export async function POST(req) {
               AND qv.difficulty IN (1, 2, 3, 4)
               AND (
                 qv.subtype NOT LIKE 'ca\\_%' ESCAPE '\\'
+                OR qv.source_type != 'bank'
                 OR (
                     (qv.meta_json->>'relevance_year')::int * 4
                     + (qv.meta_json->>'relevance_quarter')::int >= $2
                 )
               )
-        `, [bankSectionIds, caCutoffYq]);
+        `, [bankSectionIds, caCutoffYq, ALLOWED_SOURCE_TYPES]);
 
         const byBankSectionId = Object.fromEntries(
             SECTION_CODES.map(c => [BANK_SECTION_IDS[c], c])

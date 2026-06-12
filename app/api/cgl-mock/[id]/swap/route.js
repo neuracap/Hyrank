@@ -3,7 +3,7 @@ import { getCurrentUser } from '@/lib/auth-edge';
 import { NextResponse } from 'next/server';
 import {
     CGL_T1_EXAM_ID, TARGET_SECTION_IDS, BANK_SECTION_IDS, SECTION_CODES,
-    SUBTYPE_PREFIXES,
+    SUBTYPE_PREFIXES, SECTION_SPEC,
 } from '@/lib/cgl-mock-spec';
 
 export const dynamic = 'force-dynamic';
@@ -34,6 +34,18 @@ export async function POST(req, { params }) {
     try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
     const { question_id, target_spec_subtype, target_difficulty } = body;
     if (!question_id) return NextResponse.json({ error: 'question_id required' }, { status: 400 });
+
+    // Optional cap on passage length for group swaps (RC passages get long; for CGL T1
+    // the reviewer often wants a tighter passage). Applied only to grouped slots whose
+    // group_type carries a passage (RC, CLOZE). Ignored for single-question swaps.
+    let maxPassageChars = null;
+    if (body.max_passage_chars != null && body.max_passage_chars !== '') {
+        const n = parseInt(body.max_passage_chars, 10);
+        if (!Number.isInteger(n) || n < 100 || n > 5000) {
+            return NextResponse.json({ error: 'max_passage_chars must be an integer in [100, 5000]' }, { status: 400 });
+        }
+        maxPassageChars = n;
+    }
 
     // Validate optional overrides
     if (target_spec_subtype && !SUBTYPE_PREFIXES[target_spec_subtype]) {
@@ -91,13 +103,26 @@ export async function POST(req, { params }) {
             const oldPositions = oldMembersRes.rows.map(r => r.position).sort((a, b) => a - b);
             const oldSize = oldMembersRes.rows.length;
 
+            const oldGroupType = (await client.query(`SELECT group_type FROM question_group WHERE group_id=$1`, [slot.group_id])).rows[0]?.group_type;
+
+            // Spec target size for this group type (CGL T1: 5 for RC/CLOZE/DI).
+            // Used to (a) shrink existing over-large groups during swap, and
+            // (b) ensure the new group inserts exactly this many even if the
+            // bank group has more bank members.
+            const groupSpec = (SECTION_SPEC[sectionCode]?.groups || [])
+                .find(g => g.group_type === oldGroupType);
+            const targetSize = groupSpec?.expected_size_max || oldSize;
+
             // Find candidate replacement groups (same group_type) with enough members and none excluded.
+            // Joins question_version pv to pull the passage stimulus length, so callers can cap by passage size.
             const grpRes = await client.query(`
                 SELECT qg.group_id, qg.group_type,
                        array_agg(qv.question_id ORDER BY qv.group_order NULLS LAST) AS member_ids,
-                       array_agg(qv.difficulty   ORDER BY qv.group_order NULLS LAST) AS difficulties
+                       array_agg(qv.difficulty   ORDER BY qv.group_order NULLS LAST) AS difficulties,
+                       COALESCE(LENGTH(MAX(pv.body_json->>'text')), 0) AS passage_chars
                 FROM question_group qg
                 JOIN question_version qv ON qv.group_id = qg.group_id AND qv.language='EN' AND qv.question_type='MCQ' AND qv.source_type='bank'
+                LEFT JOIN question_version pv ON pv.question_id = qg.passage_question_id AND pv.language='EN'
                 WHERE qg.exam_section_id = $1
                   AND qv.solution_status = 'DONE'
                   AND qv.correct_option_label IS NOT NULL
@@ -106,24 +131,58 @@ export async function POST(req, { params }) {
                   AND qg.group_id != $2
                 GROUP BY qg.group_id, qg.group_type
                 HAVING qg.group_type = $3
-            `, [bankSectionId, slot.group_id, (await client.query(`SELECT group_type FROM question_group WHERE group_id=$1`, [slot.group_id])).rows[0]?.group_type]);
+            `, [bankSectionId, slot.group_id, oldGroupType]);
 
-            // Filter: no excluded members, size matches old size.
-            const usable = grpRes.rows.filter(g =>
-                g.member_ids.length === oldSize && g.member_ids.every(mid => !excluded.has(mid))
+            // Filter: every member fresh, and group has AT LEAST targetSize members.
+            // Bank groups range from 5 to 17 members (RC pool); the test slot should
+            // carry exactly `targetSize` per the spec — so we'll insert just the
+            // first `targetSize` ordered members. Pre-fix this filter was `=== oldSize`,
+            // which (a) rejected the 232 RC groups with >5 members and (b) preserved
+            // the picker bug that inserted all 14 bank members of an over-large group.
+            let usable = grpRes.rows.filter(g =>
+                g.member_ids.length >= targetSize && g.member_ids.every(mid => !excluded.has(mid))
             );
+
+            // If the caller asked for a passage length cap (RC/CLOZE only carry passages),
+            // filter to groups whose passage fits. Fail loudly rather than silently picking
+            // a too-long passage.
+            if (maxPassageChars != null && (oldGroupType === 'RC' || oldGroupType === 'CLOZE')) {
+                const withinCap = usable.filter(g => (g.passage_chars ?? 0) <= maxPassageChars);
+                if (withinCap.length === 0) {
+                    await client.query('ROLLBACK');
+                    return NextResponse.json({
+                        error: `No fresh ${oldGroupType} group with passage ≤ ${maxPassageChars} chars. Try raising the limit.`,
+                    }, { status: 409 });
+                }
+                usable = withinCap;
+            }
+
             if (usable.length === 0) {
                 await client.query('ROLLBACK');
                 return NextResponse.json({ error: 'No replacement group available with the same size and fresh members.' }, { status: 409 });
             }
             const pick = usable[Math.floor(Math.random() * usable.length)];
 
-            // Delete old, insert new at same positions.
+            // Delete old, insert new at the first `targetSize` positions. If the
+            // existing slot was over-large (picker bug, oldSize > targetSize), this
+            // shrinks it to spec on swap — the extra positions become free slots
+            // in the section (caller can re-generate or accept the shrink).
             await client.query(`
                 DELETE FROM mock_test_question WHERE mock_test_id = $1 AND group_id = $2
             `, [mockTestId, slot.group_id]);
 
-            for (let i = 0; i < pick.member_ids.length; i++) {
+            // If the spec declares a target composition (RC: 3 L2 + 2 L3), extract
+            // that subset from the new group's members instead of taking the first
+            // `targetSize` by order. Greedy: fill each target level up to its want,
+            // pad shortfall preferring L2 → L3 → L1 → L4.
+            const preferComp = groupSpec?.prefer_composition || null;
+            const insertCount = Math.min(pick.member_ids.length, targetSize);
+            const insertMembers = pickMembersByComposition(
+                pick.member_ids, pick.difficulties, insertCount, preferComp,
+            );
+
+            for (let i = 0; i < insertMembers.length; i++) {
+                const m = insertMembers[i];
                 await client.query(`
                     INSERT INTO mock_test_question
                       (mock_test_id, question_id, exam_section_id, position,
@@ -131,11 +190,11 @@ export async function POST(req, { params }) {
                     VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDING', NOW())
                 `, [
                     mockTestId,
-                    pick.member_ids[i],
+                    m.question_id,
                     slot.exam_section_id,
-                    oldPositions[i] ?? null,
+                    oldPositions[i],
                     pick.group_type,
-                    pick.difficulties[i] != null ? String(pick.difficulties[i]) : null,
+                    m.difficulty != null ? String(m.difficulty) : null,
                     pick.group_id,
                 ]);
             }
@@ -145,7 +204,11 @@ export async function POST(req, { params }) {
                 swapped: 'group',
                 old_group_id: slot.group_id,
                 new_group_id: pick.group_id,
-                size: pick.member_ids.length,
+                size: insertCount,
+                old_size: oldSize,
+                bank_group_size: pick.member_ids.length,
+                shrunk: oldSize > insertCount,
+                passage_chars: pick.passage_chars ?? null,
             });
         }
 
@@ -235,4 +298,41 @@ export async function POST(req, { params }) {
     } finally {
         client.release();
     }
+}
+
+/**
+ * Pick `n` members from the (memberIds, difficulties) parallel arrays whose
+ * level mix is as close to `target` as possible. Mirror of
+ * `pickSubsetByTarget` in lib/cgl-mock-picker.js (kept inline to avoid an
+ * import cycle through DB-dependent code). Returns { question_id, difficulty }
+ * in the original order so callers can pair them with `oldPositions`.
+ *
+ * If `target` is null, falls back to first-N (preserving group_order via input).
+ */
+function pickMembersByComposition(memberIds, difficulties, n, target) {
+    const all = memberIds.map((qid, i) => ({
+        idx: i,
+        question_id: qid,
+        difficulty: difficulties[i],
+    }));
+    if (!target) return all.slice(0, n);
+
+    const byLvl = { 1: [], 2: [], 3: [], 4: [] };
+    for (const m of all) {
+        if (byLvl[m.difficulty]) byLvl[m.difficulty].push(m);
+    }
+    const picked = [];
+    for (const lvl of [1, 2, 3, 4]) {
+        const want = target[`L${lvl}`] || 0;
+        if (want <= 0) continue;
+        picked.push(...byLvl[lvl].splice(0, want));
+    }
+    if (picked.length < n) {
+        for (const lvl of [2, 3, 1, 4]) {     // pad: L2 → L3 → L1 → L4
+            while (picked.length < n && byLvl[lvl].length > 0) {
+                picked.push(byLvl[lvl].shift());
+            }
+        }
+    }
+    return picked.slice(0, n).sort((a, b) => a.idx - b.idx);
 }

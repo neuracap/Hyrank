@@ -170,6 +170,17 @@ export async function POST(req, { params }) {
     }
 }
 
+// Per-section placeholder prefix. REASONING keeps its legacy IMG name; GA's
+// legacy CA name is kept ONLY for GA (it implies a CA editor modal). For QUANT
+// and ENGLISH we used to misroute through GA_CA, which made the UI offer
+// "Add CA question" for a junked Quant DI slot — nonsense.
+const PH_PREFIX_BY_SECTION = {
+    REASONING: 'PLACEHOLDER_REAS_IMG_JUNK',
+    GA:        'PLACEHOLDER_GA_CA_JUNK',
+    QUANT:     'PLACEHOLDER_QUANT_JUNK',
+    ENGLISH:   'PLACEHOLDER_ENG_JUNK',
+};
+
 async function appendPlaceholders(client, mockTestId, sectionCode, positions) {
     if (positions.length === 0) return;
     const mtRes = await client.query(
@@ -178,7 +189,7 @@ async function appendPlaceholders(client, mockTestId, sectionCode, positions) {
     );
     const stats = mtRes.rows[0]?.stats_json || {};
     const existing = Array.isArray(stats.placeholders) ? stats.placeholders : [];
-    const phPrefix = sectionCode === 'REASONING' ? 'PLACEHOLDER_REAS_IMG_JUNK' : 'PLACEHOLDER_GA_CA_JUNK';
+    const phPrefix = PH_PREFIX_BY_SECTION[sectionCode] || `PLACEHOLDER_${sectionCode}_JUNK`;
     let counter = existing
         .filter(p => p.placeholder_id?.startsWith(phPrefix))
         .map(p => parseInt((p.placeholder_id.match(/_(\d+)$/) || [])[1] || '0', 10))
