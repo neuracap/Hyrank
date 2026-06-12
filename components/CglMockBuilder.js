@@ -77,6 +77,8 @@ function findJunkInText(text) {
 
 function findJunkInItem(item) {
     if (!item || item.kind !== 'question') return null;
+
+    // 1) Promo / spam / telegram-handle leakage in any field.
     const fields = [
         ['stem', item.body_json?.text],
         ['option A', item.options?.A?.text],
@@ -88,6 +90,41 @@ function findJunkInItem(item) {
         const hit = findJunkInText(text);
         if (hit) return { field: label, snippet: hit };
     }
+
+    // 2) Merged-options leakage: an option's text contains a parenthesized
+    //    label for a DIFFERENT option — e.g. option A says
+    //    "NH3 (B) Na2CO3 (c) NaCl (d) NH3", which means OCR/extraction
+    //    collapsed all four options into one and split them wrong. Bracket
+    //    forms cover (A), (a), [B], etc.
+    const labels = ['A', 'B', 'C', 'D'];
+    for (const k of labels) {
+        const text = item.options?.[k]?.text || '';
+        if (!text) continue;
+        for (const other of labels) {
+            if (other === k) continue;
+            const re = new RegExp(`[\\(\\[]${other}[\\)\\]]`, 'i');
+            const m = text.match(re);
+            if (m) return { field: `option ${k}`, snippet: `contains "${m[0]}" — looks like option ${other.toUpperCase()} leaked in` };
+        }
+    }
+
+    // 3) Duplicate options: two option fields normalised to the same text.
+    //    Trim, collapse whitespace, lowercase before comparing so cosmetic
+    //    differences ('Only b and c' vs '  Only B and C ') don't hide a dup.
+    const norm = (s) => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const normalised = labels.map(k => ({ label: k, text: norm(item.options?.[k]?.text) }));
+    for (let i = 0; i < normalised.length; i++) {
+        if (!normalised[i].text || normalised[i].text.length < 2) continue;
+        for (let j = i + 1; j < normalised.length; j++) {
+            if (normalised[i].text === normalised[j].text) {
+                return {
+                    field: `options ${normalised[i].label} & ${normalised[j].label}`,
+                    snippet: `duplicate text "${normalised[i].text.slice(0, 40)}${normalised[i].text.length > 40 ? '…' : ''}"`,
+                };
+            }
+        }
+    }
+
     return null;
 }
 
