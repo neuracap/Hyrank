@@ -1881,11 +1881,70 @@ function QuestionCard({ item, sectionCode, blankNumber, busyKey, onSwap, onEdit,
                                 })()}
                             </div>
                         ) : (
-                            <button onClick={() => onSwap(item.question_id)} disabled={isSwapping || isEditing}
-                                title="Swap with another group of the same type"
-                                className="text-xs font-semibold px-2 py-1 rounded border border-red-300 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50">
-                                {isSwapping ? '…' : 'Swap group'}
-                            </button>
+                            // Non-RC group (DI / Cloze): "Swap group" replaces the whole group;
+                            // the ▾ opens the same subtype-override menu used for standalones so
+                            // the reviewer can pop ONE member of (say) a 7-Q DI set and replace
+                            // it with a non-DI question. Backend treats target_spec_subtype as a
+                            // single-question swap and inserts the new question with group_id=NULL.
+                            <div className="relative inline-flex" ref={swapMenuRef}>
+                                <button onClick={() => onSwap(item.question_id)} disabled={isSwapping || isEditing}
+                                    title="Swap with another group of the same type (replaces ALL members)"
+                                    className="text-xs font-semibold px-2 py-1 rounded-l border border-red-300 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50">
+                                    {isSwapping ? '…' : 'Swap group'}
+                                </button>
+                                <button onClick={() => setSwapMenuOpen(o => !o)} disabled={isSwapping || isEditing}
+                                    title="Replace THIS member with a question of a different subtype (rest of the group stays)"
+                                    aria-label="Replace one member"
+                                    className="text-xs font-semibold px-1.5 py-1 rounded-r border border-l-0 border-red-300 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50">
+                                    ▾
+                                </button>
+                                {swapMenuOpen && (
+                                    <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-md shadow-lg p-3 w-80">
+                                        <div className="text-[10px] font-bold text-gray-500 uppercase mb-1">Replace this member with…</div>
+                                        <div className="text-[10px] text-gray-500 mb-2">
+                                            Removes #{item.position} from the {item.stimulus?.group_type || 'group'} and inserts a standalone of the chosen subtype. The rest of the group stays.
+                                        </div>
+                                        <label className="block mb-2">
+                                            <span className="text-[10px] font-semibold text-gray-600 uppercase">Spec subtype</span>
+                                            <select value={overrideSubtype}
+                                                onChange={e => setOverrideSubtype(e.target.value)}
+                                                className="w-full text-xs border border-gray-300 rounded px-2 py-1 mt-0.5">
+                                                <option value="">— pick a subtype —</option>
+                                                {specSubtypesForSection(sectionCode).map(s => (
+                                                    <option key={s} value={s}>{s}</option>
+                                                ))}
+                                            </select>
+                                        </label>
+                                        <label className="block mb-3">
+                                            <span className="text-[10px] font-semibold text-gray-600 uppercase">Difficulty</span>
+                                            <select value={overrideDifficulty}
+                                                onChange={e => setOverrideDifficulty(e.target.value)}
+                                                className="w-full text-xs border border-gray-300 rounded px-2 py-1 mt-0.5">
+                                                <option value="">(same level — L{item.difficulty})</option>
+                                                {DIFFICULTY_LEVELS.map(l => (
+                                                    <option key={l} value={l}>L{l}</option>
+                                                ))}
+                                            </select>
+                                        </label>
+                                        <div className="flex gap-2 justify-end">
+                                            <button onClick={() => { setSwapMenuOpen(false); setOverrideSubtype(''); setOverrideDifficulty(''); }}
+                                                className="text-xs px-2 py-1 border border-gray-300 rounded hover:bg-gray-50">Cancel</button>
+                                            <button onClick={() => {
+                                                const opts = {};
+                                                if (overrideSubtype) opts.target_spec_subtype = overrideSubtype;
+                                                if (overrideDifficulty) opts.target_difficulty = parseInt(overrideDifficulty, 10);
+                                                setSwapMenuOpen(false);
+                                                onSwap(item.question_id, opts);
+                                                setOverrideSubtype(''); setOverrideDifficulty('');
+                                            }}
+                                                disabled={!overrideSubtype}
+                                                className="text-xs px-3 py-1 rounded bg-red-600 text-white font-semibold hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                                                Replace →
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         )
                     ) : (
                         <div className="relative inline-flex" ref={swapMenuRef}>

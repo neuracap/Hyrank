@@ -101,7 +101,14 @@ export async function POST(req, { params }) {
         const excluded = new Set(exclRes.rows.map(r => r.question_id));
 
         // -------- GROUP SWAP --------
-        if (slot.group_id) {
+        // When the caller asks for a different subtype on a grouped question
+        // (target_spec_subtype set), skip the whole-group-swap branch and fall
+        // through to the single-question swap below. The new question is
+        // inserted with group_id = NULL — it becomes a standalone in the
+        // section while the other group members (e.g. remaining 4 DI questions
+        // on the same passage) stay put. Used to let reviewers swap out 2 of
+        // 7 DI questions for non-DI applied/arithmetic questions etc.
+        if (slot.group_id && !target_spec_subtype) {
             // Remove all members of this group from the mock.
             const oldMembersRes = await client.query(`
                 SELECT question_id, position FROM mock_test_question
