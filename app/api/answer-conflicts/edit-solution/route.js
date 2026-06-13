@@ -18,6 +18,11 @@ export const dynamic = 'force-dynamic';
  *   final_answer_text  (string)
  *   correct_option     ('A'|'B'|'C'|'D')
  *   display_sections   (array of { key, content }) — replaces the array wholesale
+ *   clear_figure       (boolean) — unsets answer_outcome.figure_url; used when
+ *                                  the solver-embedded figure is wrong/junk and
+ *                                  the reviewer wants to drop it
+ *   figure_url         (string)  — replaces answer_outcome.figure_url with this
+ *                                  value (e.g. after uploading a corrected image)
  */
 const VALID_LABELS = ['A', 'B', 'C', 'D'];
 
@@ -79,8 +84,20 @@ export async function POST(req) {
             aoChanges.correct_option = body.correct_option;
             changed.push('answer_outcome.correct_option');
         }
-        if (Object.keys(aoChanges).length > 0) {
-            next.answer_outcome = { ...(current.answer_outcome || {}), ...aoChanges };
+        // Figure handling: clear takes precedence over replace. Both flow through
+        // answer_outcome and get merged with the rest of the partial update.
+        let clearFigure = false;
+        if (body.clear_figure === true) {
+            clearFigure = true;
+            changed.push('answer_outcome.figure_url:cleared');
+        } else if (typeof body.figure_url === 'string' && body.figure_url.trim()) {
+            aoChanges.figure_url = body.figure_url.trim();
+            changed.push('answer_outcome.figure_url');
+        }
+        if (Object.keys(aoChanges).length > 0 || clearFigure) {
+            const merged = { ...(current.answer_outcome || {}), ...aoChanges };
+            if (clearFigure) delete merged.figure_url;
+            next.answer_outcome = merged;
         }
 
         if (body.display_sections) {
