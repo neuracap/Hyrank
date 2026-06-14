@@ -20,6 +20,8 @@ function MocksList({ examId, onOpenMock }) {
     const [editName, setEditName] = useState('');
     const [saving, setSaving] = useState(false);
     const [renameError, setRenameError] = useState(null);
+    const [typeFilter, setTypeFilter] = useState('ALL'); // ALL | FULL_MOCK | SECTION | TOPIC
+    const [statusFilter, setStatusFilter] = useState('ALL'); // ALL | DRAFT | IN_REVIEW | APPROVED | PUBLISHED | ARCHIVED
 
     const reload = () => {
         if (!examId) return;
@@ -82,9 +84,87 @@ function MocksList({ examId, onOpenMock }) {
         ARCHIVED: 'bg-red-100 text-red-700',
     };
 
+    const TYPE_OPTIONS = [
+        { key: 'ALL',       label: 'All' },
+        { key: 'FULL_MOCK', label: 'Full Mock' },
+        { key: 'SECTION',   label: 'Section' },
+        { key: 'TOPIC',     label: 'Topic' },
+    ];
+    const STATUS_OPTIONS = [
+        { key: 'ALL',       label: 'All' },
+        { key: 'DRAFT',     label: 'Draft' },
+        { key: 'IN_REVIEW', label: 'In Review' },
+        { key: 'APPROVED',  label: 'Approved' },
+        { key: 'PUBLISHED', label: 'Published' },
+        { key: 'ARCHIVED',  label: 'Archived' },
+    ];
+
+    // Apply type filter first, then derive status counts from that pool
+    const afterType = typeFilter === 'ALL'
+        ? mocks
+        : mocks.filter(m => (m.test_type || 'FULL_MOCK') === typeFilter);
+
+    const typeCounts = mocks.reduce((acc, m) => {
+        const t = m.test_type || 'FULL_MOCK';
+        acc[t] = (acc[t] || 0) + 1;
+        return acc;
+    }, {});
+    const statusCounts = afterType.reduce((acc, m) => {
+        const s = m.status || 'DRAFT';
+        acc[s] = (acc[s] || 0) + 1;
+        return acc;
+    }, {});
+
+    const visibleMocks = statusFilter === 'ALL'
+        ? afterType
+        : afterType.filter(m => (m.status || 'DRAFT') === statusFilter);
+
     return (
         <div className="space-y-3">
-            {mocks.map(m => (
+            <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-gray-500 mr-1 w-12">Type:</span>
+                {TYPE_OPTIONS.map(opt => {
+                    const count = opt.key === 'ALL' ? mocks.length : (typeCounts[opt.key] || 0);
+                    const active = typeFilter === opt.key;
+                    return (
+                        <button
+                            key={opt.key}
+                            onClick={() => setTypeFilter(opt.key)}
+                            className={`text-xs font-semibold px-3 py-1 rounded-full border transition-colors ${
+                                active
+                                    ? 'bg-blue-600 text-white border-blue-600'
+                                    : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
+                            }`}
+                        >
+                            {opt.label} <span className={`ml-1 ${active ? 'text-blue-100' : 'text-gray-400'}`}>{count}</span>
+                        </button>
+                    );
+                })}
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-gray-500 mr-1 w-12">Status:</span>
+                {STATUS_OPTIONS.map(opt => {
+                    const count = opt.key === 'ALL' ? afterType.length : (statusCounts[opt.key] || 0);
+                    const active = statusFilter === opt.key;
+                    return (
+                        <button
+                            key={opt.key}
+                            onClick={() => setStatusFilter(opt.key)}
+                            className={`text-xs font-semibold px-3 py-1 rounded-full border transition-colors ${
+                                active
+                                    ? 'bg-blue-600 text-white border-blue-600'
+                                    : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
+                            }`}
+                        >
+                            {opt.label} <span className={`ml-1 ${active ? 'text-blue-100' : 'text-gray-400'}`}>{count}</span>
+                        </button>
+                    );
+                })}
+            </div>
+            {visibleMocks.length === 0 && (
+                <div className="text-sm text-gray-400 py-6 text-center">No mocks match this filter.</div>
+            )}
+            {visibleMocks.map(m => (
                 <div key={m.mock_test_id} className="border border-gray-200 rounded-lg p-4 hover:border-blue-300 transition-colors">
                     <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0">
