@@ -1,12 +1,7 @@
 import db from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-edge';
 import { NextResponse } from 'next/server';
-import {
-    CGL_T1_EXAM_ID, BANK_SECTION_IDS, SECTION_CODES, SECTION_TOTAL,
-    SECTION_SPEC, SUBTYPE_PREFIXES, SECTION_DIFFICULTY_BASE,
-    BUCKET_TOPICS, MAX_PER_TOPIC, ALLOWED_SOURCE_TYPES, PYQ_CAP_PER_SECTION,
-    normalizeConfig, buildPlaceholderTemplates, placeholderCountsBySection,
-} from '@/lib/cgl-mock-spec';
+import { getSpec } from '@/lib/mock-spec-resolver';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -32,6 +27,13 @@ export async function POST(req) {
 
     let body;
     try { body = await req.json(); } catch { body = {}; }
+    const SPEC = getSpec(body?.examKey);
+    const {
+        BANK_SECTION_IDS, SECTION_CODES, SECTION_TOTAL,
+        SECTION_SPEC, SUBTYPE_PREFIXES, SECTION_DIFFICULTY_BASE,
+        BUCKET_TOPICS, MAX_PER_TOPIC, ALLOWED_SOURCE_TYPES, PYQ_CAP_PER_SECTION,
+        normalizeConfig, buildPlaceholderTemplates, placeholderCountsBySection,
+    } = SPEC;
     const config = normalizeConfig(body);
 
     const client = await db.connect();
@@ -71,7 +73,7 @@ export async function POST(req) {
               )
             GROUP BY qv.exam_section_id, qv.subtype, qv.difficulty, qv.source_type
             ORDER BY qv.exam_section_id, COUNT(*) DESC
-        `, [bankSectionIds, CGL_T1_EXAM_ID, caCutoffYq, ALLOWED_SOURCE_TYPES]);
+        `, [bankSectionIds, SPEC.examId, caCutoffYq, ALLOWED_SOURCE_TYPES]);
 
         // 2. Available groups (RC/Cloze/DI) per section + size + passage length
         // Passage text lives on a question_version row referenced by qg.passage_question_id.
@@ -92,7 +94,7 @@ export async function POST(req) {
                   WHERE mtq.question_id = qv.question_id AND mt.exam_id = $2
               )
             GROUP BY qg.exam_section_id, qg.group_id, qg.group_type
-        `, [bankSectionIds, CGL_T1_EXAM_ID]);
+        `, [bankSectionIds, SPEC.examId]);
 
         // Inversion: bank_section_id -> code
         const codeByBankId = Object.fromEntries(SECTION_CODES.map(c => [BANK_SECTION_IDS[c], c]));
@@ -125,7 +127,7 @@ export async function POST(req) {
             // Group bank subtypes by their derived spec slug
             const bySpec = {};
             for (const e of bankPool.values()) {
-                const spec = specSlugFor(e.bank_subtype) || '(other)';
+                const spec = specSlugFor(e.bank_subtype, SUBTYPE_PREFIXES) || '(other)';
                 if (!bySpec[spec]) bySpec[spec] = [];
                 bySpec[spec].push(e);
             }
@@ -155,11 +157,10 @@ export async function POST(req) {
 
         // Inventory math (mirrors picker placeholders + group sizes)
         const placeholdersFromConfig = buildPlaceholderTemplates(config);
-        const placeholdersBy = {
-            REASONING: placeholdersFromConfig.filter(p => p.section_code === 'REASONING').length,
-            GA: placeholdersFromConfig.filter(p => p.section_code === 'GA').length,
-            QUANT: 0, ENGLISH: 0,
-        };
+        const placeholdersBy = Object.fromEntries(SECTION_CODES.map(code => [
+            code,
+            placeholdersFromConfig.filter(p => p.section_code === code).length,
+        ]));
 
         for (const s of sections) {
             const spec = SECTION_SPEC[s.code] || {};
@@ -245,9 +246,9 @@ export async function POST(req) {
     }
 }
 
-function specSlugFor(bankSubtype) {
+function specSlugFor(bankSubtype, subtypePrefixes) {
     if (!bankSubtype) return null;
-    for (const [slug, prefixes] of Object.entries(SUBTYPE_PREFIXES)) {
+    for (const [slug, prefixes] of Object.entries(subtypePrefixes)) {
         for (const p of prefixes) {
             const stripped = p.endsWith('%') ? p.slice(0, -1) : p;
             if (bankSubtype.startsWith(stripped)) return slug;

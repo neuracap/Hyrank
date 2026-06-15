@@ -1,13 +1,13 @@
 import db from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-edge';
 import { NextResponse } from 'next/server';
-import { CGL_T1_EXAM_ID } from '@/lib/cgl-mock-spec';
+import { getSpec } from '@/lib/mock-spec-resolver';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/cgl-mock/list?status=DRAFT|PUBLISHED|ALL
- * Lists CGL T1 mock tests. Default: DRAFT.
+ * GET /api/cgl-mock/list?examKey=cgl-t1|chsl-t1|gd&status=DRAFT|PUBLISHED|ALL
+ * Lists mock tests for the requested exam (default: cgl-t1, DRAFT).
  */
 export async function GET(req) {
     const user = await getCurrentUser();
@@ -15,10 +15,11 @@ export async function GET(req) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     const { searchParams } = new URL(req.url);
+    const SPEC = getSpec(searchParams.get('examKey'));
     const statusFilter = searchParams.get('status') || 'DRAFT';
 
-    const params = [CGL_T1_EXAM_ID];
-    let where = `WHERE mt.exam_id = $1 AND mt.stats_json->>'builder' = 'cgl-mock-builder'`;
+    const params = [SPEC.examId, SPEC.builderTag];
+    let where = `WHERE mt.exam_id = $1 AND mt.stats_json->>'builder' = $2`;
     if (statusFilter !== 'ALL') {
         params.push(statusFilter);
         where += ` AND mt.status = $${params.length}`;

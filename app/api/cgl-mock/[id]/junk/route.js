@@ -1,13 +1,10 @@
 import db from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-edge';
 import { NextResponse } from 'next/server';
-import { CGL_T1_EXAM_ID, TARGET_SECTION_IDS, BANK_SECTION_IDS, SECTION_CODES } from '@/lib/cgl-mock-spec';
+import { getSpec, getSpecByExamId } from '@/lib/mock-spec-resolver';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
-
-const TARGET_TO_CODE = Object.fromEntries(SECTION_CODES.map(c => [TARGET_SECTION_IDS[c], c]));
-const TARGET_TO_BANK = Object.fromEntries(SECTION_CODES.map(c => [TARGET_SECTION_IDS[c], BANK_SECTION_IDS[c]]));
 
 /**
  * POST /api/cgl-mock/[id]/junk
@@ -39,6 +36,17 @@ export async function POST(req, { params }) {
     const client = await db.connect();
     try {
         await client.query('BEGIN');
+
+        // Resolve spec from the mock's exam_id.
+        const mockRes = await client.query(`SELECT exam_id FROM mock_test WHERE mock_test_id = $1`, [mockTestId]);
+        if (mockRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return NextResponse.json({ error: 'Mock not found' }, { status: 404 });
+        }
+        const SPEC = getSpecByExamId(mockRes.rows[0].exam_id) || getSpec('cgl-t1');
+        const { TARGET_SECTION_IDS, BANK_SECTION_IDS, SECTION_CODES } = SPEC;
+        const TARGET_TO_CODE = Object.fromEntries(SECTION_CODES.map(c => [TARGET_SECTION_IDS[c], c]));
+        const TARGET_TO_BANK = Object.fromEntries(SECTION_CODES.map(c => [TARGET_SECTION_IDS[c], BANK_SECTION_IDS[c]]));
 
         // Slot lookup
         const slotRes = await client.query(`
@@ -92,13 +100,13 @@ export async function POST(req, { params }) {
             return NextResponse.json({ success: true, action: 'junked_group_to_placeholder', positions: groupRows.rows.map(r => r.position) });
         }
 
-        // Exclusion set for swap candidates (all CGL T1 mocks, any status)
+        // Exclusion set for swap candidates (all mocks of this exam, any status)
         const exclRes = await client.query(`
             SELECT DISTINCT mtq.question_id
             FROM mock_test_question mtq
             JOIN mock_test mt ON mt.mock_test_id = mtq.mock_test_id
             WHERE mt.exam_id = $1
-        `, [CGL_T1_EXAM_ID]);
+        `, [SPEC.examId]);
         const excluded = new Set(exclRes.rows.map(r => r.question_id));
 
         const prefixSeed = slot.slot_subtype || (slot.subtype ? slot.subtype.split('_')[0] : null);

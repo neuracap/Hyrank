@@ -1,7 +1,7 @@
 import db from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-edge';
 import { NextResponse } from 'next/server';
-import { CGL_T1_EXAM_ID } from '@/lib/cgl-mock-spec';
+import { getSpec } from '@/lib/mock-spec-resolver';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +22,7 @@ export async function GET(req) {
     }
 
     const { searchParams } = new URL(req.url);
+    const SPEC = getSpec(searchParams.get('examKey'));
     const kind = searchParams.get('kind') || 'visual_reasoning';
     const q = (searchParams.get('q') || '').trim();
     const subtype = (searchParams.get('subtype') || '').trim();         // exact bank subtype filter
@@ -46,13 +47,19 @@ export async function GET(req) {
         return NextResponse.json({ error: `Unknown kind: ${kind}` }, { status: 400 });
     }
 
-    // Exclude anything used in any prior CGL T1 mock (any status).
-    baseParams.push(CGL_T1_EXAM_ID);
+    // Exclude anything used in any prior mock of this exam (any status).
+    baseParams.push(SPEC.examId);
     baseConditions.push(`NOT EXISTS (
         SELECT 1 FROM mock_test_question mtq
         JOIN mock_test mt ON mt.mock_test_id = mtq.mock_test_id
         WHERE mtq.question_id = qv.question_id AND mt.exam_id = $${baseParams.length}
     )`);
+
+    // Restrict PYQ source exams when the spec calls for it (e.g. GD excludes CHSL).
+    if (Array.isArray(SPEC.PYQ_EXAM_IDS) && SPEC.PYQ_EXAM_IDS.length > 0) {
+        baseParams.push(SPEC.PYQ_EXAM_IDS);
+        baseConditions.push(`ps.exam_id = ANY($${baseParams.length}::uuid[])`);
+    }
 
     const baseWhere = baseConditions.join(' AND ');
 
@@ -83,6 +90,7 @@ export async function GET(req) {
             SELECT qv.subtype, COUNT(*)::int AS cnt
             FROM question_version qv
             JOIN exam_section es ON es.section_id = qv.exam_section_id
+            LEFT JOIN paper_session ps ON ps.paper_session_id = qv.paper_session_id
             WHERE ${baseWhere}
             GROUP BY qv.subtype
             ORDER BY cnt DESC
@@ -96,6 +104,7 @@ export async function GET(req) {
             SELECT COUNT(*)::int AS c
             FROM question_version qv
             JOIN exam_section es ON es.section_id = qv.exam_section_id
+            LEFT JOIN paper_session ps ON ps.paper_session_id = qv.paper_session_id
             WHERE ${where}
         `, params);
         const total = countRes.rows[0].c;

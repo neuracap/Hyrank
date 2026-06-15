@@ -1,20 +1,10 @@
 import db from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-edge';
 import { NextResponse } from 'next/server';
-import {
-    CGL_T1_EXAM_ID, TARGET_SECTION_IDS, BANK_SECTION_IDS, SECTION_CODES,
-    SUBTYPE_PREFIXES, SECTION_SPEC,
-} from '@/lib/cgl-mock-spec';
+import { getSpec, getSpecByExamId } from '@/lib/mock-spec-resolver';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
-
-const TARGET_TO_BANK = Object.fromEntries(
-    SECTION_CODES.map(c => [TARGET_SECTION_IDS[c], BANK_SECTION_IDS[c]])
-);
-const TARGET_TO_CODE = Object.fromEntries(
-    SECTION_CODES.map(c => [TARGET_SECTION_IDS[c], c])
-);
 
 /**
  * POST /api/cgl-mock/[id]/swap
@@ -55,6 +45,23 @@ export async function POST(req, { params }) {
         maxPassageChars = n;
     }
 
+    // Resolve which exam this mock belongs to so the right spec drives the swap.
+    const mockExamRes = await db.query(
+        `SELECT exam_id FROM mock_test WHERE mock_test_id = $1`,
+        [mockTestId]
+    );
+    if (mockExamRes.rows.length === 0) {
+        return NextResponse.json({ error: 'Mock not found' }, { status: 404 });
+    }
+    const SPEC = getSpecByExamId(mockExamRes.rows[0].exam_id) || getSpec('cgl-t1');
+    const { TARGET_SECTION_IDS, BANK_SECTION_IDS, SECTION_CODES, SUBTYPE_PREFIXES, SECTION_SPEC } = SPEC;
+    const TARGET_TO_BANK = Object.fromEntries(
+        SECTION_CODES.map(c => [TARGET_SECTION_IDS[c], BANK_SECTION_IDS[c]])
+    );
+    const TARGET_TO_CODE = Object.fromEntries(
+        SECTION_CODES.map(c => [TARGET_SECTION_IDS[c], c])
+    );
+
     // Validate optional overrides
     if (target_spec_subtype && !SUBTYPE_PREFIXES[target_spec_subtype]) {
         return NextResponse.json({ error: `Unknown spec_subtype: ${target_spec_subtype}` }, { status: 400 });
@@ -91,13 +98,13 @@ export async function POST(req, { params }) {
             return NextResponse.json({ error: 'Could not map section' }, { status: 500 });
         }
 
-        // Exclusion: any qid used in any prior CGL T1 mock, plus what's in this mock.
+        // Exclusion: any qid used in any prior mock of this exam, plus what's in this mock.
         const exclRes = await client.query(`
             SELECT DISTINCT mtq.question_id
             FROM mock_test_question mtq
             JOIN mock_test mt ON mt.mock_test_id = mtq.mock_test_id
             WHERE mt.exam_id = $1
-        `, [CGL_T1_EXAM_ID]);
+        `, [SPEC.examId]);
         const excluded = new Set(exclRes.rows.map(r => r.question_id));
 
         // -------- GROUP SWAP --------

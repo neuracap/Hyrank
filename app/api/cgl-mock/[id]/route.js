@@ -1,16 +1,9 @@
 import db from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-edge';
 import { NextResponse } from 'next/server';
-import { SECTION_CODES, TARGET_SECTION_IDS, BANK_SECTION_IDS, CGL_T1_EXAM_ID } from '@/lib/cgl-mock-spec';
+import { getSpec, getSpecByExamId } from '@/lib/mock-spec-resolver';
 
 export const dynamic = 'force-dynamic';
-
-const SECTION_BY_TARGET_ID = Object.fromEntries(
-    SECTION_CODES.map(c => [TARGET_SECTION_IDS[c], c])
-);
-const SECTION_BY_BANK_ID = Object.fromEntries(
-    SECTION_CODES.map(c => [BANK_SECTION_IDS[c], c])
-);
 
 /**
  * GET /api/cgl-mock/[id]
@@ -37,6 +30,18 @@ export async function GET(req, { params }) {
             return NextResponse.json({ error: 'Mock not found' }, { status: 404 });
         }
         const mock = mtRes.rows[0];
+
+        // Derive the spec from the mock's exam_id so the response reflects the
+        // right section codes / targets / bank section ids regardless of which
+        // route prefix the client called. Falls back to CGL when unmatched.
+        const SPEC = getSpecByExamId(mock.exam_id) || getSpec('cgl-t1');
+        const { SECTION_CODES, TARGET_SECTION_IDS, BANK_SECTION_IDS } = SPEC;
+        const SECTION_BY_TARGET_ID = Object.fromEntries(
+            SECTION_CODES.map(c => [TARGET_SECTION_IDS[c], c])
+        );
+        const SECTION_BY_BANK_ID = Object.fromEntries(
+            SECTION_CODES.map(c => [BANK_SECTION_IDS[c], c])
+        );
 
         const qRes = await client.query(`
             SELECT mtq.position, mtq.slot_subtype, mtq.slot_difficulty,
@@ -160,7 +165,7 @@ export async function GET(req, { params }) {
               )
             GROUP BY qv.exam_section_id, qv.subtype
             ORDER BY qv.exam_section_id, COUNT(*) DESC
-        `, [bankSectionIds, CGL_T1_EXAM_ID]);
+        `, [bankSectionIds, SPEC.examId]);
         const poolBySection = {};
         for (const code of SECTION_CODES) poolBySection[code] = [];
         for (const row of poolRes.rows) {

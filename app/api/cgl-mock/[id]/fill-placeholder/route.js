@@ -2,7 +2,7 @@ import db from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-edge';
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { TARGET_SECTION_IDS, SECTION_CODES } from '@/lib/cgl-mock-spec';
+import { getSpec, getSpecByExamId } from '@/lib/mock-spec-resolver';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,13 +43,16 @@ export async function POST(req, { params }) {
 
         // Load mock, find the placeholder slot.
         const mtRes = await client.query(
-            `SELECT mock_test_id, stats_json FROM mock_test WHERE mock_test_id = $1 FOR UPDATE`,
+            `SELECT mock_test_id, exam_id, stats_json FROM mock_test WHERE mock_test_id = $1 FOR UPDATE`,
             [mockTestId]
         );
         if (mtRes.rows.length === 0) {
             await client.query('ROLLBACK');
             return NextResponse.json({ error: 'Mock not found' }, { status: 404 });
         }
+        const SPEC = getSpecByExamId(mtRes.rows[0].exam_id) || getSpec('cgl-t1');
+        const { TARGET_SECTION_IDS } = SPEC;
+
         const stats = mtRes.rows[0].stats_json || {};
         const placeholders = Array.isArray(stats.placeholders) ? stats.placeholders : [];
         const slot = placeholders.find(p => p.placeholder_id === placeholder_id);

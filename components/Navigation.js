@@ -177,10 +177,21 @@ export default function Navigation({ user }) {
                                     label="Mock"
                                     items={[
                                         { href: '/mock-tests',          label: 'Mock Tests' },
-                                        { href: '/cgl-mock-builder',    label: 'CGL T1 Builder' },
                                         { href: '/mock-blueprint',      label: 'Blueprint Editor' },
                                         { href: '/mock-test-builder',   label: 'General Builder' },
                                         { href: '/section-test-builder', label: 'Section Builder' },
+                                    ]}
+                                    pathname={pathname}
+                                />
+                            )}
+
+                            {user?.isAdmin && (
+                                <NavDropdown
+                                    label="Mock Builders"
+                                    items={[
+                                        { href: '/cgl-mock-builder',  label: 'CGL T1' },
+                                        { href: '/chsl-mock-builder', label: 'CHSL T1' },
+                                        { href: '/gd-mock-builder',   label: 'GD Constable' },
                                     ]}
                                     pathname={pathname}
                                 />

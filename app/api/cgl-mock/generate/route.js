@@ -1,11 +1,7 @@
 import db from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-edge';
 import { NextResponse } from 'next/server';
-import {
-    CGL_T1_EXAM_ID, TARGET_SECTION_IDS, BANK_SECTION_IDS,
-    SECTION_CODES, ALLOWED_SOURCE_TYPES,
-    normalizeConfig, normalizeDifficultyProfile,
-} from '@/lib/cgl-mock-spec';
+import { getSpec } from '@/lib/mock-spec-resolver';
 import { buildMock } from '@/lib/cgl-mock-picker';
 
 export const dynamic = 'force-dynamic';
@@ -25,6 +21,11 @@ export async function POST(req) {
 
     let body;
     try { body = await req.json(); } catch { body = {}; }
+    const SPEC = getSpec(body?.examKey);
+    const {
+        TARGET_SECTION_IDS, BANK_SECTION_IDS, SECTION_CODES, ALLOWED_SOURCE_TYPES,
+        normalizeConfig, normalizeDifficultyProfile,
+    } = SPEC;
     const config = normalizeConfig(body);
     const requestedName = (body.name || '').trim();
 
@@ -41,13 +42,13 @@ export async function POST(req) {
 
     const client = await db.connect();
     try {
-        // 1) Exclusion set: every question_id ever used in a CGL T1 mock.
+        // 1) Exclusion set: every question_id ever used in a mock of this exam.
         const exclRes = await client.query(`
             SELECT DISTINCT mtq.question_id
             FROM mock_test_question mtq
             JOIN mock_test mt ON mt.mock_test_id = mtq.mock_test_id
             WHERE mt.exam_id = $1
-        `, [CGL_T1_EXAM_ID]);
+        `, [SPEC.examId]);
         const excludedIds = new Set(exclRes.rows.map(r => r.question_id));
 
         // 2) Pool — verified bank questions per bank section.
@@ -92,7 +93,7 @@ export async function POST(req) {
         const byBankSectionId = Object.fromEntries(
             SECTION_CODES.map(c => [BANK_SECTION_IDS[c], c])
         );
-        const poolsBySection = { REASONING: [], GA: [], QUANT: [], ENGLISH: [] };
+        const poolsBySection = Object.fromEntries(SECTION_CODES.map(c => [c, []]));
         for (const row of poolRes.rows) {
             const code = byBankSectionId[row.exam_section_id];
             if (code) poolsBySection[code].push(row);
@@ -149,6 +150,7 @@ export async function POST(req) {
 
         // 4) Run the picker.
         const picker = buildMock({
+            examKey: SPEC.examKey,
             config,
             poolsBySection,
             groups,
@@ -159,8 +161,8 @@ export async function POST(req) {
 
         // 5) Persist: mock_test + mock_test_question.
         const name = requestedName ||
-            `CGL T1 Mock — ${new Date().toISOString().slice(0, 19).replace('T', ' ')}`;
-        const slug = `cgl-t1-${Date.now().toString(36)}`;
+            `${SPEC.displayName} Mock — ${new Date().toISOString().slice(0, 19).replace('T', ' ')}`;
+        const slug = `${SPEC.slug}-${Date.now().toString(36)}`;
 
         await client.query('BEGIN');
 
@@ -170,11 +172,12 @@ export async function POST(req) {
             VALUES ($1, $2, $3, 'DRAFT', 'MOCK', $4, $5, NOW(), NOW())
             RETURNING mock_test_id
         `, [
-            CGL_T1_EXAM_ID,
+            SPEC.examId,
             name,
             slug,
             JSON.stringify({
-                builder: 'cgl-mock-builder',
+                builder: SPEC.builderTag,
+                examKey: SPEC.examKey,
                 config: picker.config,
                 placeholders: picker.placeholders,
                 section_stats: picker.section_stats,
@@ -234,7 +237,7 @@ export async function POST(req) {
                       WHERE mtq2.question_id = qv.question_id AND mt.exam_id = $1
                   )
                 ORDER BY qv.subtype, qv.difficulty
-            `, [CGL_T1_EXAM_ID]);
+            `, [SPEC.examId]);
 
             // Bucket by subtype, then round-robin pick — 1 per subtype per pass.
             const bySubtype = {};

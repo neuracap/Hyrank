@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import Latex from '@/components/Latex';
-import { SECTION_SPEC, SUBTYPE_PREFIXES, SECTION_CODES, SECTION_DIFFICULTY_BASE } from '@/lib/cgl-mock-spec.js';
+import { getSpec } from '@/lib/mock-spec-resolver';
 
 const DIFFICULTY_LEVELS = [1, 2, 3, 4];
 
@@ -12,10 +12,10 @@ function placeholderCountForCode(config, code) {
     return 0;
 }
 
-function defaultProfileFor(config) {
+function defaultProfileFor(config, spec) {
     const out = {};
-    for (const code of SECTION_CODES) {
-        const base = SECTION_DIFFICULTY_BASE[code];
+    for (const code of spec.SECTION_CODES) {
+        const base = spec.SECTION_DIFFICULTY_BASE[code] || { L1: 0, L2: 0, L3: 0, L4: 0 };
         const ph = placeholderCountForCode(config, code);
         const row = { L1: base.L1, L2: base.L2, L3: base.L3, L4: base.L4 };
         // Eat placeholders from L3 first (highest base), then L2, L4, L1
@@ -35,9 +35,9 @@ function profileRowSum(row) {
     return (row.L1 || 0) + (row.L2 || 0) + (row.L3 || 0) + (row.L4 || 0);
 }
 
-function profileMatchesConfig(profile, config) {
-    for (const code of SECTION_CODES) {
-        const need = 25 - placeholderCountForCode(config, code);
+function profileMatchesConfig(profile, config, spec) {
+    for (const code of spec.SECTION_CODES) {
+        const need = spec.SECTION_TOTAL - placeholderCountForCode(config, code);
         if (profileRowSum(profile?.[code]) !== need) return false;
     }
     return true;
@@ -276,9 +276,9 @@ function splitLabeledLines(text) {
 }
 
 // Map a bank's full qv.subtype to its spec-slug (e.g. arithmetic_percentage_chain → 'arithmetic')
-function specSlugForSubtype(bankSubtype) {
+function specSlugForSubtype(bankSubtype, subtypePrefixes) {
     if (!bankSubtype) return null;
-    for (const [slug, prefixes] of Object.entries(SUBTYPE_PREFIXES)) {
+    for (const [slug, prefixes] of Object.entries(subtypePrefixes)) {
         for (const p of prefixes) {
             const stripped = p.endsWith('%') ? p.slice(0, -1) : p;
             if (bankSubtype.startsWith(stripped)) return slug;
@@ -292,12 +292,14 @@ const SECTION_LABELS = {
     GA: 'General Awareness',
     QUANT: 'Quantitative Aptitude',
     ENGLISH: 'English Comprehension',
+    HINDI: 'Hindi Language',
 };
 
 const DEFAULT_CONFIG = {
     include_english_rc: true,
     include_english_cloze: true,
     include_quant_di: true,
+    include_hindi_cloze: true,
     reasoning_img_placeholder_count: 0,
     rc_min_passage_chars: 1400,
     rc_max_passage_chars: 1200,
@@ -306,7 +308,14 @@ const DEFAULT_CONFIG = {
     ca_freshness_quarters: 4,
 };
 
-export default function CglMockBuilder() {
+export default function CglMockBuilder({ examKey = 'cgl-t1' } = {}) {
+    // Resolve the active spec once per examKey change. All spec-dependent
+    // values (SECTION_CODES, SUBTYPE_PREFIXES, SECTION_TOTAL, etc.) are read
+    // off SPEC so the same component drives CGL T1 / CHSL T1 / GD builders.
+    const SPEC = useMemo(() => getSpec(examKey), [examKey]);
+    const { SECTION_CODES, SECTION_SPEC, SUBTYPE_PREFIXES, SECTION_DIFFICULTY_BASE, SECTION_TOTAL } = SPEC;
+    const apiBase = '/api/cgl-mock';
+    const examKeyQuery = `examKey=${encodeURIComponent(SPEC.examKey)}`;
     const [drafts, setDrafts] = useState([]);
     const [loadingList, setLoadingList] = useState(false);
     const [error, setError] = useState('');
@@ -315,12 +324,13 @@ export default function CglMockBuilder() {
     const [config, setConfig] = useState(DEFAULT_CONFIG);
     const [mockName, setMockName] = useState('');
     const [generating, setGenerating] = useState(false);
-    const [difficultyProfile, setDifficultyProfile] = useState(() => defaultProfileFor(DEFAULT_CONFIG));
-    // When placeholder counts change, reset the profile so each row sums to 25 - placeholders.
-    // Discards in-progress user edits to that row — explicit and predictable beats clever.
+    const [difficultyProfile, setDifficultyProfile] = useState(() => defaultProfileFor(DEFAULT_CONFIG, SPEC));
+    // When placeholder counts (or the resolved spec) change, reset the profile
+    // so each row sums to (SECTION_TOTAL - placeholders). Discards in-progress
+    // edits — explicit and predictable beats clever.
     useEffect(() => {
-        setDifficultyProfile(defaultProfileFor(config));
-    }, [config.reasoning_img_placeholder_count]);
+        setDifficultyProfile(defaultProfileFor(config, SPEC));
+    }, [config.reasoning_img_placeholder_count, SPEC]);
 
     // Step 2 (planning) state: preview data + the user's bank-subtype targets per section
     const [planStep, setPlanStep] = useState(false);
@@ -333,13 +343,13 @@ export default function CglMockBuilder() {
     const fetchDrafts = useCallback(async () => {
         setLoadingList(true);
         try {
-            const res = await fetch('/api/cgl-mock/list?status=DRAFT');
+            const res = await fetch(`${apiBase}/list?status=DRAFT&${examKeyQuery}`);
             const data = await res.json();
             if (res.ok && data.success) setDrafts(data.rows);
             else throw new Error(data.error || 'Failed to load drafts');
         } catch (e) { setError(e.message); }
         finally { setLoadingList(false); }
-    }, []);
+    }, [apiBase, examKeyQuery]);
 
     useEffect(() => { fetchDrafts(); }, [fetchDrafts]);
 
@@ -347,9 +357,9 @@ export default function CglMockBuilder() {
         setPreviewing(true);
         setError('');
         try {
-            const res = await fetch('/api/cgl-mock/preview', {
+            const res = await fetch(`${apiBase}/preview`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...config }),
+                body: JSON.stringify({ ...config, examKey: SPEC.examKey }),
             });
             const j = await res.json();
             if (!res.ok || !j.success) throw new Error(j.error || 'Preview failed');
@@ -365,13 +375,13 @@ export default function CglMockBuilder() {
         setGenerating(true);
         setError('');
         try {
-            const body = { ...config };
+            const body = { ...config, examKey: SPEC.examKey };
             if (mockName.trim()) body.name = mockName.trim();
             if (planStep && preview) {
                 body.plan = { bank_subtype_targets: userTargets };
             }
             body.difficulty_profile = difficultyProfile;
-            const res = await fetch('/api/cgl-mock/generate', {
+            const res = await fetch(`${apiBase}/generate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
@@ -394,9 +404,9 @@ export default function CglMockBuilder() {
         <div className="px-4 py-4 max-w-[1600px] mx-auto">
             <header className="mb-4 flex items-center justify-between border-b pb-3">
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-900">SSC CGL Tier 1 — Mock Builder</h1>
+                    <h1 className="text-2xl font-bold text-gray-900">{SPEC.displayName} — Mock Builder</h1>
                     <p className="text-gray-500 text-sm mt-0.5">
-                        Bank-driven generator. Excludes any question used in any prior CGL T1 mock.
+                        Bank-driven generator. Excludes any question used in any prior {SPEC.displayName} mock.
                     </p>
                 </div>
                 <div className="flex gap-3 items-center">
@@ -428,6 +438,7 @@ export default function CglMockBuilder() {
 
             {showConfig && !planStep && (
                 <ConfigModal
+                    spec={SPEC}
                     config={config}
                     setConfig={setConfig}
                     difficultyProfile={difficultyProfile}
@@ -441,6 +452,7 @@ export default function CglMockBuilder() {
             )}
             {showConfig && planStep && preview && (
                 <PlanModal
+                    spec={SPEC}
                     preview={preview}
                     userTargets={userTargets}
                     setUserTargets={setUserTargets}
@@ -451,14 +463,16 @@ export default function CglMockBuilder() {
                 />
             )}
 
-            {selectedId && <MockReview key={selectedId} mockTestId={selectedId} onChanged={fetchDrafts} />}
+            {selectedId && <MockReview key={selectedId} spec={SPEC} mockTestId={selectedId} onChanged={fetchDrafts} />}
         </div>
     );
 }
 
-function ConfigModal({ config, setConfig, difficultyProfile, setDifficultyProfile, mockName, setMockName, onClose, onNext, previewing }) {
+function ConfigModal({ spec, config, setConfig, difficultyProfile, setDifficultyProfile, mockName, setMockName, onClose, onNext, previewing }) {
+    const { SECTION_CODES, SECTION_DIFFICULTY_BASE, SECTION_TOTAL, displayName } = spec;
+    const sectionCount = SECTION_CODES.length;
     const upd = (k, v) => setConfig(prev => ({ ...prev, [k]: v }));
-    const profileValid = profileMatchesConfig(difficultyProfile, config);
+    const profileValid = profileMatchesConfig(difficultyProfile, config, spec);
 
     const setLevel = (code, level, value) => {
         const n = Math.max(0, parseInt(value || '0', 10) || 0);
@@ -468,7 +482,7 @@ function ConfigModal({ config, setConfig, difficultyProfile, setDifficultyProfil
         }));
     };
     const resetRowToBase = (code) => {
-        const base = SECTION_DIFFICULTY_BASE[code];
+        const base = SECTION_DIFFICULTY_BASE[code] || { L1: 0, L2: 0, L3: 0, L4: 0 };
         const ph = placeholderCountForCode(config, code);
         const row = { L1: base.L1, L2: base.L2, L3: base.L3, L4: base.L4 };
         let left = ph;
@@ -485,7 +499,7 @@ function ConfigModal({ config, setConfig, difficultyProfile, setDifficultyProfil
             <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[92vh] overflow-y-auto p-6">
                 <div className="text-xs font-semibold text-gray-400 uppercase mb-1">Step 1 of 2</div>
                 <h2 className="text-lg font-bold mb-1">Configure mock</h2>
-                <p className="text-xs text-gray-500 mb-4">4 sections × 25 = 100 questions. Set the per-mock difficulty distribution below; next step lets you adjust the subtype breakup.</p>
+                <p className="text-xs text-gray-500 mb-4">{sectionCount} sections × {SECTION_TOTAL} = {sectionCount * SECTION_TOTAL} questions. Set the per-mock difficulty distribution below; next step lets you adjust the subtype breakup.</p>
                 <label className="block mb-3">
                     <span className="text-xs font-semibold text-gray-600 uppercase">Mock name (optional)</span>
                     <input type="text" value={mockName} onChange={e => setMockName(e.target.value)}
@@ -562,14 +576,14 @@ function ConfigModal({ config, setConfig, difficultyProfile, setDifficultyProfil
                             {SECTION_CODES.map(code => {
                                 const row = difficultyProfile?.[code] || { L1: 0, L2: 0, L3: 0, L4: 0 };
                                 const sum = profileRowSum(row);
-                                const need = 25 - placeholderCountForCode(config, code);
+                                const need = SECTION_TOTAL - placeholderCountForCode(config, code);
                                 const ok = sum === need;
                                 return (
                                     <tr key={code} className="border-b border-gray-100 last:border-0">
                                         <td className="py-1.5 pr-2 font-mono text-gray-700 text-[11px]">{code}</td>
                                         {DIFFICULTY_LEVELS.map(l => (
                                             <td key={l} className="text-center py-1 px-0.5">
-                                                <input type="number" min={0} max={25}
+                                                <input type="number" min={0} max={SECTION_TOTAL}
                                                     value={row[`L${l}`] ?? 0}
                                                     onChange={e => setLevel(code, l, e.target.value)}
                                                     className="w-12 text-center border border-gray-300 rounded px-1 py-0.5 text-sm tabular-nums" />
@@ -580,7 +594,7 @@ function ConfigModal({ config, setConfig, difficultyProfile, setDifficultyProfil
                                         </td>
                                         <td className="pl-2 text-right">
                                             <button type="button" onClick={() => resetRowToBase(code)}
-                                                className="text-[10px] text-blue-600 hover:underline" title="Reset this row to the CGL base">
+                                                className="text-[10px] text-blue-600 hover:underline" title={`Reset this row to the ${displayName} base`}>
                                                 reset
                                             </button>
                                         </td>
@@ -591,7 +605,7 @@ function ConfigModal({ config, setConfig, difficultyProfile, setDifficultyProfil
                     </table>
                     {!profileValid && (
                         <div className="text-[11px] text-red-700 mt-2">
-                            Each row must sum to (25 − that section's placeholders) before you can continue.
+                            Each row must sum to ({SECTION_TOTAL} − that section's placeholders) before you can continue.
                         </div>
                     )}
                 </div>
@@ -816,7 +830,8 @@ function PlanSectionPanel({ section, userTargets, filter, setCount }) {
 
 // ---------- Mock review (test-page-style two-column) ----------
 
-function MockReview({ mockTestId, onChanged }) {
+function MockReview({ spec, mockTestId, onChanged }) {
+    const { SECTION_SPEC, SUBTYPE_PREFIXES } = spec;
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(false);
     const [err, setErr] = useState('');
@@ -1254,6 +1269,7 @@ function MockReview({ mockTestId, onChanged }) {
                                     return (
                                         <QuestionCard
                                             key={`${it.kind}-${it.position}-${it.question_id || it.placeholder_id}-${idx}`}
+                                            spec={spec}
                                             item={it}
                                             sectionCode={sec.code}
                                             blankNumber={blankNumber}
@@ -1275,6 +1291,7 @@ function MockReview({ mockTestId, onChanged }) {
 
             {fillTarget && fillTarget.section_code === 'REASONING' && (
                 <PyqPickerModal
+                    spec={spec}
                     onPick={(qid) => fillWithExisting(fillTarget.placeholder_id, qid)}
                     onClose={() => setFillTarget(null)}
                     busy={busyKey?.startsWith('fill-')}
@@ -1296,8 +1313,9 @@ function MockReview({ mockTestId, onChanged }) {
                     busy={busyKey?.startsWith('fill-')}
                 />
             )}
-            {fillTarget && (fillTarget.section_code === 'QUANT' || fillTarget.section_code === 'ENGLISH') && (
+            {fillTarget && (fillTarget.section_code === 'QUANT' || fillTarget.section_code === 'ENGLISH' || fillTarget.section_code === 'HINDI') && (
                 <BankBrowserModal
+                    spec={spec}
                     section={fillTarget.section_code}
                     onPick={(qid) => fillWithExisting(fillTarget.placeholder_id, qid)}
                     onClose={() => setFillTarget(null)}
@@ -1306,6 +1324,7 @@ function MockReview({ mockTestId, onChanged }) {
             )}
             {browseTarget && (
                 <BankBrowserModal
+                    spec={spec}
                     section={browseTarget.section_code}
                     onPick={(qid) => replaceWith(browseTarget.question_id_to_remove, qid)}
                     onClose={() => setBrowseTarget(null)}
@@ -1325,9 +1344,9 @@ function SubtypeAnalysis({ sections }) {
 
     const analysis = useMemo(() => {
         return sections.map(sec => {
-            const spec = SECTION_SPEC[sec.code] || {};
-            const targets = spec.targets || {};
-            const remainders = spec.remainder_subtypes || [];
+            const sectionEntry = SECTION_SPEC[sec.code] || {};
+            const targets = sectionEntry.targets || {};
+            const remainders = sectionEntry.remainder_subtypes || [];
 
             const questions = sec.items.filter(it => it.kind === 'question');
             const placeholderCount = sec.items.filter(it => it.kind === 'placeholder').length;
@@ -1347,7 +1366,7 @@ function SubtypeAnalysis({ sections }) {
             // collect pool counts grouped by spec slug.
             const poolBySlug = new Map(); // slot -> Map<bankSubtype, pool>
             for (const entry of (sec.bank_pool || [])) {
-                const slot = specSlugForSubtype(entry.subtype) || '(uncategorised)';
+                const slot = specSlugForSubtype(entry.subtype, SUBTYPE_PREFIXES) || '(uncategorised)';
                 if (!poolBySlug.has(slot)) poolBySlug.set(slot, new Map());
                 poolBySlug.get(slot).set(entry.subtype, entry.pool);
             }
@@ -1595,16 +1614,17 @@ function SectionNav({ section, stats, onJump }) {
     );
 }
 
-function specSubtypesForSection(code) {
-    const spec = SECTION_SPEC[code] || {};
+function specSubtypesForSection(code, sectionSpec) {
+    const section = sectionSpec?.[code] || {};
     const set = new Set([
-        ...Object.keys(spec.targets || {}),
-        ...(spec.remainder_subtypes || []),
+        ...Object.keys(section.targets || {}),
+        ...(section.remainder_subtypes || []),
     ]);
     return [...set].sort();
 }
 
-function QuestionCard({ item, sectionCode, blankNumber, busyKey, onSwap, onEdit, onEditPassage, onJunk, onOpenBrowse, onOpenFill }) {
+function QuestionCard({ spec, item, sectionCode, blankNumber, busyKey, onSwap, onEdit, onEditPassage, onJunk, onOpenBrowse, onOpenFill }) {
+    const SECTION_SPEC = spec?.SECTION_SPEC || {};
     const anchor = `q-${sectionCode}-${item.position}`;
     const [editing, setEditing] = useState(false);
     const [draftStem, setDraftStem] = useState('');
@@ -1910,7 +1930,7 @@ function QuestionCard({ item, sectionCode, blankNumber, busyKey, onSwap, onEdit,
                                                 onChange={e => setOverrideSubtype(e.target.value)}
                                                 className="w-full text-xs border border-gray-300 rounded px-2 py-1 mt-0.5">
                                                 <option value="">— pick a subtype —</option>
-                                                {specSubtypesForSection(sectionCode).map(s => (
+                                                {specSubtypesForSection(sectionCode, SECTION_SPEC).map(s => (
                                                     <option key={s} value={s}>{s}</option>
                                                 ))}
                                             </select>
@@ -1974,7 +1994,7 @@ function QuestionCard({ item, sectionCode, blankNumber, busyKey, onSwap, onEdit,
                                             onChange={e => setOverrideSubtype(e.target.value)}
                                             className="w-full text-xs border border-gray-300 rounded px-2 py-1 mt-0.5">
                                             <option value="">(same family — {item.slot_subtype || '?'})</option>
-                                            {specSubtypesForSection(sectionCode).map(s => (
+                                            {specSubtypesForSection(sectionCode, SECTION_SPEC).map(s => (
                                                 <option key={s} value={s}>{s}</option>
                                             ))}
                                         </select>
@@ -2237,7 +2257,8 @@ function QuestionCard({ item, sectionCode, blankNumber, busyKey, onSwap, onEdit,
 
 // ---------- Visual reasoning picker ----------
 
-function PyqPickerModal({ onPick, onClose, busy, usedSubtypes = [] }) {
+function PyqPickerModal({ spec, onPick, onClose, busy, usedSubtypes = [] }) {
+    const examKey = spec?.examKey || 'cgl-t1';
     const [q, setQ] = useState('');
     const [debouncedQ, setDebouncedQ] = useState('');
     const [subtype, setSubtype] = useState('');           // exact bank subtype filter (chip-driven)
@@ -2269,6 +2290,7 @@ function PyqPickerModal({ onPick, onClose, busy, usedSubtypes = [] }) {
                     kind: 'visual_reasoning',
                     q: debouncedQ,
                     limit: '20',
+                    examKey,
                 });
                 if (subtype) params.set('subtype', subtype);
                 if (usedCsv) params.set('exclude_subtypes', usedCsv);
@@ -2472,7 +2494,8 @@ function ImageUploadButton({ target, uploadingTo, onPick }) {
 
 // ---------- Bank browser (swap to a different topic / subtype) ----------
 
-function BankBrowserModal({ section, onPick, onClose, busy }) {
+function BankBrowserModal({ spec, section, onPick, onClose, busy }) {
+    const examKey = spec?.examKey || 'cgl-t1';
     const [specSubtype, setSpecSubtype] = useState('');
     const [difficulty, setDifficulty] = useState('');
     const [q, setQ] = useState('');
@@ -2496,7 +2519,7 @@ function BankBrowserModal({ section, onPick, onClose, busy }) {
         (async () => {
             setLoading(true); setErr('');
             try {
-                const qs = new URLSearchParams({ section, limit: '20' });
+                const qs = new URLSearchParams({ section, limit: '20', examKey });
                 if (specSubtype) qs.set('spec_subtype', specSubtype);
                 if (difficulty) qs.set('difficulty', difficulty);
                 if (debouncedQ) qs.set('q', debouncedQ);

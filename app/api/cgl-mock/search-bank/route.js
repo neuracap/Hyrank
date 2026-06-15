@@ -1,10 +1,7 @@
 import db from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-edge';
 import { NextResponse } from 'next/server';
-import {
-    CGL_T1_EXAM_ID, BANK_SECTION_IDS, SECTION_CODES,
-    SECTION_SPEC, SUBTYPE_PREFIXES,
-} from '@/lib/cgl-mock-spec';
+import { getSpec } from '@/lib/mock-spec-resolver';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,9 +24,12 @@ export async function GET(req) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     const { searchParams } = new URL(req.url);
+    const SPEC = getSpec(searchParams.get('examKey'));
+    const { CGL_T1_EXAM_ID = SPEC.examId, BANK_SECTION_IDS, SECTION_CODES, SECTION_SPEC, SUBTYPE_PREFIXES } = SPEC;
+    const examId = SPEC.examId;
     const section = (searchParams.get('section') || '').toUpperCase();
     if (!SECTION_CODES.includes(section)) {
-        return NextResponse.json({ error: 'section must be REASONING, GA, QUANT, or ENGLISH' }, { status: 400 });
+        return NextResponse.json({ error: `section must be one of ${SECTION_CODES.join(', ')}` }, { status: 400 });
     }
     const specSubtype = (searchParams.get('spec_subtype') || '').trim();
     const difficulty = searchParams.get('difficulty');
@@ -78,8 +78,8 @@ export async function GET(req) {
         conditions.push(`(qv.body_json->>'text') ILIKE $${params.length}`);
     }
 
-    // Exclusion: question never used in any CGL T1 mock (any status).
-    params.push(CGL_T1_EXAM_ID);
+    // Exclusion: question never used in any mock of this exam (any status).
+    params.push(examId);
     conditions.push(`NOT EXISTS (
         SELECT 1 FROM mock_test_question mtq
         JOIN mock_test mt ON mt.mock_test_id = mtq.mock_test_id
@@ -135,7 +135,7 @@ export async function GET(req) {
                       JOIN mock_test mt ON mt.mock_test_id = mtq.mock_test_id
                       WHERE mtq.question_id = qv.question_id AND mt.exam_id = $3
                   )
-            `, [bankSectionId, prefixes, CGL_T1_EXAM_ID]);
+            `, [bankSectionId, prefixes, examId]);
             buckets.push({ slug, count: bRes.rows[0].c });
         }
 

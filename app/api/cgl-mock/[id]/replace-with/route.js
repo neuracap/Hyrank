@@ -1,7 +1,7 @@
 import db from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-edge';
 import { NextResponse } from 'next/server';
-import { CGL_T1_EXAM_ID } from '@/lib/cgl-mock-spec';
+import { getSpec, getSpecByExamId } from '@/lib/mock-spec-resolver';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,6 +44,15 @@ export async function POST(req, { params }) {
     try {
         await client.query('BEGIN');
 
+        // Derive spec from the mock's own exam_id so the dupe-check below
+        // hits this exam's mock pool (not just CGL's).
+        const mockRes = await client.query(`SELECT exam_id FROM mock_test WHERE mock_test_id = $1`, [mockTestId]);
+        if (mockRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return NextResponse.json({ error: 'Mock not found' }, { status: 404 });
+        }
+        const SPEC = getSpecByExamId(mockRes.rows[0].exam_id) || getSpec('cgl-t1');
+
         const slotRes = await client.query(`
             SELECT mtq.position, mtq.exam_section_id, mtq.slot_subtype, mtq.slot_difficulty, mtq.group_id
             FROM mock_test_question mtq
@@ -59,15 +68,15 @@ export async function POST(req, { params }) {
             return NextResponse.json({ error: 'Use Swap group for grouped questions' }, { status: 409 });
         }
 
-        // Refuse if replacement already in any CGL T1 mock.
+        // Refuse if replacement is already used in any mock of this exam.
         const dupeRes = await client.query(`
             SELECT 1 FROM mock_test_question mtq
             JOIN mock_test mt ON mt.mock_test_id = mtq.mock_test_id
             WHERE mtq.question_id = $1 AND mt.exam_id = $2 LIMIT 1
-        `, [replacement_question_id, CGL_T1_EXAM_ID]);
+        `, [replacement_question_id, SPEC.examId]);
         if (dupeRes.rows.length > 0) {
             await client.query('ROLLBACK');
-            return NextResponse.json({ error: 'Replacement is already used in a CGL T1 mock' }, { status: 409 });
+            return NextResponse.json({ error: `Replacement is already used in a ${SPEC.displayName} mock` }, { status: 409 });
         }
 
         // Load the replacement's subtype/difficulty for the slot metadata.
