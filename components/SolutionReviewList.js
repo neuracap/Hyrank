@@ -14,16 +14,18 @@ const STATUS_COLORS = {
     'NOT_WORTHY': 'bg-red-100 text-red-700',
 };
 
-export default function SolutionReviewList({ papers, exams, examFilter, statusFilter, currentPage, totalPages, total }) {
+export default function SolutionReviewList({ papers, exams, years = [], examFilter, statusFilter, yearFilter = 'ALL', currentPage, totalPages, total }) {
     const router = useRouter();
 
     const buildUrl = (overrides = {}) => {
         const params = new URLSearchParams();
         const exam = overrides.exam !== undefined ? overrides.exam : examFilter;
         const status = overrides.status !== undefined ? overrides.status : statusFilter;
+        const year = overrides.year !== undefined ? overrides.year : yearFilter;
         const page = overrides.page || 1;
         if (exam !== 'ALL') params.set('exam', exam);
         if (status !== 'ALL') params.set('status', status);
+        if (year !== 'ALL') params.set('year', year);
         if (page > 1) params.set('page', page);
         return `/solution-review?${params.toString()}`;
     };
@@ -46,6 +48,14 @@ export default function SolutionReviewList({ papers, exams, examFilter, statusFi
                     </select>
                 </div>
                 <div className="flex items-center gap-2">
+                    <label className="text-sm font-semibold text-gray-700">Year:</label>
+                    <select value={yearFilter} onChange={e => router.push(buildUrl({ year: e.target.value }))}
+                        className="text-sm border-gray-300 rounded-md px-3 py-1.5">
+                        <option value="ALL">All Years</option>
+                        {years.map(y => <option key={y} value={y}>{y}</option>)}
+                    </select>
+                </div>
+                <div className="flex items-center gap-2">
                     <label className="text-sm font-semibold text-gray-700">Status:</label>
                     <select value={statusFilter} onChange={e => router.push(buildUrl({ status: e.target.value }))}
                         className="text-sm border-gray-300 rounded-md px-3 py-1.5">
@@ -55,7 +65,7 @@ export default function SolutionReviewList({ papers, exams, examFilter, statusFi
                         ))}
                     </select>
                 </div>
-                {(examFilter !== 'ALL' || statusFilter !== 'ALL') && (
+                {(examFilter !== 'ALL' || statusFilter !== 'ALL' || yearFilter !== 'ALL') && (
                     <button onClick={() => router.push('/solution-review')}
                         className="text-sm text-gray-500 hover:text-red-600 font-medium">
                         Clear Filters
@@ -137,7 +147,7 @@ export default function SolutionReviewList({ papers, exams, examFilter, statusFi
                                                         Solution Review
                                                     </Link>
                                                     {p.is_linked && p.language === 'EN' && (
-                                                        <Link href={`/solution-review-bilingual?auto=${p.paper_session_id}`}
+                                                        <Link href={`/new-solution-review-bilingual?auto=${p.paper_session_id}`}
                                                             className="px-3 py-1 bg-purple-50 text-purple-600 text-xs font-bold rounded border border-purple-200 hover:bg-purple-100 text-center">
                                                             Bilingual
                                                         </Link>

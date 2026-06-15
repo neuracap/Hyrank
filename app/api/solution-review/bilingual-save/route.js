@@ -33,6 +33,48 @@ export async function POST(req) {
     try {
         await client.query('BEGIN');
 
+        // Helper: apply optional question-body and per-option text edits.
+        // Backward compatible — only runs when the caller sends body_text or options.
+        const applyQuestionEdits = async (side, language) => {
+            if (!side?.question_id) return;
+            const versionNo = side.version_no || 1;
+
+            if (typeof side.body_text === 'string') {
+                const hasImage = /\\includegraphics|!\[.*?\]\(/.test(side.body_text);
+                await client.query(`
+                    UPDATE question_version
+                    SET body_json = jsonb_set(COALESCE(body_json, '{}'::jsonb), '{text}', to_jsonb($1::text)),
+                        has_image = $2,
+                        updated_at = NOW()
+                    WHERE question_id = $3 AND version_no = $4 AND language = $5
+                `, [side.body_text, hasImage, side.question_id, versionNo, language]);
+            }
+
+            if (Array.isArray(side.options) && side.options.length > 0) {
+                for (const opt of side.options) {
+                    const label = opt.option_key || opt.opt_label;
+                    if (!label) continue;
+                    const text = opt.opt_text ?? opt.text ?? '';
+                    const exists = await client.query(`
+                        SELECT 1 FROM question_option
+                        WHERE question_id = $1 AND version_no = $2 AND language = $3 AND option_key = $4
+                    `, [side.question_id, versionNo, language, label]);
+                    if (exists.rows.length > 0) {
+                        await client.query(`
+                            UPDATE question_option
+                            SET option_json = jsonb_set(COALESCE(option_json, '{}'::jsonb), '{text}', to_jsonb($1::text))
+                            WHERE question_id = $2 AND version_no = $3 AND language = $4 AND option_key = $5
+                        `, [text, side.question_id, versionNo, language, label]);
+                    } else {
+                        await client.query(`
+                            INSERT INTO question_option (question_id, version_no, language, option_key, option_json, is_correct, created_at)
+                            VALUES ($1, $2, $3, $4, jsonb_build_object('text', $5::text), false, NOW())
+                        `, [side.question_id, versionNo, language, label, text]);
+                    }
+                }
+            }
+        };
+
         // Save EN solution
         if (en?.question_id && en.solution_json) {
             const solutionJson = JSON.stringify({
@@ -61,6 +103,9 @@ export async function POST(req) {
                 `, [en.correct_option_label, en.question_id]);
             }
         }
+        // Always apply question-body / option edits if present, even when
+        // no solution_json was supplied (allows stem-only edits).
+        await applyQuestionEdits(en, 'EN');
 
         // Save HI solution
         if (hi?.question_id && hi.solution_json) {
@@ -89,6 +134,7 @@ export async function POST(req) {
                 `, [hi.correct_option_label, hi.question_id]);
             }
         }
+        await applyQuestionEdits(hi, 'HI');
 
         await client.query('COMMIT');
         return NextResponse.json({ success: true });

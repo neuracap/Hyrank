@@ -24,6 +24,7 @@ export default async function SolutionReviewPage({ searchParams }) {
     // Otherwise show the papers table
     const examFilter = resolvedParams.exam || 'ALL';
     const statusFilter = resolvedParams.status || 'ALL';
+    const yearFilter = resolvedParams.year || 'ALL';
     const page = parseInt(resolvedParams.page || '1', 10);
     const limit = 100;
     const offset = (page - 1) * limit;
@@ -37,6 +38,15 @@ export default async function SolutionReviewPage({ searchParams }) {
             `SELECT DISTINCT e.name FROM exam e WHERE e.name IS NOT NULL ORDER BY e.name`
         );
         const exams = examsRes.rows.map(r => r.name);
+
+        // Years that actually appear on paper_session rows
+        const yearsRes = await client.query(
+            `SELECT DISTINCT EXTRACT(YEAR FROM paper_date)::int AS y
+             FROM paper_session
+             WHERE paper_date IS NOT NULL
+             ORDER BY y DESC`
+        );
+        const years = yearsRes.rows.map(r => r.y);
 
         // Build filters
         const conditions = [];
@@ -52,6 +62,14 @@ export default async function SolutionReviewPage({ searchParams }) {
             conditions.push(`ps.status = $${paramIdx}`);
             params.push(statusFilter);
             paramIdx++;
+        }
+        if (yearFilter !== 'ALL') {
+            const yr = parseInt(yearFilter, 10);
+            if (Number.isInteger(yr)) {
+                conditions.push(`EXTRACT(YEAR FROM ps.paper_date) = $${paramIdx}`);
+                params.push(yr);
+                paramIdx++;
+            }
         }
 
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -114,8 +132,10 @@ export default async function SolutionReviewPage({ searchParams }) {
             <SolutionReviewList
                 papers={papersRes.rows}
                 exams={exams}
+                years={years}
                 examFilter={examFilter}
                 statusFilter={statusFilter}
+                yearFilter={yearFilter}
                 currentPage={page}
                 totalPages={totalPages}
                 total={total}

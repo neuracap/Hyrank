@@ -132,27 +132,15 @@ export default function Navigation({ user }) {
                             )}
 
                             {user?.isAdmin && (
-                                <Link
-                                    href="/solution-review"
-                                    className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${isActive('/solution-review')
-                                        ? 'border-indigo-500 text-gray-900'
-                                        : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                                        }`}
-                                >
-                                    Solution Review
-                                </Link>
-                            )}
-
-                            {user?.isAdmin && (
-                                <Link
-                                    href="/solution-review-bilingual"
-                                    className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${isActive('/solution-review-bilingual')
-                                        ? 'border-indigo-500 text-gray-900'
-                                        : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                                        }`}
-                                >
-                                    Bilingual Solutions
-                                </Link>
+                                <NavDropdown
+                                    label="Sol Review"
+                                    items={[
+                                        { href: '/solution-review',              label: 'Solution Review' },
+                                        { href: '/solution-review-bilingual',    label: 'Bilingual Solutions' },
+                                        { href: '/new-solution-review-bilingual', label: 'New Bilingual' },
+                                    ]}
+                                    pathname={pathname}
+                                />
                             )}
 
                             {user?.isAdmin && (
