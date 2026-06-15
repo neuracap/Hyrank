@@ -133,6 +133,8 @@ function EditableSolutionPanel({ lang, data, label, editState, onEditChange, onT
     const hasSolution = data.solution_status === 'DONE';
     const [showPreview, setShowPreview] = useState(true);
     const [editingQuestion, setEditingQuestion] = useState(false);
+    const [uploadingImage, setUploadingImage] = useState(false);
+    const [uploadErr, setUploadErr] = useState(null);
 
     const optionKeys = ['A', 'B', 'C', 'D'];
     const existingOptByKey = Object.fromEntries(
@@ -148,6 +150,55 @@ function EditableSolutionPanel({ lang, data, label, editState, onEditChange, onT
         const next = { ...(editState.options || {}) };
         next[k] = value;
         onEditChange({ ...editState, options: next });
+    };
+
+    // Paste-to-upload for the stem textarea and option inputs. Mirrors the
+    // Add Missing Question modal: uploads the pasted image to /api/upload and
+    // inserts the canonical `![](url)` markdown at the cursor. We pass the
+    // question's identifiers so the upload lands under assets/{exam}/{session}/
+    // and gets recorded in question_asset_map.
+    const handleImagePaste = async (e, currentValue, setNewValue, optionKey) => {
+        const items = Array.from(e.clipboardData?.items || []);
+        const imgItem = items.find(it => it.type && it.type.startsWith('image/'));
+        if (!imgItem) return;
+        e.preventDefault();
+        const el = e.target;
+        const start = (typeof el.selectionStart === 'number') ? el.selectionStart : currentValue.length;
+        const end   = (typeof el.selectionEnd   === 'number') ? el.selectionEnd   : currentValue.length;
+        const file = imgItem.getAsFile();
+        if (!file) return;
+        setUploadingImage(true);
+        setUploadErr(null);
+        try {
+            const dataUrl = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(new Error('Could not read image'));
+                reader.readAsDataURL(file);
+            });
+            const body = {
+                data: dataUrl,
+                question_id: data.question_id,
+                version_no: data.version_no || 1,
+                language: lang === 'en' ? 'EN' : 'HI',
+                role: optionKey ? 'option' : 'stem',
+            };
+            if (optionKey) body.option_key = optionKey;
+            const res = await fetch('/api/upload', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const json = await res.json();
+            const url = json.latexPath || json.secure_url || json.url;
+            if (!res.ok || !url) throw new Error(json.error || 'Upload failed');
+            const markdown = `![](${url})`;
+            setNewValue(currentValue.slice(0, start) + markdown + currentValue.slice(end));
+        } catch (err) {
+            setUploadErr('Image upload failed: ' + err.message);
+        } finally {
+            setUploadingImage(false);
+        }
     };
 
     return (
@@ -196,10 +247,18 @@ function EditableSolutionPanel({ lang, data, label, editState, onEditChange, onT
                 ) : (
                     <div className="space-y-2">
                         <div>
-                            <label className="text-[10px] font-bold text-gray-500 uppercase block mb-0.5">Stem</label>
+                            <div className="flex items-center justify-between mb-0.5">
+                                <label className="text-[10px] font-bold text-gray-500 uppercase">Stem</label>
+                                <span className="text-[10px] text-gray-400">paste image (Ctrl+V) supported</span>
+                            </div>
                             <textarea
                                 value={editState.bodyText ?? data.text ?? ''}
                                 onChange={e => onEditChange({ ...editState, bodyText: e.target.value })}
+                                onPaste={e => handleImagePaste(
+                                    e,
+                                    editState.bodyText ?? data.text ?? '',
+                                    (next) => onEditChange({ ...editState, bodyText: next }),
+                                )}
                                 rows={Math.max(2, Math.min(10, Math.ceil(((editState.bodyText ?? data.text ?? '').length || 0) / 80)))}
                                 className="w-full border border-blue-300 rounded px-2 py-1 text-sm font-mono focus:ring-2 focus:ring-blue-400"
                             />
@@ -212,11 +271,27 @@ function EditableSolutionPanel({ lang, data, label, editState, onEditChange, onT
                                         type="text"
                                         value={draftOptionFor(k)}
                                         onChange={e => setDraftOption(k, e.target.value)}
+                                        onPaste={e => handleImagePaste(
+                                            e,
+                                            draftOptionFor(k),
+                                            (next) => setDraftOption(k, next),
+                                            k,
+                                        )}
                                         className="w-full border border-gray-300 rounded px-2 py-1 text-xs font-mono"
                                     />
                                 </label>
                             ))}
                         </div>
+                        {uploadingImage && (
+                            <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                                Uploading image…
+                            </div>
+                        )}
+                        {uploadErr && (
+                            <div className="text-[11px] text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">
+                                {uploadErr}
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
