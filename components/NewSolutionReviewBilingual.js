@@ -717,6 +717,60 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
 }
 
 // =========================================================
+// Inline picker row above a standalone card — choose a counterpart
+// in the other language and link the two.
+// =========================================================
+function StandaloneLinkPicker({ side, row, candidates, onLink, busy }) {
+    const [selected, setSelected] = useState('');
+    const candByKey = Object.fromEntries(candidates.map(c => [c.question_id, c]));
+    const trimmed = (t) => (t || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    const langLabel = side === 'en' ? 'Hindi' : 'English';
+
+    if (candidates.length === 0) {
+        return (
+            <div className="text-[11px] text-gray-400 italic px-1 pb-1">
+                No standalone {langLabel} questions available to link with.
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex items-center gap-2 flex-wrap px-1 pb-1">
+            <span className="text-[11px] font-semibold text-gray-500">Link to {langLabel}:</span>
+            <select
+                value={selected}
+                onChange={e => setSelected(e.target.value)}
+                className="text-xs border border-gray-300 rounded px-2 py-0.5 max-w-md"
+            >
+                <option value="">Select a candidate…</option>
+                {candidates.map(c => (
+                    <option key={c.question_id} value={c.question_id}>
+                        {c.q_no || 'Q.?'} — {trimmed(c.text) || '(no text)'}
+                    </option>
+                ))}
+            </select>
+            <button
+                type="button"
+                disabled={!selected || busy}
+                onClick={() => {
+                    const other = candByKey[selected];
+                    if (!other) return;
+                    if (!confirm(`Link "${row.q_no || 'Q.?'}" with "${other.q_no || 'Q.?'}"?`)) return;
+                    const pair = side === 'en'
+                        ? { english_question_id: row.question_id, english_version_no: row.version_no, hindi_question_id: other.question_id, hindi_version_no: other.version_no }
+                        : { english_question_id: other.question_id, english_version_no: other.version_no, hindi_question_id: row.question_id, hindi_version_no: row.version_no };
+                    onLink(pair);
+                    setSelected('');
+                }}
+                className="px-2 py-0.5 text-[11px] font-semibold bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50"
+            >
+                Link
+            </button>
+        </div>
+    );
+}
+
+// =========================================================
 // Add-missing-question modal
 // =========================================================
 function AddMissingQuestionModal({ open, onClose, selectedPair, sections, existingQNos, onCreated }) {
@@ -732,8 +786,48 @@ function AddMissingQuestionModal({ open, onClose, selectedPair, sections, existi
     const [submitting, setSubmitting] = useState(false);
     const [err, setErr] = useState(null);
     const [successMsg, setSuccessMsg] = useState(null);
+    const [uploadingImage, setUploadingImage] = useState(false);
 
     if (!open) return null;
+
+    // Image paste handler shared by stem textareas and option inputs.
+    // Uploads to /api/upload (no question_id — lands in assets/manual-entry)
+    // and inserts the canonical `![](url)` markdown at the cursor position.
+    const handleImagePaste = async (e, currentValue, setNewValue) => {
+        const items = Array.from(e.clipboardData?.items || []);
+        const imgItem = items.find(it => it.type && it.type.startsWith('image/'));
+        if (!imgItem) return;
+        e.preventDefault();
+        const el = e.target;
+        const start = (typeof el.selectionStart === 'number') ? el.selectionStart : currentValue.length;
+        const end   = (typeof el.selectionEnd   === 'number') ? el.selectionEnd   : currentValue.length;
+        const file = imgItem.getAsFile();
+        if (!file) return;
+        setUploadingImage(true);
+        setErr(null);
+        try {
+            const dataUrl = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(new Error('Could not read image'));
+                reader.readAsDataURL(file);
+            });
+            const res = await fetch('/api/upload', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data: dataUrl }),
+            });
+            const data = await res.json();
+            const url = data.latexPath || data.secure_url || data.url;
+            if (!res.ok || !url) throw new Error(data.error || 'Upload failed');
+            const markdown = `![](${url})`;
+            setNewValue(currentValue.slice(0, start) + markdown + currentValue.slice(end));
+        } catch (e) {
+            setErr('Image upload failed: ' + e.message);
+        } finally {
+            setUploadingImage(false);
+        }
+    };
 
     const reset = () => {
         setMode('both');
@@ -874,12 +968,16 @@ function AddMissingQuestionModal({ open, onClose, selectedPair, sections, existi
                     <div className={`grid grid-cols-1 ${mode === 'both' ? 'md:grid-cols-2' : ''} gap-4`}>
                         {(mode === 'both' || mode === 'english_only') && (
                             <div className="border border-blue-200 rounded p-3 bg-blue-50/30">
-                                <div className="text-xs font-bold text-blue-800 mb-2">English</div>
+                                <div className="text-xs font-bold text-blue-800 mb-2 flex items-center justify-between">
+                                    <span>English</span>
+                                    <span className="text-[10px] font-normal text-gray-500">paste image (Ctrl+V) supported</span>
+                                </div>
                                 <textarea
                                     value={enText}
                                     onChange={e => setEnText(e.target.value)}
+                                    onPaste={e => handleImagePaste(e, enText, setEnText)}
                                     rows={4}
-                                    placeholder="Question stem…"
+                                    placeholder="Question stem… (paste image with Ctrl+V)"
                                     className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono"
                                 />
                                 <div className="grid grid-cols-2 gap-2 mt-2">
@@ -890,6 +988,9 @@ function AddMissingQuestionModal({ open, onClose, selectedPair, sections, existi
                                                 type="text"
                                                 value={enOpts[k]}
                                                 onChange={e => setEnOpts(o => ({ ...o, [k]: e.target.value }))}
+                                                onPaste={e => handleImagePaste(e, enOpts[k], (next) =>
+                                                    setEnOpts(o => ({ ...o, [k]: next }))
+                                                )}
                                                 className="w-full border border-gray-300 rounded px-2 py-1 text-xs font-mono"
                                             />
                                         </label>
@@ -899,12 +1000,16 @@ function AddMissingQuestionModal({ open, onClose, selectedPair, sections, existi
                         )}
                         {(mode === 'both' || mode === 'hindi_only') && (
                             <div className="border border-orange-200 rounded p-3 bg-orange-50/30">
-                                <div className="text-xs font-bold text-orange-800 mb-2">Hindi</div>
+                                <div className="text-xs font-bold text-orange-800 mb-2 flex items-center justify-between">
+                                    <span>Hindi</span>
+                                    <span className="text-[10px] font-normal text-gray-500">paste image (Ctrl+V) supported</span>
+                                </div>
                                 <textarea
                                     value={hiText}
                                     onChange={e => setHiText(e.target.value)}
+                                    onPaste={e => handleImagePaste(e, hiText, setHiText)}
                                     rows={4}
-                                    placeholder="प्रश्न…"
+                                    placeholder="प्रश्न… (paste image with Ctrl+V)"
                                     className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono"
                                 />
                                 <div className="grid grid-cols-2 gap-2 mt-2">
@@ -915,6 +1020,9 @@ function AddMissingQuestionModal({ open, onClose, selectedPair, sections, existi
                                                 type="text"
                                                 value={hiOpts[k]}
                                                 onChange={e => setHiOpts(o => ({ ...o, [k]: e.target.value }))}
+                                                onPaste={e => handleImagePaste(e, hiOpts[k], (next) =>
+                                                    setHiOpts(o => ({ ...o, [k]: next }))
+                                                )}
                                                 className="w-full border border-gray-300 rounded px-2 py-1 text-xs font-mono"
                                             />
                                         </label>
@@ -972,6 +1080,11 @@ function AddMissingQuestionModal({ open, onClose, selectedPair, sections, existi
                         A new linked EN+HI pair will be inserted into this paper.
                     </p>
 
+                    {uploadingImage && (
+                        <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                            Uploading image…
+                        </div>
+                    )}
                     {err && <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{err}</div>}
                 </div>
                 <div className="px-5 py-3 border-t border-gray-200 flex justify-end gap-2 sticky bottom-0 bg-white">
@@ -1008,6 +1121,8 @@ export default function NewSolutionReviewBilingual({ exams }) {
     const [loadingUnlinked, setLoadingUnlinked] = useState(false);
     const [sections, setSections] = useState([]);
     const [addOpen, setAddOpen] = useState(false);
+    const [linking, setLinking] = useState(false);
+    const [sidebarLang, setSidebarLang] = useState('EN'); // 'EN' | 'HI'
 
     const handleAdvanceStatus = async (sessionId, nextStatus) => {
         if (!confirm(`Move paper to ${nextStatus}?`)) return;
@@ -1116,6 +1231,32 @@ export default function NewSolutionReviewBilingual({ exams }) {
         }
     };
 
+    // Link one or more EN/HI standalone rows into pairs in a single transaction.
+    const linkPairs = async (pairs) => {
+        if (!selectedPair || !pairs || pairs.length === 0) return;
+        setLinking(true);
+        try {
+            const res = await fetch('/api/solution-review/link-unlinked', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    en_session_id: selectedPair.en_session_id,
+                    hi_session_id: selectedPair.hi_session_id,
+                    pairs,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || 'Link failed');
+            setFeedback({ type: 'success', msg: `Linked ${data.linked}${data.skipped ? ` (skipped ${data.skipped})` : ''}` });
+            setTimeout(() => setFeedback(null), 3000);
+            await loadQuestions(selectedPair.en_session_id, selectedPair.hi_session_id);
+        } catch (e) {
+            setFeedback({ type: 'error', msg: e.message });
+        } finally {
+            setLinking(false);
+        }
+    };
+
     const handlePaperChange = async (val) => {
         if (!val) return;
         const [enId, hiId] = val.split('|');
@@ -1179,6 +1320,10 @@ export default function NewSolutionReviewBilingual({ exams }) {
         if (filter === 'issues') return (q.en && hasQuestionError(q.en.text, q.en.options, q.en.correct)) || (q.hi && hasQuestionError(q.hi.text, q.hi.options, q.hi.correct));
         if (filter === 'figures') return !!(q.en?.figure_prompt || q.en?.figure_helpful);
         return true;
+    }).slice().sort((a, b) => {
+        const aInt = sidebarLang === 'EN' ? (a.en?.q_int ?? Infinity) : (a.hi?.q_int ?? Infinity);
+        const bInt = sidebarLang === 'EN' ? (b.en?.q_int ?? Infinity) : (b.hi?.q_int ?? Infinity);
+        return aInt - bInt;
     });
 
     const bothSolvedCount = questions.filter(q => q.en?.solution_status === 'DONE' && q.hi?.solution_status === 'DONE').length;
@@ -1189,13 +1334,66 @@ export default function NewSolutionReviewBilingual({ exams }) {
         (q.hi && hasQuestionError(q.hi.text, q.hi.options, q.hi.correct))
     ).length;
 
-    // Group by section for sidebar
+    // Group by section for sidebar (linked-only — kept for legacy refs).
     const groupedQuestions = questions.reduce((acc, q) => {
         const sec = q.section_code || 'Other';
         if (!acc[sec]) acc[sec] = [];
         acc[sec].push(q);
         return acc;
     }, {});
+
+    // Unified per-language sidebar items: linked pairs viewed from `sidebarLang`
+    // plus the standalone rows in that language. Items are grouped by section
+    // and sorted by question_number_int within each section.
+    const sidebarSections = (() => {
+        const buckets = {}; // section_code -> { items: [], doneCount: 0 }
+        const push = (sectionCode, item) => {
+            const key = sectionCode || 'Other';
+            if (!buckets[key]) buckets[key] = { items: [], doneCount: 0 };
+            buckets[key].items.push(item);
+            if (item.sideDone) buckets[key].doneCount += 1;
+        };
+        for (const q of questions) {
+            const side = sidebarLang === 'EN' ? q.en : q.hi;
+            if (!side) continue; // pair has no counterpart in the viewed language
+            const other = sidebarLang === 'EN' ? q.hi : q.en;
+            push(q.section_code, {
+                kind: 'linked',
+                key: q.link_id,
+                anchorId: `bp-${q.link_id}`,
+                q_no: side.q_no,
+                q_int: side.q_int,
+                sideDone: side.solution_status === 'DONE',
+                otherDone: other?.solution_status === 'DONE',
+                hasIssue: hasQuestionError(side.text, side.options, side.correct),
+                mismatch: hasAnswerMismatch(q.en, q.hi),
+                standalone: false,
+            });
+        }
+        const standalones = sidebarLang === 'EN' ? enUnlinked : hiUnlinked;
+        for (const r of standalones) {
+            const anchorPrefix = sidebarLang === 'EN' ? 'en-only' : 'hi-only';
+            push(r.section_code, {
+                kind: 'standalone',
+                key: `${anchorPrefix}-${r.question_id}`,
+                anchorId: `bp-${anchorPrefix}-${r.question_id}`,
+                q_no: r.q_no,
+                q_int: r.q_int,
+                sideDone: r.solution_status === 'DONE',
+                otherDone: false,
+                hasIssue: hasQuestionError(r.text, r.options, r.correct),
+                mismatch: false,
+                standalone: true,
+            });
+        }
+        return Object.entries(buckets)
+            .map(([section, info]) => ({
+                section,
+                doneCount: info.doneCount,
+                items: info.items.slice().sort((a, b) => (a.q_int ?? Infinity) - (b.q_int ?? Infinity)),
+            }))
+            .sort((a, b) => a.section.localeCompare(b.section));
+    })();
 
     // Section-wise triage: linked pairs, unlinked standalone rows (deduped by q_int across EN+HI),
     // and numeric gaps within each section's observed question_number range.
@@ -1439,50 +1637,90 @@ export default function NewSolutionReviewBilingual({ exams }) {
             {/* Body */}
             <div className="flex flex-1 overflow-hidden">
                 {/* Left Sidebar */}
-                {selectedPair && questions.length > 0 && (
+                {selectedPair && (questions.length > 0 || enUnlinked.length > 0 || hiUnlinked.length > 0) && (
                     <aside className="w-56 flex-shrink-0 border-r border-gray-200 bg-white overflow-y-auto p-3">
+                        {/* Language toggle */}
+                        <div className="flex items-center gap-1 mb-3 pb-2 border-b border-gray-100">
+                            <span className="text-[10px] font-semibold text-gray-500 uppercase mr-1">View</span>
+                            {[
+                                { val: 'EN', label: 'English' },
+                                { val: 'HI', label: 'Hindi' },
+                            ].map(opt => (
+                                <button key={opt.val}
+                                    onClick={() => setSidebarLang(opt.val)}
+                                    className={`text-[11px] font-semibold px-2 py-0.5 rounded transition-colors ${
+                                        sidebarLang === opt.val
+                                            ? (opt.val === 'EN' ? 'bg-blue-600 text-white' : 'bg-orange-600 text-white')
+                                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                    }`}
+                                >
+                                    {opt.label}
+                                </button>
+                            ))}
+                        </div>
+
                         <div className="space-y-4">
-                            {Object.entries(groupedQuestions).map(([section, qs]) => {
-                                const bothCount = qs.filter(q => q.en?.solution_status === 'DONE' && q.hi?.solution_status === 'DONE').length;
-                                return (
-                                    <div key={section}>
-                                        <div className="flex justify-between items-center mb-2">
-                                            <h4 className="text-xs font-bold text-gray-700 truncate" title={section}>{section}</h4>
-                                            <span className="text-[10px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">{bothCount}/{qs.length}</span>
-                                        </div>
-                                        <div className="grid grid-cols-4 gap-1.5">
-                                            {qs.map(q => {
-                                                const enDone = q.en?.solution_status === 'DONE';
-                                                const hiDone = q.hi?.solution_status === 'DONE';
-                                                const bothDone = enDone && hiDone;
-                                                const mismatch = hasAnswerMismatch(q.en, q.hi);
-                                                const enHasError = q.en ? hasQuestionError(q.en.text, q.en.options, q.en.correct) : false;
-                                                const hiHasError = q.hi ? hasQuestionError(q.hi.text, q.hi.options, q.hi.correct) : false;
-                                                const hasQIssue = enHasError || hiHasError;
-                                                const qLabel = q.en?.q_no ? q.en.q_no.replace(/Q\.\s*/, '').trim() : '?';
-
-                                                let colorClass;
-                                                if (hasQIssue) colorClass = 'text-white bg-pink-600 border-pink-700 ring-1 ring-pink-400';
-                                                else if (mismatch) colorClass = 'text-white bg-red-600 border-red-700';
-                                                else if (bothDone) colorClass = 'text-gray-600 bg-green-50 border-green-200 hover:bg-green-100';
-                                                else if (enDone || hiDone) colorClass = 'text-amber-700 bg-amber-50 border-amber-300 hover:bg-amber-100';
-                                                else colorClass = 'text-red-700 bg-red-50 border-red-300 hover:bg-red-100';
-
-                                                return (
-                                                    <a key={q.link_id}
-                                                        href={`#bp-${q.link_id}`}
-                                                        onClick={e => { e.preventDefault(); document.getElementById(`bp-${q.link_id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
-                                                        className={`flex items-center justify-center aspect-square text-xs font-medium rounded border transition-colors ${colorClass}`}
-                                                        title={`Q.${qLabel} EN:${enDone ? 'DONE' : 'PENDING'} HI:${hiDone ? 'DONE' : 'PENDING'}${mismatch ? ' MISMATCH!' : ''}${hasQIssue ? ' ⚠ QUALITY ISSUE' : ''}`}
-                                                    >
-                                                        {qLabel}
-                                                    </a>
-                                                );
-                                            })}
-                                        </div>
+                            {sidebarSections.map(({ section, items, doneCount }) => (
+                                <div key={section}>
+                                    <div className="flex justify-between items-center mb-2">
+                                        <h4 className="text-xs font-bold text-gray-700 truncate" title={section}>{section}</h4>
+                                        <span className="text-[10px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">{doneCount}/{items.length}</span>
                                     </div>
-                                );
-                            })}
+                                    <div className="grid grid-cols-4 gap-1.5">
+                                        {items.map(item => {
+                                            const qLabel = item.q_no ? String(item.q_no).replace(/Q\.\s*/, '').trim() : '?';
+
+                                            let colorClass;
+                                            if (item.hasIssue) {
+                                                colorClass = 'text-white bg-pink-600 border-pink-700 ring-1 ring-pink-400';
+                                            } else if (item.mismatch) {
+                                                colorClass = 'text-white bg-red-600 border-red-700';
+                                            } else if (item.standalone) {
+                                                // Standalone row in the viewed language — distinct purple shade.
+                                                colorClass = item.sideDone
+                                                    ? 'text-purple-700 bg-purple-50 border-purple-300 hover:bg-purple-100'
+                                                    : 'text-purple-800 bg-purple-100 border-purple-400 hover:bg-purple-200 ring-1 ring-purple-300';
+                                            } else if (item.sideDone && item.otherDone) {
+                                                colorClass = 'text-gray-600 bg-green-50 border-green-200 hover:bg-green-100';
+                                            } else if (item.sideDone || item.otherDone) {
+                                                colorClass = 'text-amber-700 bg-amber-50 border-amber-300 hover:bg-amber-100';
+                                            } else {
+                                                colorClass = 'text-red-700 bg-red-50 border-red-300 hover:bg-red-100';
+                                            }
+
+                                            const titleParts = [`Q.${qLabel}`];
+                                            if (item.standalone) titleParts.push(`Standalone ${sidebarLang}`);
+                                            else titleParts.push(`${sidebarLang}:${item.sideDone ? 'DONE' : 'PENDING'} other:${item.otherDone ? 'DONE' : 'PENDING'}`);
+                                            if (item.mismatch) titleParts.push('MISMATCH');
+                                            if (item.hasIssue) titleParts.push('⚠ QUALITY ISSUE');
+
+                                            return (
+                                                <a key={item.key}
+                                                    href={`#${item.anchorId}`}
+                                                    onClick={e => {
+                                                        e.preventDefault();
+                                                        document.getElementById(item.anchorId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                                    }}
+                                                    className={`relative flex items-center justify-center aspect-square text-xs font-medium rounded border transition-colors ${colorClass}`}
+                                                    title={titleParts.join(' · ')}
+                                                >
+                                                    {qLabel}
+                                                    {item.standalone && (
+                                                        <span className="absolute -top-1 -right-1 text-[8px] font-bold bg-white text-purple-700 border border-purple-400 rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none">
+                                                            !
+                                                        </span>
+                                                    )}
+                                                </a>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            ))}
+                            {sidebarSections.length === 0 && (
+                                <div className="text-xs text-gray-400 italic text-center py-4">
+                                    No {sidebarLang === 'EN' ? 'English' : 'Hindi'} questions in this paper pair.
+                                </div>
+                            )}
                         </div>
                     </aside>
                 )}
@@ -1522,63 +1760,126 @@ export default function NewSolutionReviewBilingual({ exams }) {
                                 </div>
                             ))}
 
-                            {/* Standalone (unlinked) English questions — HI side rendered as empty placeholder */}
-                            {enUnlinked.length > 0 && (
-                                <div className="pt-8">
-                                    <div className="mb-3 flex items-baseline gap-2">
-                                        <h2 className="text-sm font-bold text-blue-800 uppercase tracking-wide">
-                                            Standalone English Questions
-                                        </h2>
-                                        <span className="text-xs text-gray-500">
-                                            {enUnlinked.length} unlinked
-                                        </span>
-                                    </div>
-                                    <div className="space-y-4">
-                                        {enUnlinked.map((row, idx) => {
-                                            const pseudoPair = {
-                                                link_id: `en-only-${row.question_id}`,
-                                                section_code: row.section_code,
-                                                en: row,
-                                                hi: null,
-                                            };
-                                            return (
-                                                <div key={pseudoPair.link_id} id={`bp-${pseudoPair.link_id}`}>
-                                                    <BilingualCard pair={pseudoPair} idx={idx} onDifficultyChange={handleDifficultyChange} />
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            )}
+                            {(() => {
+                                // Auto-match standalone EN+HI rows by question_number_int.
+                                const hiByQ = new Map();
+                                for (const r of hiUnlinked) {
+                                    if (Number.isInteger(r.q_int)) hiByQ.set(r.q_int, r);
+                                }
+                                const autoMatches = [];
+                                for (const r of enUnlinked) {
+                                    if (Number.isInteger(r.q_int) && hiByQ.has(r.q_int)) {
+                                        const hi = hiByQ.get(r.q_int);
+                                        autoMatches.push({
+                                            english_question_id: r.question_id,
+                                            english_version_no: r.version_no,
+                                            hindi_question_id: hi.question_id,
+                                            hindi_version_no: hi.version_no,
+                                        });
+                                    }
+                                }
+                                const showAutoLink = autoMatches.length > 0;
+                                const autoLinkBtn = showAutoLink && (
+                                    <button
+                                        type="button"
+                                        disabled={linking}
+                                        onClick={() => {
+                                            if (!confirm(`Auto-link ${autoMatches.length} EN+HI pair${autoMatches.length === 1 ? '' : 's'} with matching question numbers?`)) return;
+                                            linkPairs(autoMatches);
+                                        }}
+                                        className="px-3 py-1 text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-300 rounded hover:bg-emerald-100 disabled:opacity-50"
+                                    >
+                                        {linking ? 'Linking…' : `Auto-link by Q No. (${autoMatches.length} match${autoMatches.length === 1 ? '' : 'es'})`}
+                                    </button>
+                                );
 
-                            {/* Standalone (unlinked) Hindi questions — EN side rendered as empty placeholder */}
-                            {hiUnlinked.length > 0 && (
-                                <div className="pt-8">
-                                    <div className="mb-3 flex items-baseline gap-2">
-                                        <h2 className="text-sm font-bold text-orange-800 uppercase tracking-wide">
-                                            Standalone Hindi Questions
-                                        </h2>
-                                        <span className="text-xs text-gray-500">
-                                            {hiUnlinked.length} unlinked
-                                        </span>
-                                    </div>
-                                    <div className="space-y-4">
-                                        {hiUnlinked.map((row, idx) => {
-                                            const pseudoPair = {
-                                                link_id: `hi-only-${row.question_id}`,
-                                                section_code: row.section_code,
-                                                en: null,
-                                                hi: row,
-                                            };
-                                            return (
-                                                <div key={pseudoPair.link_id} id={`bp-${pseudoPair.link_id}`}>
-                                                    <BilingualCard pair={pseudoPair} idx={idx} onDifficultyChange={handleDifficultyChange} />
+                                const enSection = (
+                                    <>
+                                        {enUnlinked.length > 0 && (
+                                            <div className="pt-8">
+                                                <div className="mb-3 flex items-center gap-3 flex-wrap">
+                                                    <h2 className="text-sm font-bold text-blue-800 uppercase tracking-wide">
+                                                        Standalone English Questions
+                                                    </h2>
+                                                    <span className="text-xs text-gray-500">
+                                                        {enUnlinked.length} unlinked
+                                                    </span>
+                                                    {autoLinkBtn}
                                                 </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            )}
+                                                <div className="space-y-4">
+                                                    {enUnlinked.map((row, idx) => {
+                                                        const pseudoPair = {
+                                                            link_id: `en-only-${row.question_id}`,
+                                                            section_code: row.section_code,
+                                                            en: row,
+                                                            hi: null,
+                                                        };
+                                                        return (
+                                                            <div key={pseudoPair.link_id} id={`bp-${pseudoPair.link_id}`}>
+                                                                <StandaloneLinkPicker
+                                                                    side="en"
+                                                                    row={row}
+                                                                    candidates={hiUnlinked}
+                                                                    onLink={(pair) => linkPairs([pair])}
+                                                                    busy={linking}
+                                                                />
+                                                                <BilingualCard pair={pseudoPair} idx={idx} onDifficultyChange={handleDifficultyChange} />
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                    </>
+                                );
+                                const hiSection = (
+                                    <>
+                                        {hiUnlinked.length > 0 && (
+                                            <div className="pt-8">
+                                                <div className="mb-3 flex items-center gap-3 flex-wrap">
+                                                    <h2 className="text-sm font-bold text-orange-800 uppercase tracking-wide">
+                                                        Standalone Hindi Questions
+                                                    </h2>
+                                                    <span className="text-xs text-gray-500">
+                                                        {hiUnlinked.length} unlinked
+                                                    </span>
+                                                    {/* Show the auto-link button here too only when the EN section is hidden,
+                                                        so we never render two identical buttons. */}
+                                                    {enUnlinked.length === 0 && autoLinkBtn}
+                                                </div>
+                                                <div className="space-y-4">
+                                                    {hiUnlinked.map((row, idx) => {
+                                                        const pseudoPair = {
+                                                            link_id: `hi-only-${row.question_id}`,
+                                                            section_code: row.section_code,
+                                                            en: null,
+                                                            hi: row,
+                                                        };
+                                                        return (
+                                                            <div key={pseudoPair.link_id} id={`bp-${pseudoPair.link_id}`}>
+                                                                <StandaloneLinkPicker
+                                                                    side="hi"
+                                                                    row={row}
+                                                                    candidates={enUnlinked}
+                                                                    onLink={(pair) => linkPairs([pair])}
+                                                                    busy={linking}
+                                                                />
+                                                                <BilingualCard pair={pseudoPair} idx={idx} onDifficultyChange={handleDifficultyChange} />
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                );
+                                // Render the active-language standalone section first so the page
+                                // visually leads with the language the sidebar is showing.
+                                return sidebarLang === 'HI'
+                                    ? <>{hiSection}{enSection}</>
+                                    : <>{enSection}{hiSection}</>;
+                            })()}
 
                             {loadingUnlinked && (
                                 <div className="pt-6 text-center text-xs text-gray-400">

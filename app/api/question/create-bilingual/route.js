@@ -98,17 +98,24 @@ export async function POST(req) {
             ...(sectionName && { section_name: sectionName }),
         };
 
+        const IMG_RE = /\\includegraphics|!\[.*?\]\(/;
         const insertSide = async (language, sessionId, payload) => {
             const qid = crypto.randomUUID();
             await client.query(
                 `INSERT INTO question (question_id, created_at) VALUES ($1, NOW())`,
                 [qid]
             );
+
+            // Detect whether stem or any option carries an embedded image so
+            // downstream views/render the figure layout.
+            const optionTexts = Object.values(payload.options || {}).map(t => t || '').join(' ');
+            const hasImage = IMG_RE.test(`${payload.text || ''} ${optionTexts}`);
+
             await client.query(`
                 INSERT INTO question_version
                 (question_id, version_no, language, status, paper_session_id, exam_section_id, body_json, question_type, has_image, source_question_no, question_number_int, meta_json, correct_option_label, difficulty, created_at, updated_at)
-                VALUES ($1, 1, $2, 'draft', $3, $4, $5, 'MCQ', false, $6, $7, $8, $9, $10, NOW(), NOW())
-            `, [qid, language, sessionId, exam_section_id, { text: payload.text || '' }, qNo, qNoInt, metaJson, correct_option_label || null, parsedDifficulty]);
+                VALUES ($1, 1, $2, 'draft', $3, $4, $5, 'MCQ', $6, $7, $8, $9, $10, $11, NOW(), NOW())
+            `, [qid, language, sessionId, exam_section_id, { text: payload.text || '' }, hasImage, qNo, qNoInt, metaJson, correct_option_label || null, parsedDifficulty]);
 
             for (const [key, text] of Object.entries(payload.options || {})) {
                 const isCorrect = !!(correct_option_label && key === correct_option_label);
