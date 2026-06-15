@@ -1197,15 +1197,53 @@ export default function NewSolutionReviewBilingual({ exams }) {
         return acc;
     }, {});
 
-    // Section-wise difficulty stats (from EN side)
-    const sectionStats = Object.entries(groupedQuestions).map(([code, qs]) => ({
-        code,
-        total: qs.length,
-        easy: qs.filter(q => q.en?.difficulty === 1).length,
-        medium: qs.filter(q => q.en?.difficulty === 2).length,
-        hard: qs.filter(q => q.en?.difficulty === 3).length,
-        unset: qs.filter(q => !q.en?.difficulty).length,
-    }));
+    // Section-wise triage: linked pairs, unlinked standalone rows (deduped by q_int across EN+HI),
+    // and numeric gaps within each section's observed question_number range.
+    const sectionStats = (() => {
+        const buckets = {};
+        const ensure = (code) => {
+            const k = code || 'Other';
+            if (!buckets[k]) buckets[k] = { code: k, linked: 0, unlinkedEn: new Set(), unlinkedHi: new Set(), qNos: new Set() };
+            return buckets[k];
+        };
+        for (const q of questions) {
+            const b = ensure(q.section_code);
+            b.linked += 1;
+            const qInt = q.en?.q_int ?? q.hi?.q_int;
+            if (Number.isInteger(qInt)) b.qNos.add(qInt);
+        }
+        for (const r of enUnlinked) {
+            const b = ensure(r.section_code);
+            if (Number.isInteger(r.q_int)) { b.unlinkedEn.add(r.q_int); b.qNos.add(r.q_int); }
+            else b.unlinkedEn.add(`row-${r.question_id}`);
+        }
+        for (const r of hiUnlinked) {
+            const b = ensure(r.section_code);
+            if (Number.isInteger(r.q_int)) { b.unlinkedHi.add(r.q_int); b.qNos.add(r.q_int); }
+            else b.unlinkedHi.add(`row-${r.question_id}`);
+        }
+        return Object.values(buckets).map(b => {
+            // Unlinked count: same q_int present on both sides without a link is still
+            // one logical missing pair, so union the two sets before counting.
+            const unlinkedNums = new Set([...b.unlinkedEn, ...b.unlinkedHi]);
+            const unlinked = unlinkedNums.size;
+            let missing = 0;
+            if (b.qNos.size > 0) {
+                const nums = [...b.qNos].filter(Number.isInteger).sort((a, c) => a - c);
+                if (nums.length > 0) {
+                    const span = nums[nums.length - 1] - nums[0] + 1;
+                    missing = Math.max(0, span - nums.length);
+                }
+            }
+            return {
+                code: b.code,
+                linked: b.linked,
+                unlinked,
+                missing,
+                total: b.linked + unlinked + missing,
+            };
+        }).sort((a, c) => a.code.localeCompare(c.code));
+    })();
 
     return (
         <div className="flex flex-col h-screen overflow-hidden bg-white">
@@ -1362,34 +1400,34 @@ export default function NewSolutionReviewBilingual({ exams }) {
                                     <thead>
                                         <tr className="text-gray-500 uppercase">
                                             <th className="text-left font-semibold px-2 py-1">Section</th>
+                                            <th className="text-center font-semibold px-2 py-1 text-green-700">Linked</th>
+                                            <th className="text-center font-semibold px-2 py-1 text-amber-700">Unlinked</th>
+                                            <th className="text-center font-semibold px-2 py-1 text-red-700">Missing</th>
                                             <th className="text-center font-semibold px-2 py-1">Total</th>
-                                            <th className="text-center font-semibold px-2 py-1 text-green-700">Easy</th>
-                                            <th className="text-center font-semibold px-2 py-1 text-yellow-700">Medium</th>
-                                            <th className="text-center font-semibold px-2 py-1 text-red-700">Hard</th>
-                                            <th className="text-center font-semibold px-2 py-1 text-gray-400">Unset</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {sectionStats.map(s => (
                                             <tr key={s.code} className="border-t border-gray-100">
                                                 <td className="px-2 py-1 font-semibold text-gray-700">{s.code}</td>
-                                                <td className="text-center px-2 py-1">{s.total}</td>
-                                                <td className="text-center px-2 py-1"><span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-bold">{s.easy}</span></td>
-                                                <td className="text-center px-2 py-1"><span className="bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded font-bold">{s.medium}</span></td>
-                                                <td className="text-center px-2 py-1"><span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold">{s.hard}</span></td>
-                                                <td className="text-center px-2 py-1"><span className="text-gray-400">{s.unset || '-'}</span></td>
+                                                <td className="text-center px-2 py-1"><span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-bold">{s.linked}</span></td>
+                                                <td className="text-center px-2 py-1"><span className={`px-1.5 py-0.5 rounded font-bold ${s.unlinked > 0 ? 'bg-amber-100 text-amber-700' : 'text-gray-400'}`}>{s.unlinked || '-'}</span></td>
+                                                <td className="text-center px-2 py-1"><span className={`px-1.5 py-0.5 rounded font-bold ${s.missing > 0 ? 'bg-red-100 text-red-700' : 'text-gray-400'}`}>{s.missing || '-'}</span></td>
+                                                <td className="text-center px-2 py-1 font-semibold">{s.total}</td>
                                             </tr>
                                         ))}
-                                        {sectionStats.length > 1 && (
-                                            <tr className="border-t border-gray-300 font-bold">
-                                                <td className="px-2 py-1 text-gray-700">Total</td>
-                                                <td className="text-center px-2 py-1">{questions.length}</td>
-                                                <td className="text-center px-2 py-1"><span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">{sectionStats.reduce((s, r) => s + r.easy, 0)}</span></td>
-                                                <td className="text-center px-2 py-1"><span className="bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded">{sectionStats.reduce((s, r) => s + r.medium, 0)}</span></td>
-                                                <td className="text-center px-2 py-1"><span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded">{sectionStats.reduce((s, r) => s + r.hard, 0)}</span></td>
-                                                <td className="text-center px-2 py-1 text-gray-400">{sectionStats.reduce((s, r) => s + r.unset, 0) || '-'}</td>
-                                            </tr>
-                                        )}
+                                        {sectionStats.length > 1 && (() => {
+                                            const sum = (k) => sectionStats.reduce((a, r) => a + (r[k] || 0), 0);
+                                            return (
+                                                <tr className="border-t border-gray-300 font-bold">
+                                                    <td className="px-2 py-1 text-gray-700">Total</td>
+                                                    <td className="text-center px-2 py-1"><span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">{sum('linked')}</span></td>
+                                                    <td className="text-center px-2 py-1"><span className={`px-1.5 py-0.5 rounded ${sum('unlinked') > 0 ? 'bg-amber-100 text-amber-700' : 'text-gray-400'}`}>{sum('unlinked') || '-'}</span></td>
+                                                    <td className="text-center px-2 py-1"><span className={`px-1.5 py-0.5 rounded ${sum('missing') > 0 ? 'bg-red-100 text-red-700' : 'text-gray-400'}`}>{sum('missing') || '-'}</span></td>
+                                                    <td className="text-center px-2 py-1 font-bold">{sum('total')}</td>
+                                                </tr>
+                                            );
+                                        })()}
                                     </tbody>
                                 </table>
                             </div>
