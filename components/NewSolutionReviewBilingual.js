@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, memo, lazy, Suspense } from 'react';
 import Latex from '@/components/Latex';
 import { checkQuestionQuality, hasQuestionError } from '@/lib/question-checks';
 const FigureEditor = lazy(() => import('@/components/FigureEditor'));
@@ -385,10 +385,44 @@ function EditableSolutionPanel({ lang, data, label, editState, onEditChange, onT
 }
 
 // =========================================================
+// Visibility-gated mount: tracks whether a card has scrolled into (or near)
+// the viewport. Cards default to "not seen yet" so the heavy editable panels
+// don't render until the user actually scrolls to them. Once seen, the gate
+// stays true (we don't unmount when scrolling away — keeping it mounted
+// preserves in-flight edits, save state, focus, etc.).
+// =========================================================
+function useHasBeenVisible(ref, rootMargin = '600px') {
+    const [visible, setVisible] = useState(false);
+    useEffect(() => {
+        if (visible) return;
+        const el = ref.current;
+        if (!el) return;
+        if (typeof IntersectionObserver === 'undefined') {
+            setVisible(true);
+            return;
+        }
+        const obs = new IntersectionObserver((entries) => {
+            for (const e of entries) {
+                if (e.isIntersecting) {
+                    setVisible(true);
+                    obs.disconnect();
+                    break;
+                }
+            }
+        }, { rootMargin });
+        obs.observe(el);
+        return () => obs.disconnect();
+    }, [ref, visible, rootMargin]);
+    return visible;
+}
+
+// =========================================================
 // Bilingual question pair card (editable)
 // =========================================================
-function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
+const BilingualCard = memo(function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
     const [expanded, setExpanded] = useState(true);
+    const rootRef = useRef(null);
+    const hasBeenVisible = useHasBeenVisible(rootRef);
 
     // Edit state for EN and HI
     const enSections = toArray(pair.en?.solution_json?.display_sections);
@@ -533,7 +567,7 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
     };
 
     return (
-        <div className={`border rounded-lg overflow-hidden ${answerMismatch ? 'border-red-400 ring-1 ring-red-200' : bothDone ? 'border-gray-200' : 'border-amber-300'}`}>
+        <div ref={rootRef} className={`border rounded-lg overflow-hidden ${answerMismatch ? 'border-red-400 ring-1 ring-red-200' : bothDone ? 'border-gray-200' : 'border-amber-300'}`}>
             {/* Pair header */}
             <div className="px-3 py-1.5 bg-gray-50 border-b flex items-center justify-between">
                 <div className="flex items-center gap-2 cursor-pointer" onClick={() => setExpanded(!expanded)}>
@@ -601,8 +635,16 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
                 </div>
             </div>
 
-            {/* Side by side editable panels */}
-            {expanded && (
+            {/* Side by side editable panels — only mounted once the card has
+                scrolled within ~600px of the viewport. Shows a lightweight
+                placeholder until then so initial paint stays cheap on
+                100-question papers. */}
+            {expanded && !hasBeenVisible && (
+                <div className="px-4 py-8 text-center text-xs text-gray-400 italic border-t border-gray-100">
+                    Scrolling reveals the editor…
+                </div>
+            )}
+            {expanded && hasBeenVisible && (
                 <>
                     <div className="flex divide-x divide-gray-200">
                         <EditableSolutionPanel
@@ -789,7 +831,7 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
             )}
         </div>
     );
-}
+});
 
 // =========================================================
 // Inline picker row above a standalone card — choose a counterpart
@@ -1307,7 +1349,7 @@ export default function NewSolutionReviewBilingual({ exams }) {
     };
 
     // Link one or more EN/HI standalone rows into pairs in a single transaction.
-    const linkPairs = async (pairs) => {
+    const linkPairs = useCallback(async (pairs) => {
         if (!selectedPair || !pairs || pairs.length === 0) return;
         setLinking(true);
         try {
@@ -1330,7 +1372,7 @@ export default function NewSolutionReviewBilingual({ exams }) {
         } finally {
             setLinking(false);
         }
-    };
+    }, [selectedPair]);
 
     const handlePaperChange = async (val) => {
         if (!val) return;
@@ -1344,7 +1386,10 @@ export default function NewSolutionReviewBilingual({ exams }) {
 
     // Handle difficulty change. For linked pairs the change syncs to both EN and HI.
     // For standalone (unlinked) rows we only update the side that exists.
-    const handleDifficultyChange = async (questionId, versionNo, newDifficulty, primaryLang = 'EN') => {
+    // useCallback so the reference stays stable across renders — every BilingualCard
+    // receives this handler, and a fresh function reference would force them all to
+    // re-render whenever any unrelated state changes.
+    const handleDifficultyChange = useCallback(async (questionId, versionNo, newDifficulty, primaryLang = 'EN') => {
         // Optimistic update across all three lists.
         setQuestions(prev => prev.map(q =>
             q.en?.question_id === questionId
@@ -1384,25 +1429,59 @@ export default function NewSolutionReviewBilingual({ exams }) {
             }
             await Promise.all(saves);
         } catch (e) { console.error('Difficulty update error:', e); }
-    };
+    }, [questions, enUnlinked, hiUnlinked]);
+
+    // Per-row issue cache so quality checks don't run again for every filter/sort/sidebar pass.
+    // Map key is the question_id+language; value is the boolean issue flag for the EN/HI side.
+    const issueCache = useMemo(() => {
+        const cache = new Map();
+        const check = (side) => {
+            if (!side?.question_id) return false;
+            const key = `${side.question_id}|${side.language || ''}`;
+            if (cache.has(key)) return cache.get(key);
+            const flag = hasQuestionError(side.text, side.options, side.correct);
+            cache.set(key, flag);
+            return flag;
+        };
+        for (const q of questions) { check(q.en); check(q.hi); }
+        for (const r of enUnlinked) cache.set(`${r.question_id}|EN`, hasQuestionError(r.text, r.options, r.correct));
+        for (const r of hiUnlinked) cache.set(`${r.question_id}|HI`, hasQuestionError(r.text, r.options, r.correct));
+        return cache;
+    }, [questions, enUnlinked, hiUnlinked]);
+    const issueFor = useCallback((side, lang) => {
+        if (!side?.question_id) return false;
+        return issueCache.get(`${side.question_id}|${lang}`) || false;
+    }, [issueCache]);
+
+    // Mismatch cache too — text comparison + numeric extraction in hasAnswerMismatch
+    // was running ~4 times per question on every render.
+    const mismatchCache = useMemo(() => {
+        const cache = new Map();
+        for (const q of questions) {
+            if (!q.link_id) continue;
+            cache.set(q.link_id, hasAnswerMismatch(q.en, q.hi));
+        }
+        return cache;
+    }, [questions]);
 
     // Preserve the API's section order (each section's first appearance in `questions`),
-    // then sort within each section by q_int of the active language. Without the section
-    // tiebreaker the flat q_int sort interleaves Q.1 of every section, then Q.2 of every
-    // section, etc.
-    const sectionFirstIdx = {};
-    questions.forEach((q, i) => {
-        const code = q.section_code || 'Other';
-        if (!(code in sectionFirstIdx)) sectionFirstIdx[code] = i;
-    });
+    // then sort within each section by q_int of the active language.
+    const sectionFirstIdx = useMemo(() => {
+        const m = {};
+        questions.forEach((q, i) => {
+            const code = q.section_code || 'Other';
+            if (!(code in m)) m[code] = i;
+        });
+        return m;
+    }, [questions]);
 
-    const filteredQuestions = questions.filter(q => {
+    const filteredQuestions = useMemo(() => questions.filter(q => {
         const enDone = q.en?.solution_status === 'DONE';
         const hiDone = q.hi?.solution_status === 'DONE';
         if (filter === 'both_solved') return enDone && hiDone;
         if (filter === 'unsolved') return !enDone || !hiDone;
-        if (filter === 'mismatch') return hasAnswerMismatch(q.en, q.hi);
-        if (filter === 'issues') return (q.en && hasQuestionError(q.en.text, q.en.options, q.en.correct)) || (q.hi && hasQuestionError(q.hi.text, q.hi.options, q.hi.correct));
+        if (filter === 'mismatch') return mismatchCache.get(q.link_id) || false;
+        if (filter === 'issues') return issueFor(q.en, 'EN') || issueFor(q.hi, 'HI');
         if (filter === 'figures') return !!(q.en?.figure_prompt || q.en?.figure_helpful);
         return true;
     }).slice().sort((a, b) => {
@@ -1414,28 +1493,31 @@ export default function NewSolutionReviewBilingual({ exams }) {
         const aInt = sidebarLang === 'EN' ? (a.en?.q_int ?? Infinity) : (a.hi?.q_int ?? Infinity);
         const bInt = sidebarLang === 'EN' ? (b.en?.q_int ?? Infinity) : (b.hi?.q_int ?? Infinity);
         return aInt - bInt;
-    });
+    }), [questions, filter, sidebarLang, sectionFirstIdx, mismatchCache, issueFor]);
 
-    const bothSolvedCount = questions.filter(q => q.en?.solution_status === 'DONE' && q.hi?.solution_status === 'DONE').length;
-    const mismatchCount = questions.filter(q => hasAnswerMismatch(q.en, q.hi)).length;
-    const figuresCount = questions.filter(q => q.en?.figure_prompt || q.en?.figure_helpful).length;
-    const issueCount = questions.filter(q =>
-        (q.en && hasQuestionError(q.en.text, q.en.options, q.en.correct)) ||
-        (q.hi && hasQuestionError(q.hi.text, q.hi.options, q.hi.correct))
-    ).length;
+    const { bothSolvedCount, mismatchCount, figuresCount, issueCount } = useMemo(() => {
+        let bothSolved = 0, mismatch = 0, figures = 0, issues = 0;
+        for (const q of questions) {
+            if (q.en?.solution_status === 'DONE' && q.hi?.solution_status === 'DONE') bothSolved++;
+            if (mismatchCache.get(q.link_id)) mismatch++;
+            if (q.en?.figure_prompt || q.en?.figure_helpful) figures++;
+            if (issueFor(q.en, 'EN') || issueFor(q.hi, 'HI')) issues++;
+        }
+        return { bothSolvedCount: bothSolved, mismatchCount: mismatch, figuresCount: figures, issueCount: issues };
+    }, [questions, mismatchCache, issueFor]);
 
     // Group by section for sidebar (linked-only — kept for legacy refs).
-    const groupedQuestions = questions.reduce((acc, q) => {
+    const groupedQuestions = useMemo(() => questions.reduce((acc, q) => {
         const sec = q.section_code || 'Other';
         if (!acc[sec]) acc[sec] = [];
         acc[sec].push(q);
         return acc;
-    }, {});
+    }, {}), [questions]);
 
     // Unified per-language sidebar items: linked pairs viewed from `sidebarLang`
     // plus the standalone rows in that language. Items are grouped by section
     // and sorted by question_number_int within each section.
-    const sidebarSections = (() => {
+    const sidebarSections = useMemo(() => {
         const buckets = {}; // section_code -> { items: [], doneCount: 0 }
         const push = (sectionCode, item) => {
             const key = sectionCode || 'Other';
@@ -1445,7 +1527,7 @@ export default function NewSolutionReviewBilingual({ exams }) {
         };
         for (const q of questions) {
             const side = sidebarLang === 'EN' ? q.en : q.hi;
-            if (!side) continue; // pair has no counterpart in the viewed language
+            if (!side) continue;
             const other = sidebarLang === 'EN' ? q.hi : q.en;
             push(q.section_code, {
                 kind: 'linked',
@@ -1455,8 +1537,8 @@ export default function NewSolutionReviewBilingual({ exams }) {
                 q_int: side.q_int,
                 sideDone: side.solution_status === 'DONE',
                 otherDone: other?.solution_status === 'DONE',
-                hasIssue: hasQuestionError(side.text, side.options, side.correct),
-                mismatch: hasAnswerMismatch(q.en, q.hi),
+                hasIssue: issueFor(side, sidebarLang),
+                mismatch: mismatchCache.get(q.link_id) || false,
                 standalone: false,
             });
         }
@@ -1471,7 +1553,7 @@ export default function NewSolutionReviewBilingual({ exams }) {
                 q_int: r.q_int,
                 sideDone: r.solution_status === 'DONE',
                 otherDone: false,
-                hasIssue: hasQuestionError(r.text, r.options, r.correct),
+                hasIssue: issueFor(r, sidebarLang),
                 mismatch: false,
                 standalone: true,
             });
@@ -1483,11 +1565,11 @@ export default function NewSolutionReviewBilingual({ exams }) {
                 items: info.items.slice().sort((a, b) => (a.q_int ?? Infinity) - (b.q_int ?? Infinity)),
             }))
             .sort((a, b) => a.section.localeCompare(b.section));
-    })();
+    }, [questions, enUnlinked, hiUnlinked, sidebarLang, issueFor, mismatchCache]);
 
     // Section-wise triage: linked pairs, unlinked standalone rows (deduped by q_int across EN+HI),
     // and numeric gaps within each section's observed question_number range.
-    const sectionStats = (() => {
+    const sectionStats = useMemo(() => {
         const buckets = {};
         const ensure = (code) => {
             const k = code || 'Other';
@@ -1531,7 +1613,30 @@ export default function NewSolutionReviewBilingual({ exams }) {
                 total: b.linked + unlinked + missing,
             };
         }).sort((a, c) => a.code.localeCompare(c.code));
-    })();
+    }, [questions, enUnlinked, hiUnlinked]);
+
+    // Pairs of standalone EN+HI rows that share a question_number_int — the
+    // "auto-link by Q No." bulk action operates on this. Memoized so the IIFE
+    // in the render path doesn't recompute on every keystroke elsewhere.
+    const autoMatches = useMemo(() => {
+        const hiByQ = new Map();
+        for (const r of hiUnlinked) {
+            if (Number.isInteger(r.q_int)) hiByQ.set(r.q_int, r);
+        }
+        const out = [];
+        for (const r of enUnlinked) {
+            if (Number.isInteger(r.q_int) && hiByQ.has(r.q_int)) {
+                const hi = hiByQ.get(r.q_int);
+                out.push({
+                    english_question_id: r.question_id,
+                    english_version_no: r.version_no,
+                    hindi_question_id: hi.question_id,
+                    hindi_version_no: hi.version_no,
+                });
+            }
+        }
+        return out;
+    }, [enUnlinked, hiUnlinked]);
 
     return (
         <div className="flex flex-col h-screen overflow-hidden bg-white">
@@ -1851,23 +1956,6 @@ export default function NewSolutionReviewBilingual({ exams }) {
                             ))}
 
                             {(() => {
-                                // Auto-match standalone EN+HI rows by question_number_int.
-                                const hiByQ = new Map();
-                                for (const r of hiUnlinked) {
-                                    if (Number.isInteger(r.q_int)) hiByQ.set(r.q_int, r);
-                                }
-                                const autoMatches = [];
-                                for (const r of enUnlinked) {
-                                    if (Number.isInteger(r.q_int) && hiByQ.has(r.q_int)) {
-                                        const hi = hiByQ.get(r.q_int);
-                                        autoMatches.push({
-                                            english_question_id: r.question_id,
-                                            english_version_no: r.version_no,
-                                            hindi_question_id: hi.question_id,
-                                            hindi_version_no: hi.version_no,
-                                        });
-                                    }
-                                }
                                 const showAutoLink = autoMatches.length > 0;
                                 const autoLinkBtn = showAutoLink && (
                                     <button
