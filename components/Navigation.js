@@ -63,6 +63,7 @@ export default function Navigation({ user }) {
     if (user?.isAdmin) {
         reviewItems.push({ href: '/question-review', label: 'Question Review' });
         reviewItems.push({ href: '/answer-conflicts', label: 'Answer Conflicts' });
+        reviewItems.push({ href: '/admin/issues', label: 'Student Reports' });
         reviewItems.push({ href: '/image-audit', label: 'Image Audit' });
         reviewItems.push({ href: '/blank-options', label: 'Blank Options' });
     }

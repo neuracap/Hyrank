@@ -565,6 +565,27 @@ function MockReview({ mockTestId, onBack }) {
         }
     };
 
+    const handleEditQuestion = async (questionId, patch) => {
+        setActionLoading(`edit-${questionId}`);
+        try {
+            const res = await fetch(`/api/mock-test/${mockTestId}/edit-question`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question_id: questionId, ...patch }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                setFeedback({ type: 'error', msg: data.error || 'Edit failed' });
+                throw new Error(data.error || 'Edit failed');
+            }
+            setFeedback({ type: 'success', msg: 'Saved' });
+            await loadMock();
+        } finally {
+            setActionLoading(null);
+            setTimeout(() => setFeedback(null), 2000);
+        }
+    };
+
     const handlePublish = async () => {
         if (!confirm('Publish this mock test? This will lock all questions and record them as used.')) return;
         setActionLoading('publish');
@@ -634,41 +655,107 @@ function MockReview({ mockTestId, onBack }) {
 
             {/* Sections + Questions */}
             <div className="max-w-5xl mx-auto px-4 py-6 space-y-8">
-                {sections.map(sec => (
-                    <div key={sec.exam_section_id}>
-                        <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-3 border-b pb-2">
-                            {sec.name} ({sec.code}) — {sec.questions.length} questions
-                        </h3>
-                        <div className="space-y-4">
-                            {sec.questions.map(q => (
-                                <ReviewQuestionCard
-                                    key={q.question_id}
-                                    q={q}
-                                    onApprove={() => handleReview(q.question_id, 'approve')}
-                                    onReject={(note) => handleReview(q.question_id, 'reject', note)}
-                                    onSuggest={() => handleSuggest(q.question_id)}
-                                    suggestions={suggestingFor === q.question_id ? suggestions : null}
-                                    onSwap={(newId) => handleSwap(q.question_id, newId)}
-                                    actionLoading={actionLoading}
-                                />
-                            ))}
+                {sections.map(sec => {
+                    let prevGroupId = null;
+                    return (
+                        <div key={sec.exam_section_id}>
+                            <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-3 border-b pb-2">
+                                {sec.name} ({sec.code}) — {sec.questions.length} questions
+                            </h3>
+                            <div className="space-y-4">
+                                {sec.questions.map(q => {
+                                    const showPassage =
+                                        q.group_id &&
+                                        q.group_id !== prevGroupId &&
+                                        q.stimulus?.passage_body?.text;
+                                    prevGroupId = q.group_id || null;
+                                    return (
+                                        <div key={q.question_id}>
+                                            {showPassage && (
+                                                <div className="border border-purple-200 bg-purple-50/40 rounded-lg p-4 mb-3">
+                                                    <div className="text-[10px] font-bold text-purple-700 uppercase mb-2">
+                                                        {q.stimulus.group_type || 'GROUP'} — Passage / Stimulus
+                                                    </div>
+                                                    <div className="text-sm text-gray-800 whitespace-pre-wrap">
+                                                        <Latex>{q.stimulus.passage_body.text}</Latex>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <ReviewQuestionCard
+                                                q={q}
+                                                onApprove={() => handleReview(q.question_id, 'approve')}
+                                                onReject={(note) => handleReview(q.question_id, 'reject', note)}
+                                                onSuggest={() => handleSuggest(q.question_id)}
+                                                suggestions={suggestingFor === q.question_id ? suggestions : null}
+                                                onSwap={(newId) => handleSwap(q.question_id, newId)}
+                                                onEdit={(patch) => handleEditQuestion(q.question_id, patch)}
+                                                actionLoading={actionLoading}
+                                            />
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
         </div>
     );
 }
 
-function ReviewQuestionCard({ q, onApprove, onReject, onSuggest, suggestions, onSwap, actionLoading }) {
+function ReviewQuestionCard({ q, onApprove, onReject, onSuggest, suggestions, onSwap, onEdit, actionLoading }) {
     const [rejectNote, setRejectNote] = useState('');
     const [showRejectInput, setShowRejectInput] = useState(false);
+    const [editing, setEditing] = useState(false);
+    const [draftStem, setDraftStem] = useState('');
+    const [draftOpts, setDraftOpts] = useState({ A: '', B: '', C: '', D: '' });
+    const [draftCorrect, setDraftCorrect] = useState(null);
+    const [draftDifficulty, setDraftDifficulty] = useState(null);
+    const [editErr, setEditErr] = useState(null);
 
     const statusBg = {
         PENDING: 'border-gray-200',
         APPROVED: 'border-green-300 bg-green-50/30',
         REJECTED: 'border-red-300 bg-red-50/30',
     };
+
+    const startEdit = () => {
+        setDraftStem(q.question_text || '');
+        const opts = { A: '', B: '', C: '', D: '' };
+        for (const o of (q.options || [])) opts[o.opt_label] = o.opt_text || '';
+        setDraftOpts(opts);
+        setDraftCorrect(q.correct_option_label || null);
+        setDraftDifficulty(q.difficulty ?? null);
+        setEditErr(null);
+        setEditing(true);
+    };
+
+    const cancelEdit = () => {
+        setEditing(false);
+        setEditErr(null);
+    };
+
+    const saveEdit = async () => {
+        const optsByLabel = Object.fromEntries((q.options || []).map(o => [o.opt_label, o.opt_text || '']));
+        const patch = {};
+        if (draftStem !== (q.question_text || '')) patch.stem = draftStem;
+        const optsPatch = {};
+        for (const k of ['A', 'B', 'C', 'D']) {
+            if (draftOpts[k] !== (optsByLabel[k] ?? '')) optsPatch[k] = draftOpts[k];
+        }
+        if (Object.keys(optsPatch).length > 0) patch.options = optsPatch;
+        if (draftCorrect && draftCorrect !== q.correct_option_label) patch.correct_option_label = draftCorrect;
+        if (draftDifficulty != null && draftDifficulty !== q.difficulty) patch.difficulty = Number(draftDifficulty);
+        if (Object.keys(patch).length === 0) { cancelEdit(); return; }
+        try {
+            await onEdit(patch);
+            setEditing(false);
+        } catch (e) {
+            setEditErr(e.message);
+        }
+    };
+
+    const editBusy = actionLoading === `edit-${q.question_id}`;
 
     return (
         <div className={`border rounded-lg overflow-hidden ${statusBg[q.review_status] || 'border-gray-200'}`}>
@@ -689,7 +776,13 @@ function ReviewQuestionCard({ q, onApprove, onReject, onSuggest, suggestions, on
                     )}
                 </div>
                 <div className="flex items-center gap-1.5">
-                    {q.review_status === 'PENDING' && (
+                    {!editing && (
+                        <button onClick={startEdit}
+                            className="px-2.5 py-1 text-xs font-semibold border border-blue-300 text-blue-700 bg-white rounded hover:bg-blue-50">
+                            Edit
+                        </button>
+                    )}
+                    {q.review_status === 'PENDING' && !editing && (
                         <>
                             <button onClick={onApprove} disabled={actionLoading === q.question_id}
                                 className="px-2.5 py-1 text-xs font-semibold bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50">
@@ -701,10 +794,10 @@ function ReviewQuestionCard({ q, onApprove, onReject, onSuggest, suggestions, on
                             </button>
                         </>
                     )}
-                    {q.review_status === 'APPROVED' && (
+                    {q.review_status === 'APPROVED' && !editing && (
                         <span className="text-xs font-bold text-green-700">APPROVED</span>
                     )}
-                    {q.review_status === 'REJECTED' && (
+                    {q.review_status === 'REJECTED' && !editing && (
                         <>
                             <span className="text-xs font-bold text-red-700">REJECTED</span>
                             <button onClick={onSuggest} className="px-2.5 py-1 text-xs font-semibold bg-blue-600 text-white rounded hover:bg-blue-700">
@@ -716,7 +809,7 @@ function ReviewQuestionCard({ q, onApprove, onReject, onSuggest, suggestions, on
             </div>
 
             {/* Reject note input */}
-            {showRejectInput && (
+            {showRejectInput && !editing && (
                 <div className="px-4 py-2 bg-red-50 border-b flex items-center gap-2">
                     <input value={rejectNote} onChange={e => setRejectNote(e.target.value)}
                         className="flex-1 border rounded px-2 py-1 text-xs" placeholder="Reason (optional)..." />
@@ -727,18 +820,81 @@ function ReviewQuestionCard({ q, onApprove, onReject, onSuggest, suggestions, on
                 </div>
             )}
 
-            {/* Question text */}
+            {/* Question text — read or edit */}
             <div className="px-4 py-3">
-                <div className="text-sm text-gray-800 mb-2"><Latex>{q.question_text || '(No text)'}</Latex></div>
-                <div className="grid grid-cols-2 gap-2">
-                    {(q.options || []).map(opt => (
-                        <div key={opt.opt_label}
-                            className={`text-xs p-2 rounded border ${opt.opt_label === q.correct_option_label ? 'bg-green-50 border-green-300 font-semibold' : 'bg-white border-gray-200'}`}>
-                            <span className="font-bold mr-1">{opt.opt_label})</span>
-                            <Latex>{opt.opt_text || ''}</Latex>
+                {!editing ? (
+                    <>
+                        <div className="text-sm text-gray-800 mb-2"><Latex>{q.question_text || '(No text)'}</Latex></div>
+                        <div className="grid grid-cols-2 gap-2">
+                            {(q.options || []).map(opt => (
+                                <div key={opt.opt_label}
+                                    className={`text-xs p-2 rounded border ${opt.opt_label === q.correct_option_label ? 'bg-green-50 border-green-300 font-semibold' : 'bg-white border-gray-200'}`}>
+                                    <span className="font-bold mr-1">{opt.opt_label})</span>
+                                    <Latex>{opt.opt_text || ''}</Latex>
+                                </div>
+                            ))}
                         </div>
-                    ))}
-                </div>
+                    </>
+                ) : (
+                    <div className="space-y-3">
+                        <div>
+                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Stem</label>
+                            <textarea
+                                value={draftStem}
+                                onChange={e => setDraftStem(e.target.value)}
+                                rows={Math.max(2, Math.min(10, Math.ceil((draftStem.length || 0) / 80)))}
+                                className="w-full text-sm border border-blue-300 rounded px-2 py-1.5 font-mono focus:ring-2 focus:ring-blue-400"
+                            />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            {['A', 'B', 'C', 'D'].map(k => (
+                                <label key={k} className="block">
+                                    <span className="text-[10px] font-bold text-gray-500 uppercase">Option {k}</span>
+                                    <input
+                                        type="text"
+                                        value={draftOpts[k]}
+                                        onChange={e => setDraftOpts(o => ({ ...o, [k]: e.target.value }))}
+                                        className="w-full text-xs border border-gray-300 rounded px-2 py-1 mt-0.5 font-mono"
+                                    />
+                                </label>
+                            ))}
+                        </div>
+                        <div className="flex items-center gap-3 flex-wrap">
+                            <label className="text-xs flex items-center gap-1.5">
+                                <span className="font-semibold text-gray-600">Correct:</span>
+                                <select value={draftCorrect || ''}
+                                    onChange={e => setDraftCorrect(e.target.value || null)}
+                                    className="text-xs border border-gray-300 rounded px-2 py-0.5">
+                                    <option value="">—</option>
+                                    {['A', 'B', 'C', 'D'].map(k => <option key={k} value={k}>{k}</option>)}
+                                </select>
+                            </label>
+                            <label className="text-xs flex items-center gap-1.5">
+                                <span className="font-semibold text-gray-600">Difficulty:</span>
+                                <select value={draftDifficulty ?? ''}
+                                    onChange={e => setDraftDifficulty(e.target.value === '' ? null : Number(e.target.value))}
+                                    className="text-xs border border-gray-300 rounded px-2 py-0.5">
+                                    <option value="">—</option>
+                                    <option value="1">1 — Easy</option>
+                                    <option value="2">2 — Medium</option>
+                                    <option value="3">3 — Hard</option>
+                                    <option value="4">4 — Very Hard</option>
+                                </select>
+                            </label>
+                            <div className="ml-auto flex items-center gap-2">
+                                {editErr && <span className="text-xs text-red-600">{editErr}</span>}
+                                <button onClick={cancelEdit} disabled={editBusy}
+                                    className="px-3 py-1 text-xs font-semibold border border-gray-300 text-gray-700 bg-white rounded hover:bg-gray-50 disabled:opacity-50">
+                                    Cancel
+                                </button>
+                                <button onClick={saveEdit} disabled={editBusy}
+                                    className="px-3 py-1 text-xs font-semibold bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
+                                    {editBusy ? 'Saving…' : 'Save'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Rejection note */}

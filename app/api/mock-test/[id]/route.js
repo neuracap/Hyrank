@@ -79,6 +79,30 @@ export async function GET(req, { params }) {
             }
         }
 
+        // 3b. Fetch group stimuli (RC/Cloze passages) for any grouped question.
+        const groupIds = [...new Set(
+            questionsRes.rows.map(q => q.group_id).filter(Boolean)
+        )];
+        let stimuliByGroup = {};
+        if (groupIds.length > 0) {
+            const passRes = await db.query(`
+                SELECT qg.group_id, qg.group_type, qg.passage_question_id,
+                       pv.body_json AS passage_body
+                FROM question_group qg
+                LEFT JOIN question_version pv
+                  ON pv.question_id = qg.passage_question_id
+                 AND pv.language = 'EN'
+                WHERE qg.group_id = ANY($1)
+            `, [groupIds]);
+            for (const row of passRes.rows) {
+                stimuliByGroup[row.group_id] = {
+                    group_type: row.group_type,
+                    passage_question_id: row.passage_question_id,
+                    passage_body: row.passage_body,
+                };
+            }
+        }
+
         // 4. Assemble questions with source derivation
         const questions = questionsRes.rows.map(q => {
             let sourceLabel;
@@ -92,6 +116,7 @@ export async function GET(req, { params }) {
             return {
                 ...q,
                 options: optionsByQuestion[q.question_id] || [],
+                stimulus: q.group_id ? (stimuliByGroup[q.group_id] || null) : null,
                 source_type: q.paper_session_id ? 'pyq' : 'generated',
                 source_label: sourceLabel,
             };

@@ -78,9 +78,11 @@ export default function SolutionReview({ exams = [], paperId: propPaperId, langu
     const [selectedLanguage, setSelectedLanguage] = useState(propLanguage || 'EN');
     const [papers, setPapers] = useState([]);
     const [loadingPapers, setLoadingPapers] = useState(false);
-    const [selectedPaper, setSelectedPaper] = useState(null);
+    const [selectedPaper, setSelectedPaper] = useState(
+        propPaperId ? { paper_session_id: propPaperId } : null
+    );
     const [questions, setQuestions] = useState([]);
-    const [loadingQuestions, setLoadingQuestions] = useState(false);
+    const [loadingQuestions, setLoadingQuestions] = useState(!!propPaperId);
     const [feedback, setFeedback] = useState(null);
     const [filter, setFilter] = useState('all');
     const [advancing, setAdvancing] = useState(false);
@@ -440,7 +442,7 @@ export default function SolutionReview({ exams = [], paperId: propPaperId, langu
 
                 {/* Main Content */}
                 <main className="flex-1 overflow-y-auto bg-gray-50">
-                    {!selectedExamId ? (
+                    {(!selectedExamId && !propPaperId) ? (
                         <div className="flex items-center justify-center h-full">
                             <div className="text-center">
                                 <h2 className="text-xl font-semibold text-gray-700">Select an exam to start</h2>
