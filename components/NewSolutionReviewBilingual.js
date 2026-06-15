@@ -157,7 +157,7 @@ function EditableSolutionPanel({ lang, data, label, editState, onEditChange, onT
     // inserts the canonical `![](url)` markdown at the cursor. We pass the
     // question's identifiers so the upload lands under assets/{exam}/{session}/
     // and gets recorded in question_asset_map.
-    const handleImagePaste = async (e, currentValue, setNewValue, optionKey) => {
+    const handleImagePaste = async (e, currentValue, setNewValue, optionKey, roleOverride) => {
         const items = Array.from(e.clipboardData?.items || []);
         const imgItem = items.find(it => it.type && it.type.startsWith('image/'));
         if (!imgItem) return;
@@ -181,7 +181,7 @@ function EditableSolutionPanel({ lang, data, label, editState, onEditChange, onT
                 question_id: data.question_id,
                 version_no: data.version_no || 1,
                 language: lang === 'en' ? 'EN' : 'HI',
-                role: optionKey ? 'option' : 'stem',
+                role: roleOverride || (optionKey ? 'option' : 'stem'),
             };
             if (optionKey) body.option_key = optionKey;
             const res = await fetch('/api/upload', {
@@ -355,13 +355,34 @@ function EditableSolutionPanel({ lang, data, label, editState, onEditChange, onT
 
             {/* Editable solution text */}
             <div className="px-3 py-2 flex-1 flex flex-col">
+                <div className="text-[10px] text-gray-400 mb-1">paste image (Ctrl+V) supported</div>
                 <textarea
                     value={editState.solutionText}
                     onChange={e => onEditChange({ ...editState, solutionText: e.target.value })}
+                    onPaste={e => {
+                        const role = 'solution_body';
+                        handleImagePaste(
+                            e,
+                            editState.solutionText || '',
+                            (next) => onEditChange({ ...editState, solutionText: next }),
+                            null,
+                            role,
+                        );
+                    }}
                     rows={8}
                     className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y"
                     placeholder="[exam_craft] Solution text here...&#10;&#10;[toppers_insight] One-liner..."
                 />
+                {uploadingImage && (
+                    <div className="mt-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                        Uploading image…
+                    </div>
+                )}
+                {uploadErr && (
+                    <div className="mt-1 text-[11px] text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">
+                        {uploadErr}
+                    </div>
+                )}
 
                 {/* Preview */}
                 {showPreview && editState.solutionText && (
