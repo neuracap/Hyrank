@@ -1311,6 +1311,16 @@ export default function NewSolutionReviewBilingual({ exams }) {
         } catch (e) { console.error('Difficulty update error:', e); }
     };
 
+    // Preserve the API's section order (each section's first appearance in `questions`),
+    // then sort within each section by q_int of the active language. Without the section
+    // tiebreaker the flat q_int sort interleaves Q.1 of every section, then Q.2 of every
+    // section, etc.
+    const sectionFirstIdx = {};
+    questions.forEach((q, i) => {
+        const code = q.section_code || 'Other';
+        if (!(code in sectionFirstIdx)) sectionFirstIdx[code] = i;
+    });
+
     const filteredQuestions = questions.filter(q => {
         const enDone = q.en?.solution_status === 'DONE';
         const hiDone = q.hi?.solution_status === 'DONE';
@@ -1321,6 +1331,11 @@ export default function NewSolutionReviewBilingual({ exams }) {
         if (filter === 'figures') return !!(q.en?.figure_prompt || q.en?.figure_helpful);
         return true;
     }).slice().sort((a, b) => {
+        const aSec = a.section_code || 'Other';
+        const bSec = b.section_code || 'Other';
+        if (aSec !== bSec) {
+            return (sectionFirstIdx[aSec] ?? Infinity) - (sectionFirstIdx[bSec] ?? Infinity);
+        }
         const aInt = sidebarLang === 'EN' ? (a.en?.q_int ?? Infinity) : (a.hi?.q_int ?? Infinity);
         const bInt = sidebarLang === 'EN' ? (b.en?.q_int ?? Infinity) : (b.hi?.q_int ?? Infinity);
         return aInt - bInt;
