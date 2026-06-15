@@ -1342,6 +1342,7 @@ const SECTION_LABEL_SHORT = { REASONING: 'REASONING', GA: 'GA', QUANT: 'QUANT', 
 function SubtypeAnalysis({ spec, sections }) {
     const [collapsed, setCollapsed] = useState(false);
     const SECTION_SPEC = spec?.SECTION_SPEC || {};
+    const SUBTYPE_PREFIXES = spec?.SUBTYPE_PREFIXES || {};
 
     const analysis = useMemo(() => {
         return sections.map(sec => {
@@ -1422,7 +1423,7 @@ function SubtypeAnalysis({ spec, sections }) {
                 rows,
             };
         });
-    }, [sections, SECTION_SPEC]);
+    }, [sections, SECTION_SPEC, SUBTYPE_PREFIXES]);
 
     return (
         <div className="border-b border-gray-200 bg-white">
