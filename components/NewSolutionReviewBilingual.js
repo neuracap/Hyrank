@@ -720,6 +720,7 @@ function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
 // Add-missing-question modal
 // =========================================================
 function AddMissingQuestionModal({ open, onClose, selectedPair, sections, existingQNos, onCreated }) {
+    const [mode, setMode] = useState('both'); // 'both' | 'english_only' | 'hindi_only'
     const [qNo, setQNo] = useState('');
     const [sectionName, setSectionName] = useState('');
     const [enText, setEnText] = useState('');
@@ -730,41 +731,56 @@ function AddMissingQuestionModal({ open, onClose, selectedPair, sections, existi
     const [difficulty, setDifficulty] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [err, setErr] = useState(null);
+    const [successMsg, setSuccessMsg] = useState(null);
 
     if (!open) return null;
 
     const reset = () => {
+        setMode('both');
         setQNo(''); setSectionName(''); setEnText(''); setHiText('');
         setEnOpts({ A: '', B: '', C: '', D: '' });
         setHiOpts({ A: '', B: '', C: '', D: '' });
         setCorrect(''); setDifficulty('');
-        setErr(null);
+        setErr(null); setSuccessMsg(null);
     };
 
     const close = () => { reset(); onClose(); };
 
     const submit = async () => {
-        setErr(null);
+        setErr(null); setSuccessMsg(null);
         if (!qNo.trim()) { setErr('Question number is required'); return; }
-        if (!enText.trim() && !hiText.trim()) { setErr('Enter at least an English or Hindi stem'); return; }
+        if (mode === 'english_only' && !enText.trim()) { setErr('Enter the English stem'); return; }
+        if (mode === 'hindi_only'   && !hiText.trim()) { setErr('Enter the Hindi stem'); return; }
+        if (mode === 'both' && !enText.trim() && !hiText.trim()) { setErr('Enter at least an English or Hindi stem'); return; }
         setSubmitting(true);
         try {
+            const payload = {
+                mode,
+                eng_session_id: selectedPair.en_session_id,
+                hin_session_id: selectedPair.hi_session_id,
+                section_name: sectionName || null,
+                source_question_no: qNo.trim(),
+                correct_option_label: correct || null,
+                difficulty: difficulty === '' ? null : Number(difficulty),
+            };
+            if (mode === 'both' || mode === 'english_only') {
+                payload.english = { text: enText, options: enOpts };
+            }
+            if (mode === 'both' || mode === 'hindi_only') {
+                payload.hindi = { text: hiText, options: hiOpts };
+            }
+
             const res = await fetch('/api/question/create-bilingual', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    eng_session_id: selectedPair.en_session_id,
-                    hin_session_id: selectedPair.hi_session_id,
-                    section_name: sectionName || null,
-                    source_question_no: qNo.trim(),
-                    english: { text: enText, options: enOpts },
-                    hindi:   { text: hiText, options: hiOpts },
-                    correct_option_label: correct || null,
-                    difficulty: difficulty === '' ? null : Number(difficulty),
-                }),
+                body: JSON.stringify(payload),
             });
             const data = await res.json();
             if (!res.ok || !data.success) throw new Error(data.error || 'Create failed');
+
+            if (mode !== 'both' && !data.linkedTo) {
+                setSuccessMsg('Created. No matching counterpart in the other language to auto-link — added as standalone.');
+            }
             reset();
             onClose();
             if (onCreated) onCreated();
@@ -793,6 +809,32 @@ function AddMissingQuestionModal({ open, onClose, selectedPair, sections, existi
                     <button onClick={close} className="text-gray-400 hover:text-gray-600 text-lg">×</button>
                 </div>
                 <div className="px-5 py-4 space-y-4">
+                    {/* Mode toggle: insert both, EN only, or HI only */}
+                    <div>
+                        <span className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Add</span>
+                        <div className="inline-flex border border-gray-300 rounded overflow-hidden text-xs font-semibold">
+                            {[
+                                { val: 'both',         label: 'Both languages' },
+                                { val: 'english_only', label: 'English only' },
+                                { val: 'hindi_only',   label: 'Hindi only' },
+                            ].map(m => (
+                                <button key={m.val} type="button"
+                                    onClick={() => setMode(m.val)}
+                                    className={`px-3 py-1.5 border-r last:border-r-0 border-gray-300 transition-colors ${
+                                        mode === m.val ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'
+                                    }`}>
+                                    {m.label}
+                                </button>
+                            ))}
+                        </div>
+                        {mode !== 'both' && (
+                            <p className="text-[11px] text-gray-500 mt-1">
+                                If a question with the same number exists on the other side without a link, we&apos;ll
+                                auto-link them. Otherwise it&apos;s saved as standalone.
+                            </p>
+                        )}
+                    </div>
+
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                         <label className="block">
                             <span className="text-[10px] font-bold text-gray-500 uppercase">Question No.</span>
@@ -829,53 +871,57 @@ function AddMissingQuestionModal({ open, onClose, selectedPair, sections, existi
                         </label>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="border border-blue-200 rounded p-3 bg-blue-50/30">
-                            <div className="text-xs font-bold text-blue-800 mb-2">English</div>
-                            <textarea
-                                value={enText}
-                                onChange={e => setEnText(e.target.value)}
-                                rows={4}
-                                placeholder="Question stem…"
-                                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono"
-                            />
-                            <div className="grid grid-cols-2 gap-2 mt-2">
-                                {['A', 'B', 'C', 'D'].map(k => (
-                                    <label key={k} className="block">
-                                        <span className="text-[10px] font-bold text-gray-500 uppercase">Option {k}</span>
-                                        <input
-                                            type="text"
-                                            value={enOpts[k]}
-                                            onChange={e => setEnOpts(o => ({ ...o, [k]: e.target.value }))}
-                                            className="w-full border border-gray-300 rounded px-2 py-1 text-xs font-mono"
-                                        />
-                                    </label>
-                                ))}
+                    <div className={`grid grid-cols-1 ${mode === 'both' ? 'md:grid-cols-2' : ''} gap-4`}>
+                        {(mode === 'both' || mode === 'english_only') && (
+                            <div className="border border-blue-200 rounded p-3 bg-blue-50/30">
+                                <div className="text-xs font-bold text-blue-800 mb-2">English</div>
+                                <textarea
+                                    value={enText}
+                                    onChange={e => setEnText(e.target.value)}
+                                    rows={4}
+                                    placeholder="Question stem…"
+                                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono"
+                                />
+                                <div className="grid grid-cols-2 gap-2 mt-2">
+                                    {['A', 'B', 'C', 'D'].map(k => (
+                                        <label key={k} className="block">
+                                            <span className="text-[10px] font-bold text-gray-500 uppercase">Option {k}</span>
+                                            <input
+                                                type="text"
+                                                value={enOpts[k]}
+                                                onChange={e => setEnOpts(o => ({ ...o, [k]: e.target.value }))}
+                                                className="w-full border border-gray-300 rounded px-2 py-1 text-xs font-mono"
+                                            />
+                                        </label>
+                                    ))}
+                                </div>
                             </div>
-                        </div>
-                        <div className="border border-orange-200 rounded p-3 bg-orange-50/30">
-                            <div className="text-xs font-bold text-orange-800 mb-2">Hindi</div>
-                            <textarea
-                                value={hiText}
-                                onChange={e => setHiText(e.target.value)}
-                                rows={4}
-                                placeholder="प्रश्न…"
-                                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono"
-                            />
-                            <div className="grid grid-cols-2 gap-2 mt-2">
-                                {['A', 'B', 'C', 'D'].map(k => (
-                                    <label key={k} className="block">
-                                        <span className="text-[10px] font-bold text-gray-500 uppercase">विकल्प {k}</span>
-                                        <input
-                                            type="text"
-                                            value={hiOpts[k]}
-                                            onChange={e => setHiOpts(o => ({ ...o, [k]: e.target.value }))}
-                                            className="w-full border border-gray-300 rounded px-2 py-1 text-xs font-mono"
-                                        />
-                                    </label>
-                                ))}
+                        )}
+                        {(mode === 'both' || mode === 'hindi_only') && (
+                            <div className="border border-orange-200 rounded p-3 bg-orange-50/30">
+                                <div className="text-xs font-bold text-orange-800 mb-2">Hindi</div>
+                                <textarea
+                                    value={hiText}
+                                    onChange={e => setHiText(e.target.value)}
+                                    rows={4}
+                                    placeholder="प्रश्न…"
+                                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono"
+                                />
+                                <div className="grid grid-cols-2 gap-2 mt-2">
+                                    {['A', 'B', 'C', 'D'].map(k => (
+                                        <label key={k} className="block">
+                                            <span className="text-[10px] font-bold text-gray-500 uppercase">विकल्प {k}</span>
+                                            <input
+                                                type="text"
+                                                value={hiOpts[k]}
+                                                onChange={e => setHiOpts(o => ({ ...o, [k]: e.target.value }))}
+                                                className="w-full border border-gray-300 rounded px-2 py-1 text-xs font-mono"
+                                            />
+                                        </label>
+                                    ))}
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-gray-200">
