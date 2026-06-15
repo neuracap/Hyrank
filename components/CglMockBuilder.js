@@ -306,7 +306,36 @@ const DEFAULT_CONFIG = {
     cloze_min_passage_chars: 700,
     cloze_max_passage_chars: 900,
     ca_freshness_quarters: 4,
+    mock_count: 1,
 };
+
+// Auto-distribute the suggested per-section bank_subtype plan across N mocks.
+// Round-robin assignment with a rotating start offset per bank_subtype: the
+// first subtype seeds mock 0, the second seeds mock 1, etc. This produces
+// soft anti-overlap — each mock leads with a different variation when there
+// are enough variations to go around. Single-subtype slots that exceed N
+// will share copies across mocks (acceptable when the pool is thin).
+function autoDistributeAcrossMocks(suggestedPlan, N) {
+    const out = Array.from({ length: N }, () => ({}));
+    let startOffset = 0;
+    for (const [section, byBankSubtype] of Object.entries(suggestedPlan || {})) {
+        for (const m of out) m[section] = {};
+        const entries = Object.entries(byBankSubtype || {})
+            .filter(([, c]) => (parseInt(c, 10) || 0) > 0)
+            // Largest count first so subtypes with most copies seed earliest,
+            // and the rotating offset still keeps the lead-subtype distinct
+            // per mock.
+            .sort((a, b) => (b[1] - a[1]));
+        for (const [bankSubtype, count] of entries) {
+            for (let k = 0; k < count; k++) {
+                const m = (startOffset + k) % N;
+                out[m][section][bankSubtype] = (out[m][section][bankSubtype] || 0) + 1;
+            }
+            startOffset = (startOffset + 1) % N;
+        }
+    }
+    return out;
+}
 
 export default function CglMockBuilder({ examKey = 'cgl-t1' } = {}) {
     // Resolve the active spec once per examKey change. All spec-dependent
@@ -332,11 +361,15 @@ export default function CglMockBuilder({ examKey = 'cgl-t1' } = {}) {
         setDifficultyProfile(defaultProfileFor(config, SPEC));
     }, [config.reasoning_img_placeholder_count, SPEC]);
 
-    // Step 2 (planning) state: preview data + the user's bank-subtype targets per section
+    // Step 2 (planning) state: preview data + the user's bank-subtype targets per
+    // section, ALWAYS shaped as an array indexed by mock (length === config.mock_count).
+    // Single mock => array of length 1; batch => 2 or 3 entries with auto-distribute
+    // pre-filling each mock with a different lead bank_subtype per spec slug.
     const [planStep, setPlanStep] = useState(false);
     const [preview, setPreview] = useState(null);
     const [previewing, setPreviewing] = useState(false);
-    const [userTargets, setUserTargets] = useState({}); // { SECTION: { bank_subtype: N } }
+    const [userTargetsByMock, setUserTargetsByMock] = useState([{}]);
+    const [activeMockIdx, setActiveMockIdx] = useState(0);
 
     const [selectedId, setSelectedId] = useState(null);
 
@@ -364,8 +397,10 @@ export default function CglMockBuilder({ examKey = 'cgl-t1' } = {}) {
             const j = await res.json();
             if (!res.ok || !j.success) throw new Error(j.error || 'Preview failed');
             setPreview(j);
-            // Initialize userTargets from the suggested_plan
-            setUserTargets(JSON.parse(JSON.stringify(j.suggested_plan || {})));
+            const n = Math.max(1, Math.min(3, parseInt(config.mock_count, 10) || 1));
+            const distributed = autoDistributeAcrossMocks(j.suggested_plan || {}, n);
+            setUserTargetsByMock(distributed);
+            setActiveMockIdx(0);
             setPlanStep(true);
         } catch (e) { setError(e.message); }
         finally { setPreviewing(false); }
@@ -375,12 +410,19 @@ export default function CglMockBuilder({ examKey = 'cgl-t1' } = {}) {
         setGenerating(true);
         setError('');
         try {
-            const body = { ...config, examKey: SPEC.examKey };
-            if (mockName.trim()) body.name = mockName.trim();
-            if (planStep && preview) {
-                body.plan = { bank_subtype_targets: userTargets };
-            }
-            body.difficulty_profile = difficultyProfile;
+            const totalN = userTargetsByMock.length;
+            const baseName = mockName.trim();
+            const body = {
+                ...config,
+                examKey: SPEC.examKey,
+                difficulty_profile: difficultyProfile,
+                mocks: userTargetsByMock.map((targets, i) => ({
+                    plan: planStep && preview ? { bank_subtype_targets: targets } : null,
+                    name: baseName
+                        ? (totalN > 1 ? `${baseName} (${i + 1} of ${totalN})` : baseName)
+                        : null,
+                })),
+            };
             const res = await fetch(`${apiBase}/generate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -391,7 +433,8 @@ export default function CglMockBuilder({ examKey = 'cgl-t1' } = {}) {
             setShowConfig(false); setPlanStep(false); setPreview(null);
             setMockName('');
             await fetchDrafts();
-            setSelectedId(data.mock_test_id);
+            const firstId = data.mocks?.[0]?.mock_test_id || data.mock_test_id;
+            if (firstId) setSelectedId(firstId);
         } catch (e) { setError(e.message); }
         finally { setGenerating(false); }
     };
@@ -454,8 +497,10 @@ export default function CglMockBuilder({ examKey = 'cgl-t1' } = {}) {
                 <PlanModal
                     spec={SPEC}
                     preview={preview}
-                    userTargets={userTargets}
-                    setUserTargets={setUserTargets}
+                    userTargetsByMock={userTargetsByMock}
+                    setUserTargetsByMock={setUserTargetsByMock}
+                    activeMockIdx={activeMockIdx}
+                    setActiveMockIdx={setActiveMockIdx}
                     onBack={() => setPlanStep(false)}
                     onClose={closeConfigModal}
                     onGenerate={generate}
@@ -558,6 +603,35 @@ function ConfigModal({ spec, config, setConfig, difficultyProfile, setDifficulty
                         onChange={v => upd('ca_freshness_quarters', Math.max(1, v))} max={20} />
                 </div>
 
+                {/* Batch generation: spread bank-subtype variations across N mocks in one shot. */}
+                <div className="mt-4 border border-indigo-200 bg-indigo-50/40 rounded-md p-3">
+                    <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold text-indigo-800 uppercase">
+                            Generate together
+                        </label>
+                        <div className="inline-flex border border-indigo-300 rounded overflow-hidden text-xs font-semibold">
+                            {[1, 2, 3].map(n => (
+                                <button key={n} type="button"
+                                    onClick={() => upd('mock_count', n)}
+                                    className={`px-3 py-1 border-r last:border-r-0 border-indigo-300 transition-colors ${
+                                        Number(config.mock_count) === n
+                                            ? 'bg-indigo-600 text-white'
+                                            : 'bg-white text-indigo-700 hover:bg-indigo-100'
+                                    }`}>
+                                    {n} mock{n === 1 ? '' : 's'}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    {Number(config.mock_count) > 1 && (
+                        <p className="text-[11px] text-indigo-900 mt-2">
+                            Suggested plan will be auto-distributed across the {config.mock_count} mocks
+                            so each leads with a different bank-subtype variation. You can fine-tune
+                            per-mock in the next step. Cross-mock question dedup is automatic.
+                        </p>
+                    )}
+                </div>
+
                 <div className="mt-5 border-t pt-4">
                     <div className="flex items-baseline justify-between mb-1">
                         <span className="text-xs font-semibold text-gray-600 uppercase">Difficulty distribution</span>
@@ -637,20 +711,40 @@ function NumberRow({ label, value, onChange, max = 10 }) {
 
 // ---------- Plan-distribution modal (step 2) ----------
 
-function PlanModal({ preview, userTargets, setUserTargets, onBack, onClose, onGenerate, generating }) {
+function PlanModal({ preview, userTargetsByMock, setUserTargetsByMock, activeMockIdx, setActiveMockIdx, onBack, onClose, onGenerate, generating }) {
     const [activeSection, setActiveSection] = useState(preview.sections?.[0]?.code || 'REASONING');
     const [filter, setFilter] = useState('');
 
+    const totalN = userTargetsByMock.length;
+    const userTargets = userTargetsByMock[activeMockIdx] || {};
+
     const setCount = (section, bankSubtype, n) => {
         const v = Math.max(0, parseInt(n || '0', 10) || 0);
-        setUserTargets(prev => {
-            const next = { ...prev };
-            const sec = { ...(next[section] || {}) };
+        setUserTargetsByMock(prev => {
+            const nextAll = prev.slice();
+            const nextMock = { ...(nextAll[activeMockIdx] || {}) };
+            const sec = { ...(nextMock[section] || {}) };
             if (v <= 0) delete sec[bankSubtype]; else sec[bankSubtype] = v;
-            next[section] = sec;
-            return next;
+            nextMock[section] = sec;
+            nextAll[activeMockIdx] = nextMock;
+            return nextAll;
         });
     };
+
+    // For the soft-overlap chip: how many OTHER mocks already pick this
+    // (section, bank_subtype) pair? Pure data lookup, recomputed cheaply.
+    const overlapCount = (section, bankSubtype) => {
+        let n = 0;
+        for (let i = 0; i < userTargetsByMock.length; i++) {
+            if (i === activeMockIdx) continue;
+            const v = userTargetsByMock[i]?.[section]?.[bankSubtype] || 0;
+            if (v > 0) n++;
+        }
+        return n;
+    };
+
+    const grandTotal = userTargetsByMock.reduce((t, m) =>
+        t + preview.sections.reduce((tt, s) => tt + sumValues(m?.[s.code]), 0), 0);
 
     return (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -658,14 +752,38 @@ function PlanModal({ preview, userTargets, setUserTargets, onBack, onClose, onGe
                 <div className="px-5 py-3 border-b flex items-center justify-between">
                     <div>
                         <div className="text-xs font-semibold text-gray-400 uppercase mb-0.5">Step 2 of 2</div>
-                        <h2 className="text-lg font-bold">Plan distribution</h2>
-                        <p className="text-xs text-gray-500">Pick exactly how many of each fine-grained subtype to include. Pool depth = available in the verified bank (excluding any prior CGL T1 mock).</p>
+                        <h2 className="text-lg font-bold">
+                            Plan distribution{totalN > 1 && <span className="text-gray-500 font-normal text-sm"> — {totalN} mocks</span>}
+                        </h2>
+                        <p className="text-xs text-gray-500">
+                            Pick exactly how many of each fine-grained subtype to include.
+                            {totalN > 1 && ' Switch mocks below to inspect/tune each one; the orange chip flags bank subtypes you also picked in another mock.'}
+                        </p>
                     </div>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-800 text-xl">&times;</button>
                 </div>
 
+                {/* Mock tabs (only when batching) */}
+                {totalN > 1 && (
+                    <div className="px-5 pt-3 border-b bg-indigo-50/40 flex gap-2 items-center">
+                        <span className="text-[10px] font-bold text-indigo-700 uppercase mr-1">Mock:</span>
+                        {userTargetsByMock.map((m, i) => {
+                            const total = preview.sections.reduce((t, s) => t + sumValues(m?.[s.code]), 0);
+                            const active = i === activeMockIdx;
+                            return (
+                                <button key={i} onClick={() => setActiveMockIdx(i)}
+                                    className={`px-3 py-1 rounded-t text-xs font-bold border-b-2 transition-colors ${
+                                        active ? 'border-indigo-600 text-indigo-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'
+                                    }`}>
+                                    Mock {i + 1} <span className="font-normal text-gray-500">({total})</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
+
                 {/* Section tabs */}
-                <div className="px-5 pt-3 border-b flex gap-2">
+                <div className="px-5 pt-3 border-b flex gap-2 flex-wrap">
                     {preview.sections.map(s => {
                         const planned = sumValues(userTargets[s.code]);
                         const need = s.inventory_needed ?? 0;
@@ -690,8 +808,11 @@ function PlanModal({ preview, userTargets, setUserTargets, onBack, onClose, onGe
                 {/* Section body */}
                 <div className="flex-1 overflow-y-auto p-4">
                     {preview.sections.filter(s => s.code === activeSection).map(s => (
-                        <PlanSectionPanel key={s.code} section={s} userTargets={userTargets[s.code] || {}}
-                            filter={filter} setCount={(bs, n) => setCount(s.code, bs, n)} />
+                        <PlanSectionPanel key={s.code} section={s}
+                            userTargets={userTargets[s.code] || {}}
+                            filter={filter}
+                            setCount={(bs, n) => setCount(s.code, bs, n)}
+                            overlapCount={(bs) => overlapCount(s.code, bs)} />
                     ))}
                 </div>
 
@@ -699,14 +820,18 @@ function PlanModal({ preview, userTargets, setUserTargets, onBack, onClose, onGe
                     <button onClick={onBack} disabled={generating}
                         className="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-100">← Back</button>
                     <div className="ml-auto flex items-center gap-3 text-xs text-gray-500">
-                        <span>Total picks across sections: <strong className="text-gray-800">{
-                            preview.sections.reduce((t, s) => t + sumValues(userTargets[s.code]), 0)
-                        }</strong></span>
+                        <span>
+                            {totalN > 1
+                                ? <>Total across {totalN} mocks: <strong className="text-gray-800">{grandTotal}</strong></>
+                                : <>Total picks across sections: <strong className="text-gray-800">{
+                                    preview.sections.reduce((t, s) => t + sumValues(userTargets[s.code]), 0)
+                                  }</strong></>}
+                        </span>
                         <button onClick={onClose} disabled={generating}
                             className="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-100">Cancel</button>
                         <button onClick={onGenerate} disabled={generating}
                             className="px-4 py-1.5 bg-green-600 text-white text-sm font-bold rounded hover:bg-green-700 disabled:opacity-50">
-                            {generating ? 'Generating…' : 'Generate mock'}
+                            {generating ? 'Generating…' : `Generate ${totalN > 1 ? `${totalN} mocks` : 'mock'}`}
                         </button>
                     </div>
                 </div>
@@ -722,7 +847,7 @@ function sumValues(obj) {
     return n;
 }
 
-function PlanSectionPanel({ section, userTargets, filter, setCount }) {
+function PlanSectionPanel({ section, userTargets, filter, setCount, overlapCount }) {
     const [expanded, setExpanded] = useState(() => {
         // Default: expand only spec slugs that have nonzero user targets, or
         // any group with pool > 0 if user has nothing yet.
@@ -802,9 +927,16 @@ function PlanSectionPanel({ section, userTargets, filter, setCount }) {
                                     {visible.map(c => {
                                         const cur = userTargets[c.bank_subtype] || 0;
                                         const over = cur > c.pool;
+                                        const otherMocks = overlapCount ? overlapCount(c.bank_subtype) : 0;
                                         return (
                                             <div key={c.bank_subtype} className={`flex items-center gap-2 px-3 py-1.5 text-xs ${over ? 'bg-red-50' : ''}`}>
                                                 <span className="flex-1 min-w-0 font-mono truncate text-gray-700" title={c.bank_subtype}>{c.bank_subtype}</span>
+                                                {cur > 0 && otherMocks > 0 && (
+                                                    <span className="text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 rounded px-1.5 py-0.5"
+                                                        title={`This bank subtype also appears in ${otherMocks} other mock(s) in the batch`}>
+                                                        ⚠ ×{otherMocks + 1}
+                                                    </span>
+                                                )}
                                                 <span className="text-gray-500 w-16 text-right tabular-nums">
                                                     pool {c.pool}
                                                 </span>
