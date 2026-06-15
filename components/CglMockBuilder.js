@@ -1226,7 +1226,7 @@ function MockReview({ spec, mockTestId, onChanged }) {
                 </div>
             )}
 
-            <SubtypeAnalysis sections={sections} />
+            <SubtypeAnalysis spec={spec} sections={sections} />
 
             <div className="flex flex-col lg:flex-row items-start">
                 {/* LHS sticky navigation */}
@@ -1339,8 +1339,9 @@ function MockReview({ spec, mockTestId, onChanged }) {
 
 const SECTION_LABEL_SHORT = { REASONING: 'REASONING', GA: 'GA', QUANT: 'QUANT', ENGLISH: 'ENGLISH' };
 
-function SubtypeAnalysis({ sections }) {
+function SubtypeAnalysis({ spec, sections }) {
     const [collapsed, setCollapsed] = useState(false);
+    const SECTION_SPEC = spec?.SECTION_SPEC || {};
 
     const analysis = useMemo(() => {
         return sections.map(sec => {
@@ -1421,7 +1422,7 @@ function SubtypeAnalysis({ sections }) {
                 rows,
             };
         });
-    }, [sections]);
+    }, [sections, SECTION_SPEC]);
 
     return (
         <div className="border-b border-gray-200 bg-white">
