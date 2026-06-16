@@ -1714,7 +1714,7 @@ export default function NewSolutionReviewBilingual({ exams }) {
     }, [enUnlinked, hiUnlinked]);
 
     return (
-        <div className="flex flex-col h-screen overflow-hidden bg-white">
+        <div className="flex flex-col min-h-screen bg-white">
             {/* Top Bar — Row 1: Selectors */}
             <div className="flex-shrink-0 bg-white border-b border-gray-200 shadow-sm px-4 py-2 space-y-2">
                 <div className="flex items-center gap-3">
@@ -1941,10 +1941,10 @@ export default function NewSolutionReviewBilingual({ exams }) {
             </div>
 
             {/* Body */}
-            <div className="flex flex-1 overflow-hidden">
+            <div className="flex">
                 {/* Left Sidebar */}
                 {selectedPair && (questions.length > 0 || enUnlinked.length > 0 || hiUnlinked.length > 0) && (
-                    <aside className="w-56 flex-shrink-0 border-r border-gray-200 bg-white overflow-y-auto p-3">
+                    <aside className="w-56 flex-shrink-0 border-r border-gray-200 bg-white p-3">
                         {/* Language toggle */}
                         <div className="flex items-center gap-1 mb-3 pb-2 border-b border-gray-100">
                             <span className="text-[10px] font-semibold text-gray-500 uppercase mr-1">View</span>
@@ -2048,16 +2048,16 @@ export default function NewSolutionReviewBilingual({ exams }) {
                 )}
 
                 {/* Main Content */}
-                <main className="flex-1 overflow-y-auto bg-gray-50">
+                <main className="flex-1 bg-gray-50">
                     {!selectedExamId ? (
-                        <div className="flex items-center justify-center h-full">
+                        <div className="flex items-center justify-center min-h-[60vh]">
                             <div className="text-center">
                                 <h2 className="text-xl font-semibold text-gray-700">Select an exam</h2>
                                 <p className="text-gray-400 mt-2 text-sm">Choose an exam and paper pair to review bilingual solutions.</p>
                             </div>
                         </div>
                     ) : !selectedPair ? (
-                        <div className="flex items-center justify-center h-full">
+                        <div className="flex items-center justify-center min-h-[60vh]">
                             <div className="text-center">
                                 <h2 className="text-xl font-semibold text-gray-700">Select a paper pair</h2>
                                 <p className="text-gray-400 mt-2 text-sm">
