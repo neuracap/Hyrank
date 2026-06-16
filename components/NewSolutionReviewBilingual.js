@@ -1261,6 +1261,7 @@ export default function NewSolutionReviewBilingual({ exams }) {
     const [addOpen, setAddOpen] = useState(false);
     const [linking, setLinking] = useState(false);
     const [sidebarLang, setSidebarLang] = useState('EN'); // 'EN' | 'HI'
+    const [reclassifyingTag, setReclassifyingTag] = useState(null); // section code or '__smart__'
 
     const handleAdvanceStatus = async (sessionId, nextStatus) => {
         if (!confirm(`Move paper to ${nextStatus}?`)) return;
@@ -1368,6 +1369,52 @@ export default function NewSolutionReviewBilingual({ exams }) {
             setLoadingUnlinked(false);
         }
     };
+
+    // Reclassify questions whose section assignment is wrong. Fires the same
+    // /api/paper/reclassify endpoint the /test page uses, but for BOTH EN and
+    // HI papers of this bilingual pair in parallel so the pair stays in sync.
+    // tag === '__smart__' triggers smart redistribute (oversized → undersized).
+    const runReclassify = useCallback(async (tag) => {
+        if (!selectedPair) return;
+        const smart = tag === '__smart__';
+        const confirmMsg = smart
+            ? 'Smart Reclassify: detect oversized sections and redistribute into undersized/missing ones, applied to BOTH the EN and HI papers. Continue?'
+            : `Reclassify questions in "${tag}" on BOTH the EN and HI papers? AI will analyze each.`;
+        if (!confirm(confirmMsg)) return;
+        setReclassifyingTag(tag);
+        try {
+            const bodyFor = (sid) => smart
+                ? { paper_session_id: sid, smart: true }
+                : { paper_session_id: sid, source_section: tag };
+            const [enRes, hiRes] = await Promise.all([
+                fetch('/api/paper/reclassify', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(bodyFor(selectedPair.en_session_id)),
+                }),
+                fetch('/api/paper/reclassify', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(bodyFor(selectedPair.hi_session_id)),
+                }),
+            ]);
+            const enData = await enRes.json();
+            const hiData = await hiRes.json();
+            const parts = [];
+            if (enData?.success) parts.push(`EN: ${enData.message || 'ok'}`);
+            else parts.push(`EN: ${enData?.error || 'failed'}`);
+            if (hiData?.success) parts.push(`HI: ${hiData.message || 'ok'}`);
+            else parts.push(`HI: ${hiData?.error || 'failed'}`);
+            setFeedback({
+                type: (enData?.success && hiData?.success) ? 'success' : 'error',
+                msg: parts.join(' · '),
+            });
+            setTimeout(() => setFeedback(null), 5000);
+            await loadQuestions(selectedPair.en_session_id, selectedPair.hi_session_id);
+        } catch (e) {
+            setFeedback({ type: 'error', msg: e.message });
+        } finally {
+            setReclassifyingTag(null);
+        }
+    }, [selectedPair]);
 
     // Link one or more EN/HI standalone rows into pairs in a single transaction.
     const linkPairs = useCallback(async (pairs) => {
@@ -1818,20 +1865,45 @@ export default function NewSolutionReviewBilingual({ exams }) {
                                             <th className="text-center font-semibold px-2 py-1 text-amber-700">Unlinked</th>
                                             <th className="text-center font-semibold px-2 py-1 text-red-700">Missing</th>
                                             <th className="text-center font-semibold px-2 py-1">Total</th>
+                                            <th className="text-center font-semibold px-2 py-1">Reclassify</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {sectionStats.map(s => (
-                                            <tr key={s.code} className="border-t border-gray-100">
-                                                <td className="px-2 py-1 font-semibold text-gray-700">{s.code}</td>
-                                                <td className="text-center px-2 py-1"><span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-bold">{s.linked}</span></td>
-                                                <td className="text-center px-2 py-1"><span className={`px-1.5 py-0.5 rounded font-bold ${s.unlinked > 0 ? 'bg-amber-100 text-amber-700' : 'text-gray-400'}`}>{s.unlinked || '-'}</span></td>
-                                                <td className="text-center px-2 py-1"><span className={`px-1.5 py-0.5 rounded font-bold ${s.missing > 0 ? 'bg-red-100 text-red-700' : 'text-gray-400'}`}>{s.missing || '-'}</span></td>
-                                                <td className="text-center px-2 py-1 font-semibold">{s.total}</td>
-                                            </tr>
-                                        ))}
+                                        {sectionStats.map(s => {
+                                            const busy = reclassifyingTag === s.code;
+                                            return (
+                                                <tr key={s.code} className="border-t border-gray-100">
+                                                    <td className="px-2 py-1 font-semibold text-gray-700">{s.code}</td>
+                                                    <td className="text-center px-2 py-1"><span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-bold">{s.linked}</span></td>
+                                                    <td className="text-center px-2 py-1"><span className={`px-1.5 py-0.5 rounded font-bold ${s.unlinked > 0 ? 'bg-amber-100 text-amber-700' : 'text-gray-400'}`}>{s.unlinked || '-'}</span></td>
+                                                    <td className="text-center px-2 py-1"><span className={`px-1.5 py-0.5 rounded font-bold ${s.missing > 0 ? 'bg-red-100 text-red-700' : 'text-gray-400'}`}>{s.missing || '-'}</span></td>
+                                                    <td className="text-center px-2 py-1 font-semibold">{s.total}</td>
+                                                    <td className="text-center px-2 py-1">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => runReclassify(s.code)}
+                                                            disabled={!!reclassifyingTag}
+                                                            title={`Reclassify "${s.code}" questions on both the EN and HI papers via AI`}
+                                                            className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors disabled:opacity-50"
+                                                        >
+                                                            {busy ? (
+                                                                <svg className="animate-spin h-3.5 w-3.5 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                                </svg>
+                                                            ) : (
+                                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                                                                    <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H3.989a.75.75 0 00-.75.75v4.242a.75.75 0 001.5 0v-2.43l.31.31a7 7 0 0011.712-3.138.75.75 0 00-1.449-.39zm1.23-3.723a.75.75 0 00.219-.53V2.929a.75.75 0 00-1.5 0v2.436l-.31-.31A7 7 0 003.239 8.188a.75.75 0 101.448.389A5.5 5.5 0 0113.89 6.11l.311.31h-2.432a.75.75 0 000 1.5h4.243a.75.75 0 00.53-.219z" clipRule="evenodd" />
+                                                                </svg>
+                                                            )}
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
                                         {sectionStats.length > 1 && (() => {
                                             const sum = (k) => sectionStats.reduce((a, r) => a + (r[k] || 0), 0);
+                                            const smartBusy = reclassifyingTag === '__smart__';
                                             return (
                                                 <tr className="border-t border-gray-300 font-bold">
                                                     <td className="px-2 py-1 text-gray-700">Total</td>
@@ -1839,6 +1911,17 @@ export default function NewSolutionReviewBilingual({ exams }) {
                                                     <td className="text-center px-2 py-1"><span className={`px-1.5 py-0.5 rounded ${sum('unlinked') > 0 ? 'bg-amber-100 text-amber-700' : 'text-gray-400'}`}>{sum('unlinked') || '-'}</span></td>
                                                     <td className="text-center px-2 py-1"><span className={`px-1.5 py-0.5 rounded ${sum('missing') > 0 ? 'bg-red-100 text-red-700' : 'text-gray-400'}`}>{sum('missing') || '-'}</span></td>
                                                     <td className="text-center px-2 py-1 font-bold">{sum('total')}</td>
+                                                    <td className="text-center px-2 py-1">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => runReclassify('__smart__')}
+                                                            disabled={!!reclassifyingTag}
+                                                            title="Smart Reclassify: oversized sections → undersized/missing ones, applied to both EN and HI papers"
+                                                            className="px-2 py-0.5 text-[10px] font-bold bg-violet-50 text-violet-700 border border-violet-200 rounded hover:bg-violet-100 disabled:opacity-50"
+                                                        >
+                                                            {smartBusy ? 'Working…' : 'Smart'}
+                                                        </button>
+                                                    </td>
                                                 </tr>
                                             );
                                         })()}
