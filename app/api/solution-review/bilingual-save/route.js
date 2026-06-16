@@ -136,6 +136,24 @@ export async function POST(req) {
         }
         await applyQuestionEdits(hi, 'HI');
 
+        // Refresh the denormalized paper_session.solution_done_count (and
+        // sibling count columns) for whichever paper sessions we touched.
+        // The DB trigger SHOULD do this on its own, but field reports show
+        // it occasionally fails to fire for HI sessions; calling the helper
+        // explicitly here makes the dropdown on /new-solution-review-bilingual
+        // stay accurate without relying on a periodic recount.
+        const refreshSession = async (questionId, language) => {
+            if (!questionId || !language) return;
+            await client.query(`
+                SELECT refresh_paper_session_counts(qv.paper_session_id)
+                FROM question_version qv
+                WHERE qv.question_id = $1 AND qv.language = $2 AND qv.paper_session_id IS NOT NULL
+                LIMIT 1
+            `, [questionId, language]);
+        };
+        await refreshSession(en?.question_id, 'EN');
+        await refreshSession(hi?.question_id, 'HI');
+
         await client.query('COMMIT');
         return NextResponse.json({ success: true });
 
