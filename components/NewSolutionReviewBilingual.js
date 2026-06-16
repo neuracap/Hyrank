@@ -440,10 +440,14 @@ function useHasBeenVisible(ref, rootMargin = '600px') {
 // =========================================================
 // Bilingual question pair card (editable)
 // =========================================================
-const BilingualCard = memo(function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange }) {
+const BilingualCard = memo(function BilingualCard({ pair, idx, onSaveSuccess, onDifficultyChange, eagerMount = false }) {
     const [expanded, setExpanded] = useState(true);
     const rootRef = useRef(null);
-    const hasBeenVisible = useHasBeenVisible(rootRef);
+    const observed = useHasBeenVisible(rootRef);
+    // Either visible (default lazy path) OR the parent has flipped the eager
+    // flag — used when jumping to an anchor from the sidebar so cards above
+    // the target don't lazy-grow mid-scroll and push the target off-screen.
+    const hasBeenVisible = observed || eagerMount;
 
     // Edit state for EN and HI
     const enSections = toArray(pair.en?.solution_json?.display_sections);
@@ -1262,6 +1266,9 @@ export default function NewSolutionReviewBilingual({ exams }) {
     const [linking, setLinking] = useState(false);
     const [sidebarLang, setSidebarLang] = useState('EN'); // 'EN' | 'HI'
     const [reclassifyingTag, setReclassifyingTag] = useState(null); // section code or '__smart__'
+    // Flipped true once the user navigates via the sidebar so all
+    // BilingualCards mount eagerly (no more layout shift mid-scroll).
+    const [eagerMount, setEagerMount] = useState(false);
 
     const handleAdvanceStatus = async (sessionId, nextStatus) => {
         if (!confirm(`Move paper to ${nextStatus}?`)) return;
@@ -1998,7 +2005,23 @@ export default function NewSolutionReviewBilingual({ exams }) {
                                                     href={`#${item.anchorId}`}
                                                     onClick={e => {
                                                         e.preventDefault();
-                                                        document.getElementById(item.anchorId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                                        // Eager-mount every card so any lazy growth above
+                                                        // the target doesn't push it off-screen mid-scroll.
+                                                        const wasEager = eagerMount;
+                                                        if (!wasEager) setEagerMount(true);
+                                                        // Scroll instantly to land on the right spot; the
+                                                        // smooth animation was the source of the drift bug.
+                                                        // If we just flipped eagerMount, defer one frame so
+                                                        // React commits the mount before measuring.
+                                                        const doScroll = () => {
+                                                            const el = document.getElementById(item.anchorId);
+                                                            if (el) el.scrollIntoView({ behavior: 'auto', block: 'start' });
+                                                        };
+                                                        if (wasEager) {
+                                                            doScroll();
+                                                        } else {
+                                                            requestAnimationFrame(() => requestAnimationFrame(doScroll));
+                                                        }
                                                     }}
                                                     className={`relative flex items-center justify-center aspect-square text-xs font-medium rounded border transition-colors ${colorClass}`}
                                                     title={titleParts.join(' · ')}
@@ -2055,7 +2078,7 @@ export default function NewSolutionReviewBilingual({ exams }) {
                         <div className="max-w-7xl mx-auto px-4 py-6 space-y-4">
                             {filteredQuestions.map((q, idx) => (
                                 <div key={q.link_id} id={`bp-${q.link_id}`}>
-                                    <BilingualCard pair={q} idx={idx} onDifficultyChange={handleDifficultyChange} />
+                                    <BilingualCard pair={q} idx={idx} onDifficultyChange={handleDifficultyChange} eagerMount={eagerMount} />
                                 </div>
                             ))}
 
@@ -2105,7 +2128,7 @@ export default function NewSolutionReviewBilingual({ exams }) {
                                                                     onLink={(pair) => linkPairs([pair])}
                                                                     busy={linking}
                                                                 />
-                                                                <BilingualCard pair={pseudoPair} idx={idx} onDifficultyChange={handleDifficultyChange} />
+                                                                <BilingualCard pair={pseudoPair} idx={idx} onDifficultyChange={handleDifficultyChange} eagerMount={eagerMount} />
                                                             </div>
                                                         );
                                                     })}
@@ -2147,7 +2170,7 @@ export default function NewSolutionReviewBilingual({ exams }) {
                                                                     onLink={(pair) => linkPairs([pair])}
                                                                     busy={linking}
                                                                 />
-                                                                <BilingualCard pair={pseudoPair} idx={idx} onDifficultyChange={handleDifficultyChange} />
+                                                                <BilingualCard pair={pseudoPair} idx={idx} onDifficultyChange={handleDifficultyChange} eagerMount={eagerMount} />
                                                             </div>
                                                         );
                                                     })}
