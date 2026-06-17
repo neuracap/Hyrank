@@ -165,8 +165,18 @@ function EditableSolutionPanel({ lang, data, label, editState, onEditChange, onT
         const el = e.target;
         const start = (typeof el.selectionStart === 'number') ? el.selectionStart : currentValue.length;
         const end   = (typeof el.selectionEnd   === 'number') ? el.selectionEnd   : currentValue.length;
-        const file = imgItem.getAsFile();
+        // Capture the file synchronously while the clipboard is still valid.
+        // Fall back to clipboardData.files if items.getAsFile() yields a
+        // zero-byte blob (happens for some clipboard sources / browsers).
+        let file = imgItem.getAsFile();
+        if ((!file || file.size === 0) && e.clipboardData?.files?.length) {
+            file = e.clipboardData.files[0];
+        }
         if (!file) return;
+        if (file.size === 0) {
+            setUploadErr('Image upload failed: clipboard image is empty (0 bytes). Try copying the image again, or use a screenshot snip (Win+Shift+S).');
+            return;
+        }
         setUploadingImage(true);
         setUploadErr(null);
         try {

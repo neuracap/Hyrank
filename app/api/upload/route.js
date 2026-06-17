@@ -65,7 +65,7 @@ export async function POST(request) {
 
             if (!header.startsWith('data:') || !header.includes('base64') || !base64Body) {
                 return NextResponse.json(
-                    { error: `Invalid data URL (header: ${header.slice(0, 40)})` },
+                    { error: `Invalid data URL (header: "${header.slice(0, 40)}", payload bytes: ${base64Body.length})` },
                     { status: 400 }
                 );
             }
