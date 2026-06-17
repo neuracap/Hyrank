@@ -52,17 +52,27 @@ export async function POST(request) {
             optionKey = body.option_key;
             versionNo = body.version_no;
 
-            if (!dataUrl) {
+            if (!dataUrl || typeof dataUrl !== 'string') {
                 return NextResponse.json({ error: 'No data URL provided' }, { status: 400 });
             }
 
-            const matches = dataUrl.match(/^data:([A-Za-z0-9.+\/-]+);base64,(.+)$/);
-            if (!matches || matches.length !== 3) {
-                return NextResponse.json({ error: 'Invalid data URL' }, { status: 400 });
+            // Tolerant parse: split on the first comma rather than a strict
+            // regex, so unusual MIME types / empty MIME / large payloads still
+            // work. Expected header form: "data:<mime>;base64".
+            const commaIdx = dataUrl.indexOf(',');
+            const header = commaIdx >= 0 ? dataUrl.slice(0, commaIdx) : '';
+            const base64Body = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : '';
+
+            if (!header.startsWith('data:') || !header.includes('base64') || !base64Body) {
+                return NextResponse.json(
+                    { error: `Invalid data URL (header: ${header.slice(0, 40)})` },
+                    { status: 400 }
+                );
             }
 
-            mimeType = matches[1];
-            fileBuffer = Buffer.from(matches[2], 'base64');
+            // mime sits between "data:" and the first ";" (may be empty)
+            mimeType = header.slice('data:'.length).split(';')[0] || 'image/png';
+            fileBuffer = Buffer.from(base64Body, 'base64');
             originalName = 'image.png';
         } else {
             return NextResponse.json({ error: 'Unsupported Content-Type' }, { status: 400 });
