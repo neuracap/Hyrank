@@ -309,32 +309,24 @@ const DEFAULT_CONFIG = {
     mock_count: 1,
 };
 
-// Auto-distribute the suggested per-section bank_subtype plan across N mocks.
-// Round-robin assignment with a rotating start offset per bank_subtype: the
-// first subtype seeds mock 0, the second seeds mock 1, etc. This produces
-// soft anti-overlap — each mock leads with a different variation when there
-// are enough variations to go around. Single-subtype slots that exceed N
-// will share copies across mocks (acceptable when the pool is thin).
+// Seed N mocks with a deep copy of the suggested plan each. Every mock asks
+// for the full ~100 questions; the backend's cross-mock excludedIds set picks
+// different concrete question_ids for each so no question repeats across the
+// batch. Subtype distribution is identical per mock by default — the user can
+// tune per-mock in the planning step if they want different shapes.
 function autoDistributeAcrossMocks(suggestedPlan, N) {
-    const out = Array.from({ length: N }, () => ({}));
-    let startOffset = 0;
-    for (const [section, byBankSubtype] of Object.entries(suggestedPlan || {})) {
-        for (const m of out) m[section] = {};
-        const entries = Object.entries(byBankSubtype || {})
-            .filter(([, c]) => (parseInt(c, 10) || 0) > 0)
-            // Largest count first so subtypes with most copies seed earliest,
-            // and the rotating offset still keeps the lead-subtype distinct
-            // per mock.
-            .sort((a, b) => (b[1] - a[1]));
-        for (const [bankSubtype, count] of entries) {
-            for (let k = 0; k < count; k++) {
-                const m = (startOffset + k) % N;
-                out[m][section][bankSubtype] = (out[m][section][bankSubtype] || 0) + 1;
+    const cloneSectionMap = (sectionMap) => {
+        const out = {};
+        for (const [section, byBankSubtype] of Object.entries(sectionMap || {})) {
+            out[section] = {};
+            for (const [bankSubtype, count] of Object.entries(byBankSubtype || {})) {
+                const c = parseInt(count, 10) || 0;
+                if (c > 0) out[section][bankSubtype] = c;
             }
-            startOffset = (startOffset + 1) % N;
         }
-    }
-    return out;
+        return out;
+    };
+    return Array.from({ length: N }, () => cloneSectionMap(suggestedPlan));
 }
 
 export default function CglMockBuilder({ examKey = 'cgl-t1' } = {}) {
@@ -625,9 +617,10 @@ function ConfigModal({ spec, config, setConfig, difficultyProfile, setDifficulty
                     </div>
                     {Number(config.mock_count) > 1 && (
                         <p className="text-[11px] text-indigo-900 mt-2">
-                            Suggested plan will be auto-distributed across the {config.mock_count} mocks
-                            so each leads with a different bank-subtype variation. You can fine-tune
-                            per-mock in the next step. Cross-mock question dedup is automatic.
+                            Each of the {config.mock_count} mocks will be seeded with the full suggested
+                            plan ({SECTION_TOTAL} questions per mock). The backend picks distinct
+                            question_ids across the batch so nothing repeats. Fine-tune per mock in the
+                            next step if you want different subtype shapes.
                         </p>
                     )}
                 </div>
