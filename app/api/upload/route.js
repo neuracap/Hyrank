@@ -56,8 +56,8 @@ export async function POST(request) {
                 return NextResponse.json({ error: 'No data URL provided' }, { status: 400 });
             }
 
-            const matches = dataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-            if (matches.length !== 3) {
+            const matches = dataUrl.match(/^data:([A-Za-z0-9.+\/-]+);base64,(.+)$/);
+            if (!matches || matches.length !== 3) {
                 return NextResponse.json({ error: 'Invalid data URL' }, { status: 400 });
             }
 
