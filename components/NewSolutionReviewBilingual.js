@@ -1944,7 +1944,7 @@ export default function NewSolutionReviewBilingual({ exams }) {
             <div className="flex">
                 {/* Left Sidebar */}
                 {selectedPair && (questions.length > 0 || enUnlinked.length > 0 || hiUnlinked.length > 0) && (
-                    <aside className="w-56 flex-shrink-0 border-r border-gray-200 bg-white p-3">
+                    <aside className="w-56 flex-shrink-0 border-r border-gray-200 bg-white p-3 self-start sticky top-0 max-h-screen overflow-y-auto">
                         {/* Language toggle */}
                         <div className="flex items-center gap-1 mb-3 pb-2 border-b border-gray-100">
                             <span className="text-[10px] font-semibold text-gray-500 uppercase mr-1">View</span>
