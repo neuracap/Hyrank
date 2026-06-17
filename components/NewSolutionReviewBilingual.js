@@ -1599,6 +1599,18 @@ export default function NewSolutionReviewBilingual({ exams }) {
         return acc;
     }, {}), [questions]);
 
+    // Canonical section order: exam_section.sort_order from the /api/exam/sections
+    // fetch, indexed by section code. Used wherever we need to display sections
+    // in their intended order (REASONING -> GA -> QUANT -> ENGLISH for CGL/CHSL)
+    // instead of alphabetical.
+    const sectionOrder = useMemo(() => {
+        const m = new Map();
+        sections.forEach((s, i) => m.set(s.code, s.sort_order ?? i));
+        return m;
+    }, [sections]);
+    const cmpSection = (aCode, bCode) =>
+        (sectionOrder.get(aCode) ?? Infinity) - (sectionOrder.get(bCode) ?? Infinity);
+
     // Unified per-language sidebar items: linked pairs viewed from `sidebarLang`
     // plus the standalone rows in that language. Items are grouped by section
     // and sorted by question_number_int within each section.
@@ -1649,8 +1661,8 @@ export default function NewSolutionReviewBilingual({ exams }) {
                 doneCount: info.doneCount,
                 items: info.items.slice().sort((a, b) => (a.q_int ?? Infinity) - (b.q_int ?? Infinity)),
             }))
-            .sort((a, b) => a.section.localeCompare(b.section));
-    }, [questions, enUnlinked, hiUnlinked, sidebarLang, issueFor, mismatchCache]);
+            .sort((a, b) => cmpSection(a.section, b.section));
+    }, [questions, enUnlinked, hiUnlinked, sidebarLang, issueFor, mismatchCache, sectionOrder]);
 
     // Section-wise triage: linked pairs, unlinked standalone rows (deduped by q_int across EN+HI),
     // and numeric gaps within each section's observed question_number range.
@@ -1697,8 +1709,8 @@ export default function NewSolutionReviewBilingual({ exams }) {
                 missing,
                 total: b.linked + unlinked + missing,
             };
-        }).sort((a, c) => a.code.localeCompare(c.code));
-    }, [questions, enUnlinked, hiUnlinked]);
+        }).sort((a, c) => cmpSection(a.code, c.code));
+    }, [questions, enUnlinked, hiUnlinked, sectionOrder]);
 
     // Pairs of standalone EN+HI rows that share a question_number_int — the
     // "auto-link by Q No." bulk action operates on this. Memoized so the IIFE
