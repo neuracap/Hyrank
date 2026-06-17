@@ -45,10 +45,10 @@ export async function POST(req) {
         const now = new Date();
         const currentYq = now.getFullYear() * 4 + (Math.floor(now.getMonth() / 3) + 1);
         const caCutoffYq = currentYq - (config.ca_freshness_quarters || 4);
-        // Pool depths now include CHSL bank + CHSL PYQ (source_type IN ('bank','pyq')).
-        // The picker prefers bank within each subtype but allows up to
-        // PYQ_CAP_PER_SECTION (= 10) PYQ picks per section. CA freshness applies only
-        // to bank `ca_*` rows (PYQ ca questions don't carry relevance_year metadata).
+        // Pool depths include bank + PYQ (source_type IN ('bank','pyq')). The
+        // picker chases PYQ to PYQ_TARGET_PER_SECTION (≈ 50%) and is hard-capped
+        // at PYQ_CAP_PER_SECTION for the same value. CA freshness applies only to
+        // bank `ca_*` rows (PYQ ca questions don't carry relevance_year metadata).
         const poolRes = await client.query(`
             SELECT qv.exam_section_id, qv.subtype, qv.difficulty, qv.source_type, COUNT(*)::int AS c
             FROM question_version qv
@@ -236,7 +236,7 @@ export async function POST(req) {
             difficulty_base: SECTION_DIFFICULTY_BASE,
             placeholder_counts: placeholderCountsBySection(config),
             pyq_cap_per_section: PYQ_CAP_PER_SECTION,
-            source_split: 'bank-preferred, PYQ falls through within each topic; section-wide PYQ cap = 10 (40%)',
+            source_split: `PYQ-preferred within each topic until target met, bank after; section-wide PYQ target = cap = ${PYQ_CAP_PER_SECTION} (~50%)`,
         });
     } catch (e) {
         console.error('cgl-mock/preview error:', e);
