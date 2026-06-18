@@ -15,10 +15,116 @@ const STATUS_TONE = {
     DRAFT: 'bg-amber-100 text-amber-800 border-amber-300',
 };
 
+// Severity ordering (worst first). Used to pick the badge color when an
+// item has multiple issues.
+const SEVERITY_RANK = { high: 0, medium: 1, low: 2, ok: 3 };
+
+const SEV_CELL_CLASS = {
+    high:   'bg-red-600 text-white border-red-700',
+    medium: 'bg-orange-500 text-white border-orange-600',
+    low:    'bg-yellow-300 text-yellow-900 border-yellow-400',
+    ok:     'bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200',
+};
+
+const SEV_TAG_CLASS = {
+    high:   'bg-red-100 text-red-800 border-red-300',
+    medium: 'bg-orange-100 text-orange-800 border-orange-300',
+    low:    'bg-yellow-100 text-yellow-800 border-yellow-300',
+};
+
 async function parseResponse(res) {
     const text = await res.text();
     if (!text) return {};
     try { return JSON.parse(text); } catch { return { error: text.slice(0, 240) }; }
+}
+
+// --- Heuristic issue detection -------------------------------------------
+// Flags translations and source questions that probabilistically have errors,
+// surfaced as colored badges in the side panel + tags above each card. Tuned
+// for false-positive tolerance over recall — a flagged row is meant to draw
+// review attention, not to be auto-rejected.
+function hasDevanagari(s) {
+    return /[ऀ-ॿ]/.test(s || '');
+}
+function devanagariRatio(s) {
+    if (!s) return 0;
+    const stripped = s.replace(/[\s\d\p{P}]/gu, '');  // ignore digits / punctuation / whitespace
+    if (!stripped.length) return 0;
+    const dev = (stripped.match(/[ऀ-ॿ]/g) || []).length;
+    return dev / stripped.length;
+}
+
+function detectIssues(item) {
+    const issues = [];
+    const enStem = item.en?.body_json?.text || '';
+    const hiStem = item.hi?.body_json?.text || '';
+    const enOpts = item.en?.options || {};
+    const hiOpts = item.hi?.options || {};
+
+    // HI missing entirely.
+    if (item.hi == null) {
+        issues.push({ severity: 'high', tag: 'HI missing', detail: 'No Hindi version yet — click Translate HI.' });
+    } else {
+        // HI text identical to EN — translation didn't actually run.
+        if (hiStem && enStem && hiStem.trim() === enStem.trim()) {
+            issues.push({ severity: 'high', tag: 'HI == EN', detail: 'HI stem is identical to EN stem.' });
+        } else if (hiStem && !hasDevanagari(hiStem)) {
+            issues.push({ severity: 'high', tag: 'No Devanagari', detail: 'HI stem contains no Devanagari characters.' });
+        } else if (hiStem && devanagariRatio(hiStem) < 0.3) {
+            issues.push({ severity: 'medium', tag: 'Low Devanagari', detail: `Only ${Math.round(devanagariRatio(hiStem) * 100)}% of HI letters are Devanagari.` });
+        }
+    }
+
+    // EN looks Hindi — the user's #1 complaint.
+    if (hasDevanagari(enStem)) {
+        issues.push({ severity: 'high', tag: 'EN looks Hindi', detail: 'EN stem contains Devanagari characters — likely a mis-tagged source question.' });
+    }
+
+    // Option-level checks.
+    let shortOpts = 0;
+    let missingHiOpts = 0;
+    let identicalOpts = 0;
+    for (const k of ['A', 'B', 'C', 'D']) {
+        const enOpt = (enOpts[k]?.text || '').trim();
+        if (enOpt.length < 3 && enOpt.length > 0) shortOpts++;
+        if (enOpt.length === 0) {
+            issues.push({ severity: 'high', tag: `EN ${k} blank`, detail: `EN option ${k} is empty.` });
+        }
+        if (item.hi) {
+            const hiOpt = (hiOpts[k]?.text || '').trim();
+            if (!hiOpt) missingHiOpts++;
+            else if (hiOpt === enOpt && enOpt) identicalOpts++;
+            else if (!hasDevanagari(hiOpt) && hasDevanagari(hiStem)) {
+                // HI stem is in Devanagari but option isn't — likely missed.
+                issues.push({ severity: 'medium', tag: `Opt ${k} not HI`, detail: `HI option ${k} has no Devanagari.` });
+            }
+        }
+    }
+    if (shortOpts > 0) {
+        issues.push({ severity: 'low', tag: `Short opts (${shortOpts})`, detail: `${shortOpts} option(s) are very short.` });
+    }
+    if (missingHiOpts > 0) {
+        issues.push({ severity: 'high', tag: `Missing HI opts (${missingHiOpts})`, detail: `${missingHiOpts} HI option(s) are blank.` });
+    }
+    if (identicalOpts > 0) {
+        issues.push({ severity: 'medium', tag: `${identicalOpts} opt(s) HI==EN`, detail: `${identicalOpts} HI option(s) match EN verbatim.` });
+    }
+
+    // EN stem unusually short — possibly truncated / incomplete.
+    if (enStem.trim().length > 0 && enStem.trim().length < 20) {
+        issues.push({ severity: 'low', tag: 'Short stem', detail: 'EN stem is unusually short — may be truncated.' });
+    }
+
+    return issues;
+}
+
+function worstSeverity(issues) {
+    if (!issues || issues.length === 0) return 'ok';
+    return issues.reduce((acc, i) => (SEVERITY_RANK[i.severity] < SEVERITY_RANK[acc] ? i.severity : acc), 'ok');
+}
+
+function cardDomId(item) {
+    return `q-${item.section_code}-${item.position}`;
 }
 
 export default function HindiReview({ mockTestId }) {
@@ -28,6 +134,7 @@ export default function HindiReview({ mockTestId }) {
     const [busyKey, setBusyKey] = useState(null);
     const [sectionFilter, setSectionFilter] = useState('ALL');
     const [statusFilter, setStatusFilter] = useState('PENDING'); // PENDING | APPROVED | ALL
+    const [issuesOnly, setIssuesOnly] = useState(false);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -43,15 +150,46 @@ export default function HindiReview({ mockTestId }) {
 
     useEffect(() => { load(); }, [load]);
 
+    // Precompute issues + severity per item. Memoized off `data` so the
+    // map survives re-renders driven by filters but invalidates whenever
+    // the underlying mock content changes (translate, save, swap, junk).
+    const issuesByQid = useMemo(() => {
+        const map = new Map();
+        if (!data) return map;
+        for (const it of data.items) {
+            const issues = detectIssues(it);
+            map.set(it.question_id, { issues, severity: worstSeverity(issues) });
+        }
+        return map;
+    }, [data]);
+
+    const issueTotals = useMemo(() => {
+        const totals = { high: 0, medium: 0, low: 0 };
+        for (const v of issuesByQid.values()) {
+            if (v.severity in totals) totals[v.severity]++;
+        }
+        return totals;
+    }, [issuesByQid]);
+
     const filtered = useMemo(() => {
         if (!data) return [];
         return data.items.filter(it => {
             if (sectionFilter !== 'ALL' && it.section_code !== sectionFilter) return false;
             if (statusFilter === 'PENDING' && (it.hi == null || it.hi.status === 'APPROVED')) return false;
             if (statusFilter === 'APPROVED' && it.hi?.status !== 'APPROVED') return false;
+            if (issuesOnly && (issuesByQid.get(it.question_id)?.severity || 'ok') === 'ok') return false;
             return true;
         });
-    }, [data, sectionFilter, statusFilter]);
+    }, [data, sectionFilter, statusFilter, issuesOnly, issuesByQid]);
+
+    const scrollToCard = (item) => {
+        const el = document.getElementById(cardDomId(item));
+        if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            el.classList.add('ring-2', 'ring-blue-400');
+            setTimeout(() => el.classList.remove('ring-2', 'ring-blue-400'), 1500);
+        }
+    };
 
     const approveOne = async (item) => {
         const key = `approve-${item.question_id}`;
@@ -243,13 +381,21 @@ export default function HindiReview({ mockTestId }) {
     const { mock, review_stats } = data;
 
     return (
-        <div className="px-4 py-4 max-w-[1400px] mx-auto">
+        <div className="px-4 py-4 max-w-[1600px] mx-auto">
             <header className="mb-4 flex items-baseline justify-between border-b pb-3">
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900">Hindi Review — {mock.name}</h1>
                     <p className="text-gray-500 text-sm mt-0.5">
                         Status: <span className="font-semibold">{mock.status}</span>
                         {' · '}{review_stats.translated}/{review_stats.total} translated · {review_stats.approved} approved
+                        {(issueTotals.high + issueTotals.medium + issueTotals.low) > 0 && (
+                            <span className="ml-2 text-gray-500">
+                                · issues:
+                                {issueTotals.high   > 0 && <span className="ml-1 text-red-600 font-semibold">{issueTotals.high} high</span>}
+                                {issueTotals.medium > 0 && <span className="ml-1 text-orange-600 font-semibold">{issueTotals.medium} med</span>}
+                                {issueTotals.low    > 0 && <span className="ml-1 text-yellow-700 font-semibold">{issueTotals.low} low</span>}
+                            </span>
+                        )}
                     </p>
                 </div>
                 <div className="flex gap-2">
@@ -285,34 +431,117 @@ export default function HindiReview({ mockTestId }) {
                         {s.l}
                     </button>
                 ))}
+                <button onClick={() => setIssuesOnly(v => !v)}
+                    title="Show only rows with detected issues (red/orange/yellow)."
+                    className={`ml-3 px-2.5 py-1 rounded font-semibold border
+                        ${issuesOnly ? 'bg-red-600 text-white border-red-700' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}>
+                    {issuesOnly ? '⚠ Issues only' : '⚠ Issues only'}
+                </button>
                 <span className="ml-auto text-gray-500">Showing {filtered.length}</span>
             </div>
 
-            {filtered.length === 0 ? (
-                <div className="p-6 bg-white rounded-lg border border-gray-200 text-center text-gray-400 text-sm">
-                    Nothing matches the filters.
+            <div className="flex gap-4 items-start">
+                <IssueSidePanel
+                    items={data.items}
+                    issuesByQid={issuesByQid}
+                    onJump={scrollToCard}
+                    sectionFilter={sectionFilter} />
+
+                <div className="flex-1 min-w-0">
+                    {filtered.length === 0 ? (
+                        <div className="p-6 bg-white rounded-lg border border-gray-200 text-center text-gray-400 text-sm">
+                            Nothing matches the filters.
+                        </div>
+                    ) : (
+                        <div className="space-y-3">
+                            {filtered.map(item => (
+                                <BilingualCard key={item.question_id}
+                                    item={item}
+                                    mockTestId={mockTestId}
+                                    busyKey={busyKey}
+                                    issues={issuesByQid.get(item.question_id)?.issues || []}
+                                    onSave={(patch) => saveEdit(item, patch)}
+                                    onSaveEn={(patch) => saveEnEdit(item, patch)}
+                                    onApprove={() => approveOne(item)}
+                                    onRetranslate={() => retranslate(item)}
+                                    onSwap={() => swap(item)}
+                                    onJunk={() => junk(item)} />
+                            ))}
+                        </div>
+                    )}
                 </div>
-            ) : (
-                <div className="space-y-3">
-                    {filtered.map(item => (
-                        <BilingualCard key={item.question_id}
-                            item={item}
-                            mockTestId={mockTestId}
-                            busyKey={busyKey}
-                            onSave={(patch) => saveEdit(item, patch)}
-                            onSaveEn={(patch) => saveEnEdit(item, patch)}
-                            onApprove={() => approveOne(item)}
-                            onRetranslate={() => retranslate(item)}
-                            onSwap={() => swap(item)}
-                            onJunk={() => junk(item)} />
-                    ))}
-                </div>
-            )}
+            </div>
         </div>
     );
 }
 
-function BilingualCard({ item, mockTestId, busyKey, onSave, onSaveEn, onApprove, onRetranslate, onSwap, onJunk }) {
+// Sticky grid of question numbers, color-coded by issue severity.
+// Lives to the left of the cards on the review page. Click → scroll to card.
+function IssueSidePanel({ items, issuesByQid, onJump, sectionFilter }) {
+    // Group by section, preserving the order items already arrived in
+    // (the API sorts by exam_section_id then position).
+    const sections = useMemo(() => {
+        const grouped = {};
+        for (const it of items) {
+            const k = it.section_code || '?';
+            if (!grouped[k]) grouped[k] = [];
+            grouped[k].push(it);
+        }
+        return Object.entries(grouped);
+    }, [items]);
+
+    return (
+        <aside className="w-56 shrink-0 sticky top-4 bg-white border border-gray-200 rounded-lg p-3 text-xs self-start max-h-[calc(100vh-2rem)] overflow-y-auto">
+            <div className="font-bold text-gray-700 mb-1">Questions</div>
+            <div className="text-[10px] text-gray-500 mb-2 leading-tight">
+                Click a number to jump. Color = worst issue severity.
+            </div>
+            <div className="flex gap-1 flex-wrap text-[10px] text-gray-500 mb-3">
+                <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-600 inline-block" />high</span>
+                <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-orange-500 inline-block" />med</span>
+                <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-yellow-300 inline-block" />low</span>
+                <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-gray-100 border border-gray-200 inline-block" />ok</span>
+            </div>
+            {sections.map(([sec, list]) => {
+                if (sectionFilter !== 'ALL' && sec !== sectionFilter) return null;
+                const sectionIssueCount = list.reduce((acc, it) => {
+                    const sev = issuesByQid.get(it.question_id)?.severity || 'ok';
+                    return sev === 'ok' ? acc : acc + 1;
+                }, 0);
+                return (
+                    <div key={sec} className="mb-3">
+                        <div className="flex items-baseline justify-between mb-1">
+                            <span className="font-mono font-bold text-gray-700">{sec}</span>
+                            {sectionIssueCount > 0 && (
+                                <span className="text-[10px] text-gray-500">{sectionIssueCount} issue(s)</span>
+                            )}
+                        </div>
+                        <div className="grid grid-cols-5 gap-1">
+                            {list.map(it => {
+                                const sev = issuesByQid.get(it.question_id)?.severity || 'ok';
+                                const cls = SEV_CELL_CLASS[sev] || SEV_CELL_CLASS.ok;
+                                const title = sev === 'ok'
+                                    ? `#${it.position} ${sec}`
+                                    : `#${it.position} ${sec} — ` + (issuesByQid.get(it.question_id)?.issues || [])
+                                          .map(i => i.tag).join(' · ');
+                                return (
+                                    <button key={it.question_id}
+                                        onClick={() => onJump(it)}
+                                        title={title}
+                                        className={`text-[10px] font-bold py-1 rounded border ${cls}`}>
+                                        {it.position}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                );
+            })}
+        </aside>
+    );
+}
+
+function BilingualCard({ item, mockTestId, busyKey, issues = [], onSave, onSaveEn, onApprove, onRetranslate, onSwap, onJunk }) {
     const enText = item.en.body_json?.text || '';
     const enOpts = item.en.options || {};
     const hi = item.hi;
@@ -393,7 +622,17 @@ function BilingualCard({ item, mockTestId, busyKey, onSave, onSaveEn, onApprove,
     );
 
     return (
-        <div className="bg-white border border-gray-200 rounded-lg p-3">
+        <div id={cardDomId(item)} className="bg-white border border-gray-200 rounded-lg p-3 scroll-mt-4 transition-shadow">
+            {issues.length > 0 && (
+                <div className="flex gap-1.5 flex-wrap mb-2">
+                    {issues.map((iss, i) => (
+                        <span key={i} title={iss.detail}
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded border ${SEV_TAG_CLASS[iss.severity] || ''}`}>
+                            {iss.tag}
+                        </span>
+                    ))}
+                </div>
+            )}
             <div className="flex items-baseline gap-2 mb-2 flex-wrap text-xs">
                 <span className="font-bold text-gray-500">#{item.position}</span>
                 <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 font-mono">{item.section_code}</span>
