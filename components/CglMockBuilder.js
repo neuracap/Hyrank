@@ -382,6 +382,19 @@ export default function CglMockBuilder({ examKey = 'cgl-t1' } = {}) {
 
     useEffect(() => { fetchDrafts(); }, [fetchDrafts]);
 
+    // Deep-link: ?mock=<id> from /mock-tests/<id>/hindi-review's "Builder ↗"
+    // link. Auto-selects that mock once it appears in the drafts list (which
+    // may include APPROVED/PUBLISHED mocks since fetchDrafts uses status=ALL).
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const sp = new URLSearchParams(window.location.search);
+        const wanted = sp.get('mock');
+        if (!wanted) return;
+        if (drafts.some(d => d.mock_test_id === wanted)) {
+            setSelectedId(wanted);
+        }
+    }, [drafts]);
+
     const startPlanning = async () => {
         setPreviewing(true);
         setError('');
