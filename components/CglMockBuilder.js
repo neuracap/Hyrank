@@ -1228,27 +1228,80 @@ function MockReview({ spec, mockTestId, onChanged }) {
     // GD bilingual workflow uses the separate-question_id model (translated
     // HI questions get their own qids + question_links rows, matching how
     // PYQ bilingual pairs are represented). Replaces translateHindi for GD.
+    //
+    // Resilience: the route takes ~2–3 min for 60 Qs and Railway's edge
+    // proxy often returns a 502 before the response body lands, even
+    // though the backend ran to completion and committed everything.
+    // On ANY failure we re-fetch the mock; if hindi_translation_at moved
+    // past its prior value, we infer the backend finished and surface
+    // success with the persisted counts instead of a misleading error.
+    const formatTranslateCounts = (c) => {
+        c = c || {};
+        const parts = [
+            c.processed ? `translated ${c.processed}` : null,
+            c.reused    ? `reused ${c.reused}`        : null,
+            c.failed    ? `${c.failed} failed`        : null,
+        ].filter(Boolean);
+        return parts.length ? parts.join(', ') : 'no changes';
+    };
+
     const gdTranslateAndLink = async () => {
         if (!confirm('Translate REASONING / GA / QUANT (60 Qs) and link as standalone HI questions? This takes ~2–3 minutes.')) return;
         setBusyKey('gd-translate');
         setErr('');
+        const prevHindiAt = data?.mock?.stats?.hindi_translation_at || '';
+
+        // Re-fetch the mock and decide if the translate landed despite a
+        // failed/aborted response. Returns null if there's no evidence the
+        // backend completed during this click.
+        const probeRecovery = async () => {
+            try {
+                const r = await fetch(`/api/cgl-mock/${mockTestId}`);
+                if (!r.ok) return null;
+                const d = await r.json();
+                const s = d.mock?.stats || {};
+                if (s.hindi_translation_at && s.hindi_translation_at !== prevHindiAt) {
+                    return {
+                        counts: s.hindi_translation_counts || {},
+                        review_url: s.translation_paper_session_id_en
+                            ? `/bilingual/${s.translation_paper_session_id_en}`
+                            : null,
+                    };
+                }
+                return null;
+            } catch { return null; }
+        };
+
         try {
             const res = await fetch(`/api/gd-mock/${mockTestId}/translate-and-link`, { method: 'POST' });
             const j = await parseResponse(res);
-            if (!res.ok || !j.success) throw new Error(j.error || `Translate failed (${res.status})`);
+            if (!res.ok || !j.success) {
+                const rec = await probeRecovery();
+                if (rec) {
+                    await load({ silent: true });
+                    const hint = rec.review_url ? `\n\nReview at: ${rec.review_url}` : '';
+                    alert(`Proxy returned ${res.status}, but the backend completed.\nDone: ${formatTranslateCounts(rec.counts)}.${hint}`);
+                    return;
+                }
+                const proxyHint = (res.status === 502 || res.status === 504) ? ' — proxy timeout' : '';
+                throw new Error(j.error || `Translate failed (${res.status}${proxyHint})`);
+            }
             await load({ silent: true });
-            const c = j.counts || { processed: 0, reused: 0, failed: 0 };
-            const parts = [
-                c.processed ? `translated ${c.processed}` : null,
-                c.reused    ? `reused ${c.reused}`        : null,
-                c.failed    ? `${c.failed} failed`        : null,
-            ].filter(Boolean);
-            const reviewHint = j.bilingual_review_url
-                ? `\n\nReview at: ${j.bilingual_review_url}`
-                : '';
-            alert(`Done: ${parts.join(', ') || 'no changes'}.${reviewHint}`);
-        } catch (e) { setErr(e.message); }
-        finally { setBusyKey(null); }
+            const hint = j.bilingual_review_url ? `\n\nReview at: ${j.bilingual_review_url}` : '';
+            alert(`Done: ${formatTranslateCounts(j.counts)}.${hint}`);
+        } catch (e) {
+            // Network error before any HTTP status arrived (proxy dropped
+            // the socket, browser timed out, etc.). Probe in case the
+            // backend still finished.
+            const rec = await probeRecovery();
+            if (rec) {
+                await load({ silent: true });
+                const hint = rec.review_url ? `\n\nReview at: ${rec.review_url}` : '';
+                alert(`Connection dropped, but the backend completed.\nDone: ${formatTranslateCounts(rec.counts)}.${hint}`);
+                return;
+            }
+            setErr(e.message);
+        } finally { setBusyKey(null); }
     };
 
     const gdCreateHindiPair = async () => {
