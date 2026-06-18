@@ -1225,6 +1225,54 @@ function MockReview({ spec, mockTestId, onChanged }) {
         finally { setBusyKey(null); }
     };
 
+    // GD bilingual workflow uses the separate-question_id model (translated
+    // HI questions get their own qids + question_links rows, matching how
+    // PYQ bilingual pairs are represented). Replaces translateHindi for GD.
+    const gdTranslateAndLink = async () => {
+        if (!confirm('Translate REASONING / GA / QUANT (60 Qs) and link as standalone HI questions? This takes ~2–3 minutes.')) return;
+        setBusyKey('gd-translate');
+        setErr('');
+        try {
+            const res = await fetch(`/api/gd-mock/${mockTestId}/translate-and-link`, { method: 'POST' });
+            const j = await parseResponse(res);
+            if (!res.ok || !j.success) throw new Error(j.error || `Translate failed (${res.status})`);
+            await load({ silent: true });
+            const c = j.counts || { processed: 0, reused: 0, failed: 0 };
+            const parts = [
+                c.processed ? `translated ${c.processed}` : null,
+                c.reused    ? `reused ${c.reused}`        : null,
+                c.failed    ? `${c.failed} failed`        : null,
+            ].filter(Boolean);
+            const reviewHint = j.bilingual_review_url
+                ? `\n\nReview at: ${j.bilingual_review_url}`
+                : '';
+            alert(`Done: ${parts.join(', ') || 'no changes'}.${reviewHint}`);
+        } catch (e) { setErr(e.message); }
+        finally { setBusyKey(null); }
+    };
+
+    const gdCreateHindiPair = async () => {
+        if (!confirm('Create the Hindi-medium companion mock now? This picks 20 native HINDI questions and pairs them with the 60 translations.')) return;
+        setBusyKey('gd-pair');
+        setErr('');
+        try {
+            const res = await fetch(`/api/gd-mock/${mockTestId}/create-hindi-pair`, { method: 'POST' });
+            const j = await parseResponse(res);
+            if (!res.ok || !j.success) throw new Error(j.error || `Pair creation failed (${res.status})`);
+            await load({ silent: true });
+            if (j.already_paired) {
+                alert(`Already paired with mock ${j.hi_mock_id}.`);
+            } else {
+                const shortfallMsg = (j.hindi_shortfalls || []).length
+                    ? `\nShortfalls: ${j.hindi_shortfalls.map(s => `${s.spec_subtype} ${s.picked}/${s.target}`).join(', ')}`
+                    : '';
+                alert(`Hindi-medium mock created (${j.mirrored_count} mirrored + ${j.hindi_picked_count} native HI).${shortfallMsg}`);
+            }
+            if (j.hi_mock_id) onChanged?.();
+        } catch (e) { setErr(e.message); }
+        finally { setBusyKey(null); }
+    };
+
     const placeholderCount = useMemo(() => {
         if (!data) return 0;
         return data.sections.reduce((sum, s) => sum + s.items.filter(it => it.kind === 'placeholder').length, 0);
@@ -1309,7 +1357,7 @@ function MockReview({ spec, mockTestId, onChanged }) {
                             {busyKey === 'publish' ? 'Publishing…' : 'Publish'}
                         </button>
                     )}
-                    {(mock.status === 'APPROVED' || mock.status === 'PUBLISHED') && (
+                    {(mock.status === 'APPROVED' || mock.status === 'PUBLISHED') && spec.examKey !== 'gd' && (
                         <>
                             <button onClick={translateHindi}
                                 disabled={busyKey === 'translate-hi'}
@@ -1321,6 +1369,38 @@ function MockReview({ spec, mockTestId, onChanged }) {
                                 className="px-3 py-1.5 border border-purple-300 text-purple-700 text-sm font-semibold rounded hover:bg-purple-50">
                                 Hindi review →
                             </Link>
+                        </>
+                    )}
+                    {(mock.status === 'APPROVED' || mock.status === 'PUBLISHED') && spec.examKey === 'gd' && (
+                        <>
+                            {!stats.hindi_translation_at && (
+                                <button onClick={gdTranslateAndLink}
+                                    disabled={busyKey === 'gd-translate'}
+                                    title="Translate REAS / GA / QUANT (60 Qs) → standalone HI question_ids linked via question_links (~2–3 min)"
+                                    className="px-3 py-1.5 bg-purple-600 text-white text-sm font-semibold rounded hover:bg-purple-700 disabled:opacity-50">
+                                    {busyKey === 'gd-translate' ? 'Translating…' : 'Translate → Hindi'}
+                                </button>
+                            )}
+                            {stats.translation_paper_session_id_en && (
+                                <Link href={`/bilingual/${stats.translation_paper_session_id_en}`}
+                                    className="px-3 py-1.5 border border-purple-300 text-purple-700 text-sm font-semibold rounded hover:bg-purple-50">
+                                    Review HI →
+                                </Link>
+                            )}
+                            {stats.hindi_translation_at && !stats.paired_with && stats.medium !== 'HI' && (
+                                <button onClick={gdCreateHindiPair}
+                                    disabled={busyKey === 'gd-pair'}
+                                    title="Create the Hindi-medium companion mock (60 mirrored + 20 native HINDI)"
+                                    className="px-3 py-1.5 bg-emerald-600 text-white text-sm font-semibold rounded hover:bg-emerald-700 disabled:opacity-50">
+                                    {busyKey === 'gd-pair' ? 'Creating…' : 'Create Hindi pair'}
+                                </button>
+                            )}
+                            {stats.paired_with && (
+                                <Link href={`/mock-tests?open=${stats.paired_with}`}
+                                    className="px-3 py-1.5 border border-emerald-300 text-emerald-700 text-sm font-semibold rounded hover:bg-emerald-50">
+                                    {stats.medium === 'HI' ? '← EN paper' : 'HI paper →'}
+                                </Link>
+                            )}
                         </>
                     )}
                 </div>
