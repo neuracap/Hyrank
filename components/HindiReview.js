@@ -135,6 +135,8 @@ export default function HindiReview({ mockTestId }) {
     const [sectionFilter, setSectionFilter] = useState('ALL');
     const [statusFilter, setStatusFilter] = useState('PENDING'); // PENDING | APPROVED | ALL
     const [issuesOnly, setIssuesOnly] = useState(false);
+    const [editingName, setEditingName] = useState(false);
+    const [draftName, setDraftName] = useState('');
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -241,6 +243,31 @@ export default function HindiReview({ mockTestId }) {
             const j = await parseResponse(r);
             if (!r.ok || !j.success) throw new Error(j.error || `Publish failed (${r.status})`);
             await load();
+        } catch (e) { setErr(e.message); }
+        finally { setBusyKey(null); }
+    };
+
+    // Click-to-rename. Uses /api/cgl-mock/[id]/rename — the canonical
+    // rename route both the GD and CGL/CHSL builders point at — so the
+    // change is visible everywhere (builder dropdown, mock list, etc).
+    const renameMock = async () => {
+        const next = draftName.trim();
+        if (!next || !data || next === data.mock?.name) {
+            setEditingName(false);
+            return;
+        }
+        setBusyKey('rename'); setErr('');
+        try {
+            const res = await fetch(`/api/cgl-mock/${mockTestId}/rename`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: next }),
+            });
+            const j = await parseResponse(res);
+            if (!res.ok || !j.success) throw new Error(j.error || `Rename failed (${res.status})`);
+            // Local patch — no need to refetch the whole mock.
+            setData(prev => prev ? { ...prev, mock: { ...prev.mock, name: j.name } } : prev);
+            setEditingName(false);
         } catch (e) { setErr(e.message); }
         finally { setBusyKey(null); }
     };
@@ -428,8 +455,38 @@ export default function HindiReview({ mockTestId }) {
     return (
         <div className="px-4 py-4 max-w-[1600px] mx-auto">
             <header className="mb-4 flex items-baseline justify-between border-b pb-3">
-                <div>
-                    <h1 className="text-2xl font-bold text-gray-900">Hindi Review — {mock.name}</h1>
+                <div className="min-w-0 flex-1 pr-4">
+                    <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2 flex-wrap">
+                        <span className="text-gray-500">Hindi Review —</span>
+                        {editingName ? (
+                            <input type="text"
+                                value={draftName}
+                                onChange={e => setDraftName(e.target.value)}
+                                onBlur={renameMock}
+                                onKeyDown={e => {
+                                    if (e.key === 'Enter') { e.preventDefault(); renameMock(); }
+                                    if (e.key === 'Escape') { setEditingName(false); }
+                                }}
+                                autoFocus
+                                maxLength={200}
+                                disabled={busyKey === 'rename' || mock.status === 'PUBLISHED'}
+                                className="border border-blue-400 rounded px-2 py-0.5 max-w-md focus:outline-none focus:ring-2 focus:ring-blue-300 text-2xl font-bold"
+                            />
+                        ) : (
+                            <button type="button"
+                                onClick={() => {
+                                    if (mock.status === 'PUBLISHED') return;
+                                    setDraftName(mock.name || '');
+                                    setEditingName(true);
+                                }}
+                                title={mock.status === 'PUBLISHED' ? 'Published mocks cannot be renamed.' : 'Click to rename'}
+                                className="hover:bg-gray-100 rounded px-1 -mx-1 max-w-full truncate text-left disabled:opacity-100"
+                                disabled={mock.status === 'PUBLISHED'}>
+                                {mock.name}
+                                {mock.status !== 'PUBLISHED' && <span className="ml-1 text-[10px] text-gray-400 font-normal">✎ edit</span>}
+                            </button>
+                        )}
+                    </h1>
                     <p className="text-gray-500 text-sm mt-0.5">
                         Status: <span className="font-semibold">{mock.status}</span>
                         {' · '}{review_stats.translated}/{review_stats.total} translated · {review_stats.approved} approved
