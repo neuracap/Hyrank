@@ -365,13 +365,17 @@ export default function CglMockBuilder({ examKey = 'cgl-t1' } = {}) {
 
     const [selectedId, setSelectedId] = useState(null);
 
+    // Pull every status so APPROVED / PUBLISHED mocks remain accessible
+    // after "Approve all" runs — GD's Translate → Hindi + Create Hindi
+    // pair flows need to be reachable post-approval, and the same holds
+    // for re-publishing CGL/CHSL mocks.
     const fetchDrafts = useCallback(async () => {
         setLoadingList(true);
         try {
-            const res = await fetch(`${apiBase}/list?status=DRAFT&${examKeyQuery}`);
+            const res = await fetch(`${apiBase}/list?status=ALL&${examKeyQuery}`);
             const data = await res.json();
             if (res.ok && data.success) setDrafts(data.rows);
-            else throw new Error(data.error || 'Failed to load drafts');
+            else throw new Error(data.error || 'Failed to load mocks');
         } catch (e) { setError(e.message); }
         finally { setLoadingList(false); }
     }, [apiBase, examKeyQuery]);
@@ -447,10 +451,10 @@ export default function CglMockBuilder({ examKey = 'cgl-t1' } = {}) {
                 <div className="flex gap-3 items-center">
                     <select value={selectedId || ''} onChange={e => setSelectedId(e.target.value || null)}
                         className="text-sm border border-gray-300 rounded px-2 py-1.5 min-w-[280px]">
-                        <option value="">— Choose a draft to review —</option>
+                        <option value="">— Choose a mock to review —</option>
                         {drafts.map(d => (
                             <option key={d.mock_test_id} value={d.mock_test_id}>
-                                {d.name} ({d.question_count}q · {new Date(d.created_at).toLocaleDateString()})
+                                [{d.status}] {d.name} ({d.question_count}q · {new Date(d.created_at).toLocaleDateString()})
                             </option>
                         ))}
                     </select>
@@ -465,9 +469,9 @@ export default function CglMockBuilder({ examKey = 'cgl-t1' } = {}) {
 
             {!selectedId && (
                 <div className="bg-white border border-gray-200 rounded-lg p-6 text-center text-gray-500">
-                    {loadingList ? 'Loading drafts…' : drafts.length === 0
-                        ? 'No drafts yet — click "Make new mock test" above.'
-                        : 'Pick a draft from the dropdown to review it.'}
+                    {loadingList ? 'Loading mocks…' : drafts.length === 0
+                        ? 'No mocks yet — click "Make new mock test" above.'
+                        : 'Pick a mock from the dropdown to review it.'}
                 </div>
             )}
 
