@@ -206,16 +206,40 @@ export default function HindiReview({ mockTestId }) {
         finally { setBusyKey(null); }
     };
 
+    // One-click approval for both sides of the mock:
+    //   1. /hindi-review/approve {all:true}  → flips HI qv.status='APPROVED'
+    //   2. /mock-test/[id]/approve-all       → flips mtq.review_status='APPROVED'
+    //                                          AND mock.status='APPROVED'
+    //
+    // Step 2 is also what unblocks Publish (which requires mock.status='APPROVED'
+    // AND zero PENDING mtq rows — Swap/Junk insert new rows as PENDING).
     const approveAll = async () => {
-        if (!confirm('Approve every translated Hindi question in this mock?')) return;
+        if (!confirm('Approve every Hindi translation AND every English question in this mock?')) return;
         setBusyKey('approve-all'); setErr('');
         try {
-            const res = await fetch(`/api/mock-test/${mockTestId}/hindi-review/approve`, {
+            const r1 = await fetch(`/api/mock-test/${mockTestId}/hindi-review/approve`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ all: true }),
             });
-            const j = await parseResponse(res);
-            if (!res.ok || !j.success) throw new Error(j.error || `Approve-all failed (${res.status})`);
+            const j1 = await parseResponse(r1);
+            if (!r1.ok || !j1.success) throw new Error(j1.error || `Approve HI failed (${r1.status})`);
+
+            const r2 = await fetch(`/api/mock-test/${mockTestId}/approve-all`, { method: 'POST' });
+            const j2 = await parseResponse(r2);
+            if (!r2.ok || !j2.success) throw new Error(j2.error || `Approve EN failed (${r2.status})`);
+
+            await load();
+        } catch (e) { setErr(e.message); }
+        finally { setBusyKey(null); }
+    };
+
+    const publish = async () => {
+        if (!confirm('Publish this mock? It will become a permanent record (no further edits without rollback).')) return;
+        setBusyKey('publish'); setErr('');
+        try {
+            const r = await fetch(`/api/mock-test/${mockTestId}/publish`, { method: 'POST' });
+            const j = await parseResponse(r);
+            if (!r.ok || !j.success) throw new Error(j.error || `Publish failed (${r.status})`);
             await load();
         } catch (e) { setErr(e.message); }
         finally { setBusyKey(null); }
@@ -422,10 +446,24 @@ export default function HindiReview({ mockTestId }) {
                 <div className="flex gap-2">
                     <Link href="/cgl-mock-builder" className="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50">← Builder</Link>
                     <button onClick={approveAll}
-                        disabled={busyKey === 'approve-all' || review_stats.translated === 0}
+                        disabled={busyKey === 'approve-all' || review_stats.translated === 0 || mock.status === 'PUBLISHED'}
+                        title="Approves every Hindi translation AND every English question (mtq.review_status). After this, the mock can be Published."
                         className="px-3 py-1.5 bg-green-600 text-white text-sm font-bold rounded hover:bg-green-700 disabled:opacity-50">
-                        {busyKey === 'approve-all' ? 'Approving…' : 'Approve all translated'}
+                        {busyKey === 'approve-all' ? 'Approving…' : 'Approve all (EN + HI)'}
                     </button>
+                    {mock.status === 'APPROVED' && (
+                        <button onClick={publish}
+                            disabled={busyKey === 'publish'}
+                            title="Publish this mock. Refuses if any mtq row is still PENDING (Swap/Junk insert as PENDING — re-run Approve all to catch up)."
+                            className="px-3 py-1.5 bg-blue-600 text-white text-sm font-bold rounded hover:bg-blue-700 disabled:opacity-50">
+                            {busyKey === 'publish' ? 'Publishing…' : 'Publish'}
+                        </button>
+                    )}
+                    {mock.status === 'PUBLISHED' && (
+                        <span className="px-3 py-1.5 bg-emerald-100 text-emerald-800 text-sm font-bold rounded border border-emerald-300">
+                            ✓ Published
+                        </span>
+                    )}
                 </div>
             </header>
 
