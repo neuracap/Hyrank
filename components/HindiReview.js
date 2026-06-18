@@ -581,6 +581,74 @@ function BilingualCard({ item, mockTestId, busyKey, issues = [], onSave, onSaveE
     const [draftCorrect, setDraftCorrect] = useState('A');
     const [savingEn, setSavingEn] = useState(false);
 
+    // Shared image-paste state for both editors.
+    const [uploadingImage, setUploadingImage] = useState(false);
+    const [uploadErr, setUploadErr] = useState(null);
+
+    // Paste a clipboard image, upload it via /api/upload (Cloudinary), insert
+    // the resulting ![](url) markdown at the cursor position. Mirrors the
+    // pattern in NewSolutionReviewBilingual. The EN side targets the EN qid;
+    // the HI side targets the linked HI qid (item.hi_question_id), so the
+    // asset lives under the right question's namespace.
+    const handleImagePaste = async (e, currentValue, setNewValue, { language, role, optionKey }) => {
+        const items = Array.from(e.clipboardData?.items || []);
+        const imgItem = items.find(it => it.type && it.type.startsWith('image/'));
+        if (!imgItem) return;
+        e.preventDefault();
+        const el = e.target;
+        const start = (typeof el.selectionStart === 'number') ? el.selectionStart : currentValue.length;
+        const end   = (typeof el.selectionEnd   === 'number') ? el.selectionEnd   : currentValue.length;
+
+        let file = imgItem.getAsFile();
+        if ((!file || file.size === 0) && e.clipboardData?.files?.length) {
+            file = e.clipboardData.files[0];
+        }
+        if (!file) return;
+        if (file.size === 0) {
+            setUploadErr('Clipboard image is empty (0 bytes). Try copying again, or use Win+Shift+S.');
+            return;
+        }
+
+        const targetQid = language === 'HI'
+            ? (item.hi_question_id || item.question_id)
+            : item.question_id;
+        const targetVersion = language === 'HI'
+            ? (item.hi_version_no ?? item.version_no)
+            : item.version_no;
+
+        setUploadingImage(true); setUploadErr(null);
+        try {
+            const dataUrl = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(new Error('Could not read image'));
+                reader.readAsDataURL(file);
+            });
+            const body = {
+                data: dataUrl,
+                question_id: targetQid,
+                version_no: targetVersion,
+                language,
+                role,
+            };
+            if (optionKey) body.option_key = optionKey;
+            const res = await fetch('/api/upload', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const json = await res.json();
+            const url = json.latexPath || json.secure_url || json.url;
+            if (!res.ok || !url) throw new Error(json.error || 'Upload failed');
+            const markdown = `![](${url})`;
+            setNewValue(currentValue.slice(0, start) + markdown + currentValue.slice(end));
+        } catch (err) {
+            setUploadErr('Image upload failed: ' + err.message);
+        } finally {
+            setUploadingImage(false);
+        }
+    };
+
     const startEdit = () => {
         setDraftStem(hiText);
         setDraftOpts({
@@ -739,7 +807,14 @@ function BilingualCard({ item, mockTestId, busyKey, issues = [], onSave, onSaveE
                         </>
                     ) : (
                         <>
-                            <textarea value={draftEnStem} onChange={e => setDraftEnStem(e.target.value)}
+                            <div className="flex items-center justify-between mb-0.5">
+                                <span className="text-[10px] font-bold text-gray-500 uppercase">Stem</span>
+                                <span className="text-[10px] text-gray-400">paste image (Ctrl+V) supported</span>
+                            </div>
+                            <textarea value={draftEnStem}
+                                onChange={e => setDraftEnStem(e.target.value)}
+                                onPaste={e => handleImagePaste(e, draftEnStem, setDraftEnStem,
+                                    { language: 'EN', role: 'stem' })}
                                 rows={Math.max(3, Math.min(10, Math.ceil((draftEnStem.length || 0) / 80)))}
                                 className="w-full p-2 border border-amber-400 rounded text-sm font-mono mb-1.5" />
                             {['A', 'B', 'C', 'D'].map(k => (
@@ -753,15 +828,25 @@ function BilingualCard({ item, mockTestId, busyKey, issues = [], onSave, onSaveE
                                     </label>
                                     <input type="text" value={draftEnOpts[k]}
                                         onChange={e => setDraftEnOpts(prev => ({ ...prev, [k]: e.target.value }))}
+                                        onPaste={e => handleImagePaste(e, draftEnOpts[k],
+                                            (next) => setDraftEnOpts(prev => ({ ...prev, [k]: next })),
+                                            { language: 'EN', role: 'option', optionKey: k })}
                                         className="flex-1 p-1.5 border border-amber-200 rounded text-sm font-mono" />
                                 </div>
                             ))}
+                            {(uploadingImage || uploadErr) && (
+                                <div className={`text-[11px] rounded px-2 py-1 mt-1 ${uploadingImage
+                                    ? 'bg-amber-50 border border-amber-200 text-amber-700'
+                                    : 'bg-red-50 border border-red-200 text-red-700'}`}>
+                                    {uploadingImage ? 'Uploading image…' : uploadErr}
+                                </div>
+                            )}
                             <div className="flex gap-2 justify-end mt-2">
-                                <button onClick={() => setEditingEn(false)} disabled={savingEn}
+                                <button onClick={() => setEditingEn(false)} disabled={savingEn || uploadingImage}
                                     className="text-xs px-2 py-1 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50">
                                     Cancel
                                 </button>
-                                <button onClick={saveEn} disabled={savingEn}
+                                <button onClick={saveEn} disabled={savingEn || uploadingImage}
                                     title="Save EN changes. HI will be marked DRAFT — click Re-translate to refresh."
                                     className="text-xs px-3 py-1 bg-amber-600 text-white font-bold rounded hover:bg-amber-700 disabled:opacity-50">
                                     {savingEn ? 'Saving…' : 'Save EN'}
@@ -791,7 +876,14 @@ function BilingualCard({ item, mockTestId, busyKey, issues = [], onSave, onSaveE
                         </>
                     ) : (
                         <>
-                            <textarea value={draftStem} onChange={e => setDraftStem(e.target.value)}
+                            <div className="flex items-center justify-between mb-0.5">
+                                <span className="text-[10px] font-bold text-gray-500 uppercase">Stem</span>
+                                <span className="text-[10px] text-gray-400">paste image (Ctrl+V) supported</span>
+                            </div>
+                            <textarea value={draftStem}
+                                onChange={e => setDraftStem(e.target.value)}
+                                onPaste={e => handleImagePaste(e, draftStem, setDraftStem,
+                                    { language: 'HI', role: 'stem' })}
                                 rows={Math.max(3, Math.min(10, Math.ceil((draftStem.length || 0) / 80)))}
                                 className="w-full p-2 border border-purple-300 rounded text-sm font-mono mb-1.5" />
                             {['A', 'B', 'C', 'D'].map(k => (
@@ -799,15 +891,25 @@ function BilingualCard({ item, mockTestId, busyKey, issues = [], onSave, onSaveE
                                     <span className="font-bold text-gray-600 w-4">{k}.</span>
                                     <input type="text" value={draftOpts[k]}
                                         onChange={e => setDraftOpts(prev => ({ ...prev, [k]: e.target.value }))}
+                                        onPaste={e => handleImagePaste(e, draftOpts[k],
+                                            (next) => setDraftOpts(prev => ({ ...prev, [k]: next })),
+                                            { language: 'HI', role: 'option', optionKey: k })}
                                         className="flex-1 p-1.5 border border-purple-200 rounded text-sm font-mono" />
                                 </div>
                             ))}
+                            {(uploadingImage || uploadErr) && (
+                                <div className={`text-[11px] rounded px-2 py-1 mt-1 ${uploadingImage
+                                    ? 'bg-amber-50 border border-amber-200 text-amber-700'
+                                    : 'bg-red-50 border border-red-200 text-red-700'}`}>
+                                    {uploadingImage ? 'Uploading image…' : uploadErr}
+                                </div>
+                            )}
                             <div className="flex gap-2 justify-end mt-2">
-                                <button onClick={() => setEditing(false)} disabled={saving}
+                                <button onClick={() => setEditing(false)} disabled={saving || uploadingImage}
                                     className="text-xs px-2 py-1 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50">
                                     Cancel
                                 </button>
-                                <button onClick={save} disabled={saving}
+                                <button onClick={save} disabled={saving || uploadingImage}
                                     className="text-xs px-3 py-1 bg-purple-600 text-white font-bold rounded hover:bg-purple-700 disabled:opacity-50">
                                     {saving ? 'Saving…' : 'Save HI'}
                                 </button>
