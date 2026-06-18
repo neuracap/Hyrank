@@ -8,7 +8,10 @@ export const dynamic = 'force-dynamic';
  * POST /api/mock-test/[id]/hindi-review/approve
  *
  * Body: { question_id, version_no }
- * Flips question_version (HI) status='APPROVED' for one question of this mock.
+ * Flips question_version (HI) status='APPROVED' for one question of this
+ * mock. Handles both bilingual models:
+ *   - composite-key: HI lives on the same qid (CGL / CHSL).
+ *   - linked-qid: HI on a different qid via question_links (GD).
  *
  * Also accepts: { all: true } — approves every translated HI row in this mock.
  */
@@ -25,12 +28,29 @@ export async function POST(req, { params }) {
     const client = await db.connect();
     try {
         if (body?.all === true) {
+            // Both models in one shot: the target HI qid is whichever the
+            // best link points to, OR the same qid if no link exists.
             const r = await client.query(`
                 UPDATE question_version qv
                 SET status = 'APPROVED', updated_at = NOW()
                 FROM mock_test_question mtq
+                LEFT JOIN LATERAL (
+                    SELECT q.hindi_question_id, q.hindi_version_no
+                    FROM question_links q
+                    WHERE q.english_question_id = mtq.question_id
+                    ORDER BY
+                        CASE q.status
+                            WHEN 'MANUALLY_CORRECTED' THEN 0
+                            WHEN 'LINKED'             THEN 1
+                            WHEN 'PENDING'            THEN 2
+                            WHEN 'MACHINE_TRANSLATED' THEN 3
+                            ELSE 4
+                        END,
+                        q.id ASC
+                    LIMIT 1
+                ) ql ON true
                 WHERE mtq.mock_test_id = $1
-                  AND qv.question_id = mtq.question_id
+                  AND qv.question_id = COALESCE(ql.hindi_question_id, mtq.question_id)
                   AND qv.language = 'HI'
                   AND qv.status != 'APPROVED'
                 RETURNING qv.question_id
@@ -49,12 +69,31 @@ export async function POST(req, { params }) {
         if (present.rows.length === 0) {
             return NextResponse.json({ error: 'Question not in this mock' }, { status: 404 });
         }
+
+        const linkRes = await client.query(`
+            SELECT hindi_question_id, hindi_version_no
+            FROM question_links
+            WHERE english_question_id = $1
+            ORDER BY
+                CASE status
+                    WHEN 'MANUALLY_CORRECTED' THEN 0
+                    WHEN 'LINKED'             THEN 1
+                    WHEN 'PENDING'            THEN 2
+                    WHEN 'MACHINE_TRANSLATED' THEN 3
+                    ELSE 4
+                END,
+                id ASC
+            LIMIT 1
+        `, [question_id]);
+        const hiQid = linkRes.rows[0]?.hindi_question_id || question_id;
+        const hiVersion = linkRes.rows[0]?.hindi_version_no ?? version_no;
+
         const r = await client.query(`
             UPDATE question_version
             SET status = 'APPROVED', updated_at = NOW()
             WHERE question_id = $1 AND version_no = $2 AND language = 'HI'
             RETURNING question_id
-        `, [question_id, version_no]);
+        `, [hiQid, hiVersion]);
         if (r.rowCount === 0) {
             return NextResponse.json({ error: 'HI version not found' }, { status: 404 });
         }

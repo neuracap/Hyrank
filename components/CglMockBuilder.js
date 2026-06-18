@@ -1458,8 +1458,8 @@ function MockReview({ spec, mockTestId, onChanged }) {
                                     </button>
                                 );
                             })()}
-                            {stats.translation_paper_session_id_en && (
-                                <Link href={`/bilingual/${stats.translation_paper_session_id_en}`}
+                            {stats.hindi_translation_at && (
+                                <Link href={`/mock-tests/${mockTestId}/hindi-review`}
                                     className="px-3 py-1.5 border border-purple-300 text-purple-700 text-sm font-semibold rounded hover:bg-purple-50">
                                     Review HI →
                                 </Link>
