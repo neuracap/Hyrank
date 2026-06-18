@@ -123,6 +123,41 @@ export default function HindiReview({ mockTestId }) {
         finally { setBusyKey(null); }
     };
 
+    // Re-run google-translate on the EN stem + 4 options and overwrite
+    // the HI side. Used when the original machine translation reads poorly
+    // and the reviewer wants a fresh attempt before hand-editing. Solution
+    // is not re-translated (the edit route only patches stem + options).
+    const retranslate = async (item) => {
+        const key = `retranslate-${item.question_id}`;
+        setBusyKey(key); setErr('');
+        try {
+            const enStem = item.en.body_json?.text || '';
+            const enOpts = item.en.options || {};
+
+            const translateOne = async (text) => {
+                if (!text || !text.trim()) return '';
+                const r = await fetch('/api/translate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text, source: 'en', target: 'hi' }),
+                });
+                const j = await parseResponse(r);
+                if (!r.ok) throw new Error(j.error || `Translate API failed (${r.status})`);
+                return j.translatedText || '';
+            };
+
+            // Sequential — google-translate-api-x throttles parallel calls.
+            const hiStem = await translateOne(enStem);
+            const hiOpts = {};
+            for (const k of ['A', 'B', 'C', 'D']) {
+                hiOpts[k] = await translateOne(enOpts[k]?.text || '');
+            }
+
+            await saveEdit(item, { stem: hiStem, options: hiOpts });
+        } catch (e) { setErr(e.message); }
+        finally { setBusyKey(null); }
+    };
+
     if (loading) return <div className="p-6 text-gray-400">Loading…</div>;
     if (err && !data) return <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded text-sm">{err}</div>;
     if (!data) return null;
@@ -186,7 +221,8 @@ export default function HindiReview({ mockTestId }) {
                             item={item}
                             busyKey={busyKey}
                             onSave={(patch) => saveEdit(item, patch)}
-                            onApprove={() => approveOne(item)} />
+                            onApprove={() => approveOne(item)}
+                            onRetranslate={() => retranslate(item)} />
                     ))}
                 </div>
             )}
@@ -194,7 +230,7 @@ export default function HindiReview({ mockTestId }) {
     );
 }
 
-function BilingualCard({ item, busyKey, onSave, onApprove }) {
+function BilingualCard({ item, busyKey, onSave, onApprove, onRetranslate }) {
     const enText = item.en.body_json?.text || '';
     const enOpts = item.en.options || {};
     const hi = item.hi;
@@ -249,6 +285,18 @@ function BilingualCard({ item, busyKey, onSave, onApprove }) {
                 <span className="px-1.5 py-0.5 rounded bg-green-100 text-green-700 font-bold">Ans: {item.correct_option_label}</span>
                 {statusBadge}
                 <span className="ml-auto flex gap-2">
+                    {!editing && (
+                        <button onClick={onRetranslate}
+                            disabled={busyKey === `retranslate-${item.question_id}` || busyKey === `save-${item.question_id}`}
+                            title={hi
+                                ? 'Re-run google-translate on EN stem + 4 options and overwrite the HI side. Solution is not retranslated.'
+                                : 'Translate this question from EN (stem + 4 options).'}
+                            className="text-xs px-2 py-1 border border-purple-300 text-purple-700 rounded hover:bg-purple-50 disabled:opacity-50">
+                            {busyKey === `retranslate-${item.question_id}`
+                                ? 'Translating…'
+                                : (hi ? 'Re-translate' : 'Translate HI')}
+                        </button>
+                    )}
                     {!editing && hi && (
                         <button onClick={startEdit}
                             className="text-xs px-2 py-1 border border-blue-300 text-blue-700 rounded hover:bg-blue-50">
