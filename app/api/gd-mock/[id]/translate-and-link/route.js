@@ -41,6 +41,21 @@ export async function POST(req, { params }) {
     }
 
     const { id: mockTestId } = await params;
+
+    // Optional ?question_id=<id> (or body { question_id: <id> }) narrows
+    // the batch to a single EN qid — used by the per-row Translate HI
+    // button on the hindi-review page so freshly-swapped rows can be
+    // filled without re-running the whole 60-Q batch.
+    let onlyQuestionId = null;
+    try {
+        const { searchParams } = new URL(req.url);
+        onlyQuestionId = searchParams.get('question_id');
+        if (!onlyQuestionId) {
+            const body = await req.clone().json().catch(() => null);
+            onlyQuestionId = body?.question_id || null;
+        }
+    } catch { /* no body — fine */ }
+
     const client = await db.connect();
 
     try {
@@ -110,7 +125,14 @@ export async function POST(req, { params }) {
         const inScopeSectionIds = ['REASONING', 'GA', 'QUANT']
             .map(c => SPEC.TARGET_SECTION_IDS[c]);
 
-        // 3. Pull every EN mtq row for those sections + its EN qv + its EN options
+        // 3. Pull every EN mtq row for those sections + its EN qv + its EN options.
+        //    If a single question_id was requested, narrow the batch to that row.
+        const params = [mockTestId, inScopeSectionIds];
+        let extraFilter = '';
+        if (onlyQuestionId) {
+            params.push(onlyQuestionId);
+            extraFilter = ` AND mtq.question_id = $${params.length}`;
+        }
         const qRes = await client.query(`
             SELECT
                 mtq.question_id        AS en_qid,
@@ -134,8 +156,9 @@ export async function POST(req, { params }) {
              )
             WHERE mtq.mock_test_id = $1
               AND mtq.exam_section_id = ANY($2)
+              ${extraFilter}
             ORDER BY mtq.exam_section_id, mtq.position
-        `, [mockTestId, inScopeSectionIds]);
+        `, params);
 
         if (qRes.rows.length === 0) {
             return NextResponse.json(
@@ -339,15 +362,25 @@ export async function POST(req, { params }) {
             }
         }
 
-        // 5. Stamp the EN mock so create-hindi-pair knows translation is done
-        const newStats = {
-            ...(mock.stats_json || {}),
-            hindi_translation_at: new Date().toISOString(),
-            hindi_translation_by: user.id,
-            hindi_translation_counts: counts,
-            translation_paper_session_id_en: enSynthSessionId,
-            translation_paper_session_id_hi: hiSynthSessionId,
-        };
+        // 5. Stamp the EN mock so create-hindi-pair knows translation is done.
+        //    For single-question runs we don't overwrite the batch timestamp /
+        //    counts (would clobber the actually-meaningful full-batch stats)
+        //    — we just refresh the synthetic session ids (which usually already
+        //    exist on a single-question run, so this is a no-op patch).
+        const newStats = onlyQuestionId
+            ? {
+                ...(mock.stats_json || {}),
+                translation_paper_session_id_en: enSynthSessionId,
+                translation_paper_session_id_hi: hiSynthSessionId,
+            }
+            : {
+                ...(mock.stats_json || {}),
+                hindi_translation_at: new Date().toISOString(),
+                hindi_translation_by: user.id,
+                hindi_translation_counts: counts,
+                translation_paper_session_id_en: enSynthSessionId,
+                translation_paper_session_id_hi: hiSynthSessionId,
+            };
         await client.query(
             `UPDATE mock_test SET stats_json = $1::jsonb, updated_at = NOW()
              WHERE mock_test_id = $2`,

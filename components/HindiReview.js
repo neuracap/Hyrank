@@ -261,14 +261,35 @@ export default function HindiReview({ mockTestId }) {
         finally { setBusyKey(null); }
     };
 
-    // Re-run google-translate on the EN stem + 4 options and overwrite
-    // the HI side. Used when the original machine translation reads poorly
-    // and the reviewer wants a fresh attempt before hand-editing. Solution
-    // is not re-translated (the edit route only patches stem + options).
+    // Per-row translate trigger. Two paths depending on whether a HI sibling
+    // already exists for this EN qid:
+    //
+    //   - hi != null:  in-place re-translate. POSTs /api/translate for stem
+    //     + 4 options, then PATCHes via /hindi-review/edit (cheap, just
+    //     overwrites the existing HI qv text — no new qid / link created).
+    //
+    //   - hi == null:  fresh translate + link. Happens for freshly-swapped
+    //     or freshly-junked rows where the EN qid is new and has no HI
+    //     sibling anywhere. Calls /api/gd-mock/[id]/translate-and-link with
+    //     ?question_id=<id> to mint the new HI qid + link + qv + solution
+    //     translation in one go.
     const retranslate = async (item) => {
         const key = `retranslate-${item.question_id}`;
         setBusyKey(key); setErr('');
         try {
+            if (item.hi == null) {
+                // Mint path — full translate-and-link for just this row.
+                const r = await fetch(
+                    `/api/gd-mock/${mockTestId}/translate-and-link?question_id=${item.question_id}`,
+                    { method: 'POST' }
+                );
+                const j = await parseResponse(r);
+                if (!r.ok || !j.success) throw new Error(j.error || `Translate failed (${r.status})`);
+                await load();
+                return;
+            }
+
+            // In-place path — overwrite HI text only.
             const enStem = item.en.body_json?.text || '';
             const enOpts = item.en.options || {};
 
