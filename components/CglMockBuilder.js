@@ -1430,28 +1430,54 @@ function MockReview({ spec, mockTestId, onChanged }) {
                     )}
                     {(mock.status === 'APPROVED' || mock.status === 'PUBLISHED') && spec.examKey === 'gd' && (
                         <>
-                            {!stats.hindi_translation_at && (
-                                <button onClick={gdTranslateAndLink}
-                                    disabled={busyKey === 'gd-translate'}
-                                    title="Translate REAS / GA / QUANT (60 Qs) → standalone HI question_ids linked via question_links (~2–3 min)"
-                                    className="px-3 py-1.5 bg-purple-600 text-white text-sm font-semibold rounded hover:bg-purple-700 disabled:opacity-50">
-                                    {busyKey === 'gd-translate' ? 'Translating…' : 'Translate → Hindi'}
-                                </button>
-                            )}
+                            {/* Keep the translate button visible until the
+                                Hindi pair is created. The route is idempotent
+                                (skips already-linked qids), so a re-run is safe
+                                and is the standard way to retry rows that
+                                failed on the first attempt. */}
+                            {!stats.paired_with && stats.medium !== 'HI' && (() => {
+                                const failedCount = stats.hindi_translation_counts?.failed || 0;
+                                const everRan = !!stats.hindi_translation_at;
+                                const label = busyKey === 'gd-translate' ? 'Translating…'
+                                    : !everRan                ? 'Translate → Hindi'
+                                    : failedCount > 0         ? `Retry translation (${failedCount} failed)`
+                                                              : 'Re-run translation';
+                                const tip = !everRan
+                                    ? 'Translate REAS / GA / QUANT (60 Qs) → standalone HI question_ids linked via question_links (~2–3 min)'
+                                    : failedCount > 0
+                                        ? `Re-runs only the ${failedCount} failed row(s); already-linked qids are skipped`
+                                        : 'Re-runs translation; already-linked qids are skipped (idempotent)';
+                                return (
+                                    <button onClick={gdTranslateAndLink}
+                                        disabled={busyKey === 'gd-translate'}
+                                        title={tip}
+                                        className={`px-3 py-1.5 text-white text-sm font-semibold rounded disabled:opacity-50 ${
+                                            failedCount > 0 ? 'bg-orange-600 hover:bg-orange-700' : 'bg-purple-600 hover:bg-purple-700'
+                                        }`}>
+                                        {label}
+                                    </button>
+                                );
+                            })()}
                             {stats.translation_paper_session_id_en && (
                                 <Link href={`/bilingual/${stats.translation_paper_session_id_en}`}
                                     className="px-3 py-1.5 border border-purple-300 text-purple-700 text-sm font-semibold rounded hover:bg-purple-50">
                                     Review HI →
                                 </Link>
                             )}
-                            {stats.hindi_translation_at && !stats.paired_with && stats.medium !== 'HI' && (
-                                <button onClick={gdCreateHindiPair}
-                                    disabled={busyKey === 'gd-pair'}
-                                    title="Create the Hindi-medium companion mock (60 mirrored + 20 native HINDI)"
-                                    className="px-3 py-1.5 bg-emerald-600 text-white text-sm font-semibold rounded hover:bg-emerald-700 disabled:opacity-50">
-                                    {busyKey === 'gd-pair' ? 'Creating…' : 'Create Hindi pair'}
-                                </button>
-                            )}
+                            {stats.hindi_translation_at && !stats.paired_with && stats.medium !== 'HI' && (() => {
+                                const failedCount = stats.hindi_translation_counts?.failed || 0;
+                                const blocked = failedCount > 0;
+                                return (
+                                    <button onClick={gdCreateHindiPair}
+                                        disabled={busyKey === 'gd-pair' || blocked}
+                                        title={blocked
+                                            ? `Cannot pair: ${failedCount} translation(s) still failed. Click Retry translation first.`
+                                            : 'Create the Hindi-medium companion mock (60 mirrored + 20 native HINDI)'}
+                                        className="px-3 py-1.5 bg-emerald-600 text-white text-sm font-semibold rounded hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                                        {busyKey === 'gd-pair' ? 'Creating…' : 'Create Hindi pair'}
+                                    </button>
+                                );
+                            })()}
                             {stats.paired_with && (
                                 <Link href={`/mock-tests?open=${stats.paired_with}`}
                                     className="px-3 py-1.5 border border-emerald-300 text-emerald-700 text-sm font-semibold rounded hover:bg-emerald-50">
