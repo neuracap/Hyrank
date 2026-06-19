@@ -298,6 +298,63 @@ export default function HindiReview({ mockTestId }) {
         finally { setBusyKey(null); }
     };
 
+    // Bulk: copy each question's 4 EN options into HI verbatim. Useful for
+    // QUANT / numeric mocks where options are digits or symbols that don't
+    // need translation. Skips un-translated rows (item.hi == null). Sequential
+    // PATCHes via the existing /hindi-review/edit route so HI qv.status gets
+    // set to DRAFT and a fresh re-approve pass is required after.
+    const copyAllOptionsEnToHi = async () => {
+        if (!data) return;
+        const targets = data.items.filter(it => it.hi != null);
+        if (targets.length === 0) {
+            setErr('No translated rows to copy options into. Translate first.');
+            return;
+        }
+        if (!confirm(`Overwrite the 4 HI options with the EN options for ALL ${targets.length} translated rows? This is intended for math / numeric questions where options don't need translation.`)) {
+            return;
+        }
+        setBusyKey('copy-opts-bulk'); setErr('');
+        try {
+            let ok = 0, fail = 0;
+            for (const it of targets) {
+                const enOpts = it.en.options || {};
+                const patch = { options: {} };
+                for (const k of ['A', 'B', 'C', 'D']) {
+                    patch.options[k] = enOpts[k]?.text || '';
+                }
+                try {
+                    const r = await fetch(`/api/mock-test/${mockTestId}/hindi-review/edit`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            question_id: it.question_id,
+                            version_no: it.version_no,
+                            ...patch,
+                        }),
+                    });
+                    if (r.ok) ok++; else fail++;
+                } catch { fail++; }
+            }
+            await load();
+            alert(`Copied options on ${ok} row(s).${fail ? ` ${fail} failed.` : ''}`);
+        } catch (e) { setErr(e.message); }
+        finally { setBusyKey(null); }
+    };
+
+    // Per-row: same copy but for a single question. Used when most options
+    // do need translation but one or two rows are numeric/symbolic only.
+    const copyOptionsEnToHi = async (item) => {
+        if (!item.hi) {
+            setErr('Translate this row first, then copy.');
+            return;
+        }
+        const enOpts = item.en.options || {};
+        const patch = { options: {} };
+        for (const k of ['A', 'B', 'C', 'D']) {
+            patch.options[k] = enOpts[k]?.text || '';
+        }
+        await saveEdit(item, patch);
+    };
+
     // Used when the EN mock is already PUBLISHED but the HI-medium pair is
     // not yet — i.e. the user previously published before this cascade
     // existed. Brings the HI pair up to PUBLISHED in one click.
@@ -586,6 +643,12 @@ export default function HindiReview({ mockTestId }) {
                 </div>
                 <div className="flex gap-2">
                     <Link href="/cgl-mock-builder" className="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50">← Builder</Link>
+                    <button onClick={copyAllOptionsEnToHi}
+                        disabled={busyKey === 'copy-opts-bulk' || review_stats.translated === 0 || mock.status === 'PUBLISHED'}
+                        title="Copy each question's 4 EN options into HI verbatim. Useful for math / numeric questions where options shouldn't be translated. Skips un-translated rows."
+                        className="px-3 py-1.5 border border-amber-300 text-amber-800 text-sm font-bold rounded hover:bg-amber-50 disabled:opacity-50">
+                        {busyKey === 'copy-opts-bulk' ? 'Copying…' : 'Copy opts EN→HI'}
+                    </button>
                     <button onClick={approveAll}
                         disabled={busyKey === 'approve-all' || review_stats.translated === 0 || mock.status === 'PUBLISHED'}
                         title="Approves every Hindi translation AND every English question (mtq.review_status). After this, the mock can be Published."
@@ -679,7 +742,8 @@ export default function HindiReview({ mockTestId }) {
                                     onApprove={() => approveOne(item)}
                                     onRetranslate={() => retranslate(item)}
                                     onSwap={() => swap(item)}
-                                    onJunk={() => junk(item)} />
+                                    onJunk={() => junk(item)}
+                                    onCopyOpts={() => copyOptionsEnToHi(item)} />
                             ))}
                         </div>
                     )}
@@ -755,7 +819,7 @@ function IssueSidePanel({ items, issuesByQid, onJump, sectionFilter }) {
     );
 }
 
-function BilingualCard({ item, mockTestId, busyKey, issues = [], onSave, onSaveEn, onApprove, onRetranslate, onSwap, onJunk }) {
+function BilingualCard({ item, mockTestId, busyKey, issues = [], onSave, onSaveEn, onApprove, onRetranslate, onSwap, onJunk, onCopyOpts }) {
     const enText = item.en.body_json?.text || '';
     const enOpts = item.en.options || {};
     const hi = item.hi;
@@ -965,6 +1029,14 @@ function BilingualCard({ item, mockTestId, busyKey, issues = [], onSave, onSaveE
                             {busyKey === `retranslate-${item.question_id}`
                                 ? 'Translating…'
                                 : (hi ? 'Re-translate' : 'Translate HI')}
+                        </button>
+                    )}
+                    {!editing && !editingEn && hi && (
+                        <button onClick={onCopyOpts}
+                            disabled={busyKey === `save-${item.question_id}`}
+                            title="Copy the 4 EN options into HI verbatim (useful when options are numeric or symbolic)."
+                            className="text-xs px-2 py-1 border border-amber-300 text-amber-800 rounded hover:bg-amber-50 disabled:opacity-50">
+                            Copy opts ←EN
                         </button>
                     )}
                     {!editing && !editingEn && hi && (
