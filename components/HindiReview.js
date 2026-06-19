@@ -137,6 +137,9 @@ export default function HindiReview({ mockTestId }) {
     const [issuesOnly, setIssuesOnly] = useState(false);
     const [editingName, setEditingName] = useState(false);
     const [draftName, setDraftName] = useState('');
+    // Status of the paired HI-medium mock (if create-hindi-pair has run).
+    // Fetched once we have data — used to drive the cascade-approve / cascade-publish UX.
+    const [pairedMock, setPairedMock] = useState(null);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -151,6 +154,29 @@ export default function HindiReview({ mockTestId }) {
     }, [mockTestId]);
 
     useEffect(() => { load(); }, [load]);
+
+    // Whenever the mock's paired_with changes, fetch the paired HI mock so
+    // we can show its current status + drive cascade actions.
+    useEffect(() => {
+        const pairedId = data?.mock?.stats?.paired_with;
+        if (!pairedId) { setPairedMock(null); return; }
+        let cancelled = false;
+        (async () => {
+            try {
+                const r = await fetch(`/api/mock-test/${pairedId}`);
+                const j = await parseResponse(r);
+                if (!r.ok) return;
+                if (!cancelled) {
+                    setPairedMock({
+                        mock_test_id: j.mock?.mock_test_id,
+                        name: j.mock?.name,
+                        status: j.mock?.status,
+                    });
+                }
+            } catch {}
+        })();
+        return () => { cancelled = true; };
+    }, [data?.mock?.stats?.paired_with]);
 
     // Precompute issues + severity per item. Memoized off `data` so the
     // map survives re-renders driven by filters but invalidates whenever
@@ -208,15 +234,18 @@ export default function HindiReview({ mockTestId }) {
         finally { setBusyKey(null); }
     };
 
-    // One-click approval for both sides of the mock:
-    //   1. /hindi-review/approve {all:true}  → flips HI qv.status='APPROVED'
-    //   2. /mock-test/[id]/approve-all       → flips mtq.review_status='APPROVED'
-    //                                          AND mock.status='APPROVED'
-    //
-    // Step 2 is also what unblocks Publish (which requires mock.status='APPROVED'
-    // AND zero PENDING mtq rows — Swap/Junk insert new rows as PENDING).
+    // One-click approval that cascades both sides AND the paired mock:
+    //   1. /hindi-review/approve {all:true} on EN  → flips HI qv.status='APPROVED'
+    //   2. /mock-test/[id]/approve-all on EN       → flips mtq.review_status + mock.status='APPROVED'
+    //   3. /mock-test/<paired_with>/approve-all    → same for the paired HI-medium mock
+    //      (create-hindi-pair leaves it at DRAFT with 80 PENDING mtq rows;
+    //      without this cascade Publish-of-HI would block).
     const approveAll = async () => {
-        if (!confirm('Approve every Hindi translation AND every English question in this mock?')) return;
+        const pairedId = data?.mock?.stats?.paired_with;
+        const promptMsg = pairedId
+            ? 'Approve every Hindi translation AND every English question in this mock — AND also approve the paired Hindi-medium mock?'
+            : 'Approve every Hindi translation AND every English question in this mock?';
+        if (!confirm(promptMsg)) return;
         setBusyKey('approve-all'); setErr('');
         try {
             const r1 = await fetch(`/api/mock-test/${mockTestId}/hindi-review/approve`, {
@@ -230,19 +259,64 @@ export default function HindiReview({ mockTestId }) {
             const j2 = await parseResponse(r2);
             if (!r2.ok || !j2.success) throw new Error(j2.error || `Approve EN failed (${r2.status})`);
 
+            if (pairedId && pairedMock?.status !== 'PUBLISHED') {
+                const r3 = await fetch(`/api/mock-test/${pairedId}/approve-all`, { method: 'POST' });
+                const j3 = await parseResponse(r3);
+                // Non-fatal if already-approved: only surface true errors.
+                if (!r3.ok && r3.status !== 409) throw new Error(j3.error || `Approve HI-pair failed (${r3.status})`);
+            }
+
             await load();
         } catch (e) { setErr(e.message); }
         finally { setBusyKey(null); }
     };
 
     const publish = async () => {
-        if (!confirm('Publish this mock? It will become a permanent record (no further edits without rollback).')) return;
+        const pairedId = data?.mock?.stats?.paired_with;
+        const pairNeedsPub = pairedId && pairedMock?.status !== 'PUBLISHED';
+        const promptMsg = pairNeedsPub
+            ? 'Publish THIS mock AND the paired Hindi-medium mock? Both become permanent records.'
+            : 'Publish this mock? It will become a permanent record (no further edits without rollback).';
+        if (!confirm(promptMsg)) return;
         setBusyKey('publish'); setErr('');
         try {
             const r = await fetch(`/api/mock-test/${mockTestId}/publish`, { method: 'POST' });
             const j = await parseResponse(r);
             if (!r.ok || !j.success) throw new Error(j.error || `Publish failed (${r.status})`);
+
+            if (pairNeedsPub) {
+                // Pair publish requires the pair to be APPROVED first — try approve-all
+                // (idempotent) then publish.
+                await fetch(`/api/mock-test/${pairedId}/approve-all`, { method: 'POST' });
+                const rp = await fetch(`/api/mock-test/${pairedId}/publish`, { method: 'POST' });
+                const jp = await parseResponse(rp);
+                if (!rp.ok && rp.status !== 409) throw new Error(jp.error || `Publish HI-pair failed (${rp.status})`);
+            }
+
             await load();
+        } catch (e) { setErr(e.message); }
+        finally { setBusyKey(null); }
+    };
+
+    // Used when the EN mock is already PUBLISHED but the HI-medium pair is
+    // not yet — i.e. the user previously published before this cascade
+    // existed. Brings the HI pair up to PUBLISHED in one click.
+    const publishHiPair = async () => {
+        const pairedId = data?.mock?.stats?.paired_with;
+        if (!pairedId) return;
+        if (!confirm(`Publish the paired Hindi-medium mock "${pairedMock?.name || pairedId}" now?`)) return;
+        setBusyKey('publish-hi'); setErr('');
+        try {
+            await fetch(`/api/mock-test/${pairedId}/approve-all`, { method: 'POST' });
+            const rp = await fetch(`/api/mock-test/${pairedId}/publish`, { method: 'POST' });
+            const jp = await parseResponse(rp);
+            if (!rp.ok && rp.status !== 409) throw new Error(jp.error || `Publish HI-pair failed (${rp.status})`);
+            // Refresh paired mock status.
+            try {
+                const r = await fetch(`/api/mock-test/${pairedId}`);
+                const j = await parseResponse(r);
+                if (r.ok) setPairedMock({ mock_test_id: j.mock?.mock_test_id, name: j.mock?.name, status: j.mock?.status });
+            } catch {}
         } catch (e) { setErr(e.message); }
         finally { setBusyKey(null); }
     };
@@ -499,6 +573,16 @@ export default function HindiReview({ mockTestId }) {
                             </span>
                         )}
                     </p>
+                    {pairedMock && (
+                        <p className="text-gray-400 text-xs mt-0.5">
+                            Paired HI mock: <span className="font-mono">{pairedMock.name}</span> ·
+                            <span className={`ml-1 font-semibold ${
+                                pairedMock.status === 'PUBLISHED' ? 'text-emerald-700' :
+                                pairedMock.status === 'APPROVED'  ? 'text-amber-700'   :
+                                                                    'text-gray-600'
+                            }`}>{pairedMock.status}</span>
+                        </p>
+                    )}
                 </div>
                 <div className="flex gap-2">
                     <Link href="/cgl-mock-builder" className="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50">← Builder</Link>
@@ -511,14 +595,28 @@ export default function HindiReview({ mockTestId }) {
                     {mock.status === 'APPROVED' && (
                         <button onClick={publish}
                             disabled={busyKey === 'publish'}
-                            title="Publish this mock. Refuses if any mtq row is still PENDING (Swap/Junk insert as PENDING — re-run Approve all to catch up)."
+                            title={pairedMock && pairedMock.status !== 'PUBLISHED'
+                                ? 'Publishes THIS mock AND the paired Hindi-medium mock.'
+                                : 'Publish this mock. Refuses if any mtq row is still PENDING (Swap/Junk insert as PENDING — re-run Approve all to catch up).'}
                             className="px-3 py-1.5 bg-blue-600 text-white text-sm font-bold rounded hover:bg-blue-700 disabled:opacity-50">
-                            {busyKey === 'publish' ? 'Publishing…' : 'Publish'}
+                            {busyKey === 'publish'
+                                ? 'Publishing…'
+                                : pairedMock && pairedMock.status !== 'PUBLISHED'
+                                    ? 'Publish (EN + HI)'
+                                    : 'Publish'}
                         </button>
                     )}
-                    {mock.status === 'PUBLISHED' && (
+                    {mock.status === 'PUBLISHED' && pairedMock && pairedMock.status !== 'PUBLISHED' && (
+                        <button onClick={publishHiPair}
+                            disabled={busyKey === 'publish-hi'}
+                            title={`The English-medium mock is published, but the paired HI mock "${pairedMock.name}" is still ${pairedMock.status}. Click to approve + publish it.`}
+                            className="px-3 py-1.5 bg-purple-600 text-white text-sm font-bold rounded hover:bg-purple-700 disabled:opacity-50">
+                            {busyKey === 'publish-hi' ? 'Publishing HI…' : 'Publish HI pair'}
+                        </button>
+                    )}
+                    {mock.status === 'PUBLISHED' && (!pairedMock || pairedMock.status === 'PUBLISHED') && (
                         <span className="px-3 py-1.5 bg-emerald-100 text-emerald-800 text-sm font-bold rounded border border-emerald-300">
-                            ✓ Published
+                            {pairedMock ? '✓ Published (EN + HI)' : '✓ Published'}
                         </span>
                     )}
                 </div>
