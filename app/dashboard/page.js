@@ -21,17 +21,60 @@ export default async function DashboardPage({ searchParams }) {
     const limit = 50;
     const offset = (currentPage - 1) * limit;
 
-    let client;
+    // Anything below this line can fail with a DB error (Supabase cold
+    // start, pool exhausted, transient network). Capture failures and
+    // render a clear retry UI — do NOT redirect to /login, which used
+    // to falsely suggest the session was broken.
+    let client = null;
+    let dbErrorMsg = null;
     try {
         client = await db.connect();
     } catch (dbErr) {
         console.error('Dashboard DB connect error:', dbErr);
-        redirect('/login');
+        dbErrorMsg = dbErr?.message || String(dbErr);
     }
 
-    // 2. Fetch distinct subjects for the filter dropdown
-    const subjectsRes = await client.query(`SELECT DISTINCT subject FROM paper_session WHERE subject IS NOT NULL ORDER BY subject ASC`);
-    const availableSubjects = subjectsRes.rows.map(row => row.subject);
+    let availableSubjects = [];
+    if (client && !dbErrorMsg) {
+        try {
+            // 2. Fetch distinct subjects for the filter dropdown
+            const subjectsRes = await client.query(`SELECT DISTINCT subject FROM paper_session WHERE subject IS NOT NULL ORDER BY subject ASC`);
+            availableSubjects = subjectsRes.rows.map(row => row.subject);
+        } catch (e) {
+            console.error('Dashboard subjects query error:', e);
+            dbErrorMsg = e?.message || String(e);
+        }
+    }
+
+    if (dbErrorMsg) {
+        client?.release?.();
+        return (
+            <div className="container mx-auto px-4 py-12 max-w-2xl">
+                <div className="bg-white border border-red-200 rounded-lg p-6">
+                    <div className="flex items-start gap-3 mb-3">
+                        <div className="text-red-600 text-2xl">⚠</div>
+                        <div>
+                            <h1 className="text-xl font-bold text-gray-900">Database unreachable</h1>
+                            <p className="text-sm text-gray-600 mt-1">
+                                You ARE signed in (your session is valid), but the dashboard couldn't reach the
+                                database. This is usually a transient Supabase cold-start or pool blip —
+                                refreshing in a few seconds normally fixes it.
+                            </p>
+                        </div>
+                    </div>
+                    <pre className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2 overflow-x-auto whitespace-pre-wrap">{dbErrorMsg}</pre>
+                    <div className="mt-4 flex gap-2">
+                        <a href="/dashboard" className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded hover:bg-blue-700">
+                            Retry
+                        </a>
+                        <a href="/mock-tests" className="px-4 py-2 border border-gray-300 text-sm font-semibold rounded hover:bg-gray-50">
+                            Go to Mock Tests
+                        </a>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     // 3. Dynamic Query Builder
     let papers = [];
@@ -49,6 +92,7 @@ export default async function DashboardPage({ searchParams }) {
         paramIndex++;
     }
 
+    try {
     if (user.isAdmin) {
         // --- ADMIN QUERY ---
         if (status !== 'ALL') {
@@ -172,6 +216,36 @@ export default async function DashboardPage({ searchParams }) {
         `;
         const res = await client.query(query, [...queryParams, limit, offset]);
         papers = res.rows;
+    }
+    } catch (queryErr) {
+        console.error('Dashboard data-fetch error:', queryErr);
+        client?.release?.();
+        return (
+            <div className="container mx-auto px-4 py-12 max-w-2xl">
+                <div className="bg-white border border-red-200 rounded-lg p-6">
+                    <div className="flex items-start gap-3 mb-3">
+                        <div className="text-red-600 text-2xl">⚠</div>
+                        <div>
+                            <h1 className="text-xl font-bold text-gray-900">Dashboard query failed</h1>
+                            <p className="text-sm text-gray-600 mt-1">
+                                Your session is valid — the database connection succeeded, but one of the
+                                dashboard queries errored out. This is usually transient (Supabase pool /
+                                idle disconnect). Refresh in a few seconds.
+                            </p>
+                        </div>
+                    </div>
+                    <pre className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2 overflow-x-auto whitespace-pre-wrap">{queryErr?.message || String(queryErr)}</pre>
+                    <div className="mt-4 flex gap-2">
+                        <a href="/dashboard" className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded hover:bg-blue-700">
+                            Retry
+                        </a>
+                        <a href="/mock-tests" className="px-4 py-2 border border-gray-300 text-sm font-semibold rounded hover:bg-gray-50">
+                            Go to Mock Tests
+                        </a>
+                    </div>
+                </div>
+            </div>
+        );
     }
 
     client?.release();
