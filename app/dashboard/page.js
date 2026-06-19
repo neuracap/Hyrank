@@ -92,131 +92,141 @@ export default async function DashboardPage({ searchParams }) {
         paramIndex++;
     }
 
+    // Refactored to dodge the Supabase 15s statement_timeout that the
+    // previous single-query version hit on cold-start: the original
+    // correlated subqueries scanned question_version + question_links
+    // (~26k rows) once per row × 50 rows × 3 metrics. Now:
+    //   (1) lightweight base query — just paper_session fields + the
+    //       LEFT JOINs to review_assignments / users.
+    //   (2) the 50 paper_session_ids feed 2 batched COUNT queries that
+    //       each scan once with WHERE = ANY($ids) — fast even cold.
+    //   (3) merge in JS.
+    //
+    // Schema note: question_links has BOTH paper_session_id_english and
+    // paper_session_id_hindi. A paper_session can appear on either side.
+    // We sum both via UNION ALL so the count matches the previous OR-join
+    // semantics exactly.
     try {
+    let baseRows = [];
     if (user.isAdmin) {
-        // --- ADMIN QUERY ---
+        // --- ADMIN ---
         if (status !== 'ALL') {
             whereConditions.push(`ps.status = $${paramIndex}`);
             queryParams.push(status);
             paramIndex++;
         }
-
         const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
-        // Fetch Count
-        const countQuery = `SELECT COUNT(*) FROM paper_session ps ${whereClause}`;
-        const countRes = await client.query(countQuery, queryParams);
+        const countRes = await client.query(
+            `SELECT COUNT(*) FROM paper_session ps ${whereClause}`,
+            queryParams
+        );
         totalCount = parseInt(countRes.rows[0].count, 10);
 
-        // Fetch Data
-        const query = `
-            SELECT 
+        const res = await client.query(`
+            SELECT
                 ps.paper_session_id,
                 ps.session_label,
                 ps.paper_date,
                 ps.caption,
                 ps.subject,
                 ps.language,
-                ps.status as pipeline_status,
-                (
-                    SELECT COUNT(*) 
-                    FROM question_version qv
-                    WHERE qv.paper_session_id = ps.paper_session_id
-                ) as total_q,
-                (
-                    SELECT COUNT(*)
-                    FROM question_links ql
-                    WHERE (ql.paper_session_id_english = ps.paper_session_id OR ql.paper_session_id_hindi = ps.paper_session_id)
-                    AND ql.status = 'MANUALLY_CORRECTED'
-                ) as corrected_count,
-                (
-                    SELECT COUNT(*)
-                    FROM question_links ql
-                    WHERE (ql.paper_session_id_english = ps.paper_session_id OR ql.paper_session_id_hindi = ps.paper_session_id)
-                    AND ql.status = 'FLAGGED'
-                ) as flagged_count,
-                ru.email as reviewer_email
+                ps.status AS pipeline_status,
+                ru.email AS reviewer_email
             FROM paper_session ps
             LEFT JOIN review_assignments ra ON ps.paper_session_id = ra.paper_session_id
             LEFT JOIN users ru ON ra.reviewer_id = ru.id
             ${whereClause}
             ORDER BY ps.paper_date DESC NULLS LAST
             LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-        `;
-        const res = await client.query(query, [...queryParams, limit, offset]);
-        papers = res.rows;
+        `, [...queryParams, limit, offset]);
+        baseRows = res.rows;
     } else {
-        // --- REVIEWER QUERY ---
+        // --- REVIEWER ---
         whereConditions.push(`ra.reviewer_id = $${paramIndex}`);
         queryParams.push(user.id);
         paramIndex++;
 
-        whereConditions.push(`ps.language = 'EN'`); // Reviewers only see English sessions by default
-
-        // Only show papers that are linked in the bilingual page
+        whereConditions.push(`ps.language = 'EN'`);
         whereConditions.push(`EXISTS (
             SELECT 1 FROM question_links ql
             WHERE ql.paper_session_id_english = ps.paper_session_id
-               OR ql.paper_session_id_hindi = ps.paper_session_id
+               OR ql.paper_session_id_hindi   = ps.paper_session_id
         )`);
 
         if (status !== 'ALL') {
-            // For reviewers, they can also filter by the paper's pipeline status, or you could keep their PENDING/COMPLETED filter tied to ra.status. 
-            // We'll update this to filter by ps.status to match the global filter dropdown.
             whereConditions.push(`ps.status = $${paramIndex}`);
             queryParams.push(status);
             paramIndex++;
         }
 
         const whereClause = `WHERE ${whereConditions.join(' AND ')}`;
-
-        // Fetch Count
-        const countQuery = `
-            SELECT COUNT(*) 
-            FROM review_assignments ra 
-            JOIN paper_session ps ON ra.paper_session_id = ps.paper_session_id 
+        const countRes = await client.query(`
+            SELECT COUNT(*)
+            FROM review_assignments ra
+            JOIN paper_session ps ON ra.paper_session_id = ps.paper_session_id
             ${whereClause}
-        `;
-        const countRes = await client.query(countQuery, queryParams);
+        `, queryParams);
         totalCount = parseInt(countRes.rows[0].count, 10);
 
-        // Fetch Data
-        const query = `
-            SELECT 
+        const res = await client.query(`
+            SELECT
                 ps.paper_session_id,
                 ps.session_label,
                 ps.paper_date,
                 ps.caption,
                 ps.subject,
                 ps.language,
-                ps.status as pipeline_status,
-                ra.status as assignment_status,
-                (
-                    SELECT COUNT(*) 
-                    FROM question_version qv
-                    WHERE qv.paper_session_id = ps.paper_session_id
-                ) as total_q,
-                (
-                    SELECT COUNT(*)
-                    FROM question_links ql
-                    WHERE (ql.paper_session_id_english = ps.paper_session_id OR ql.paper_session_id_hindi = ps.paper_session_id)
-                    AND ql.status = 'MANUALLY_CORRECTED'
-                ) as corrected_count,
-                (
-                    SELECT COUNT(*)
-                    FROM question_links ql
-                    WHERE (ql.paper_session_id_english = ps.paper_session_id OR ql.paper_session_id_hindi = ps.paper_session_id)
-                    AND ql.status = 'FLAGGED'
-                ) as flagged_count
+                ps.status AS pipeline_status,
+                ra.status AS assignment_status
             FROM review_assignments ra
             JOIN paper_session ps ON ra.paper_session_id = ps.paper_session_id
             ${whereClause}
             ORDER BY ra.assigned_at DESC, ps.paper_date DESC
             LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-        `;
-        const res = await client.query(query, [...queryParams, limit, offset]);
-        papers = res.rows;
+        `, [...queryParams, limit, offset]);
+        baseRows = res.rows;
     }
+
+    // Now enrich baseRows with the 3 counts, scoped to just the page's IDs.
+    const pageIds = baseRows.map(r => r.paper_session_id);
+    let qvCounts = {};
+    let linkCounts = {};   // { [paper_session_id]: { MANUALLY_CORRECTED: n, FLAGGED: m } }
+
+    if (pageIds.length > 0) {
+        const [qvRes, linkRes] = await Promise.all([
+            client.query(`
+                SELECT paper_session_id, COUNT(*)::int AS c
+                FROM question_version
+                WHERE paper_session_id = ANY($1)
+                GROUP BY paper_session_id
+            `, [pageIds]),
+            client.query(`
+                SELECT psid AS paper_session_id, status, COUNT(*)::int AS c
+                FROM (
+                    SELECT paper_session_id_english AS psid, status FROM question_links
+                    WHERE paper_session_id_english = ANY($1) AND status IN ('MANUALLY_CORRECTED', 'FLAGGED')
+                    UNION ALL
+                    SELECT paper_session_id_hindi, status FROM question_links
+                    WHERE paper_session_id_hindi   = ANY($1) AND status IN ('MANUALLY_CORRECTED', 'FLAGGED')
+                ) AS x
+                GROUP BY psid, status
+            `, [pageIds]),
+        ]);
+
+        for (const r of qvRes.rows) qvCounts[r.paper_session_id] = r.c;
+        for (const r of linkRes.rows) {
+            if (!linkCounts[r.paper_session_id]) linkCounts[r.paper_session_id] = {};
+            linkCounts[r.paper_session_id][r.status] = r.c;
+        }
+    }
+
+    papers = baseRows.map(r => ({
+        ...r,
+        total_q:         qvCounts[r.paper_session_id]                            ?? 0,
+        corrected_count: linkCounts[r.paper_session_id]?.MANUALLY_CORRECTED ?? 0,
+        flagged_count:   linkCounts[r.paper_session_id]?.FLAGGED           ?? 0,
+    }));
     } catch (queryErr) {
         console.error('Dashboard data-fetch error:', queryErr);
         client?.release?.();
