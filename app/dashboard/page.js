@@ -193,26 +193,28 @@ export default async function DashboardPage({ searchParams }) {
     let qvCounts = {};
     let linkCounts = {};   // { [paper_session_id]: { MANUALLY_CORRECTED: n, FLAGGED: m } }
 
+    // Sequential, not Promise.all — a pg Client serializes queries
+    // anyway (no real parallelism on one connection), and PgBouncer
+    // transaction mode gets confused when we pipeline.
     if (pageIds.length > 0) {
-        const [qvRes, linkRes] = await Promise.all([
-            client.query(`
-                SELECT paper_session_id, COUNT(*)::int AS c
-                FROM question_version
-                WHERE paper_session_id = ANY($1)
-                GROUP BY paper_session_id
-            `, [pageIds]),
-            client.query(`
-                SELECT psid AS paper_session_id, status, COUNT(*)::int AS c
-                FROM (
-                    SELECT paper_session_id_english AS psid, status FROM question_links
-                    WHERE paper_session_id_english = ANY($1) AND status IN ('MANUALLY_CORRECTED', 'FLAGGED')
-                    UNION ALL
-                    SELECT paper_session_id_hindi, status FROM question_links
-                    WHERE paper_session_id_hindi   = ANY($1) AND status IN ('MANUALLY_CORRECTED', 'FLAGGED')
-                ) AS x
-                GROUP BY psid, status
-            `, [pageIds]),
-        ]);
+        const qvRes = await client.query(`
+            SELECT paper_session_id, COUNT(*)::int AS c
+            FROM question_version
+            WHERE paper_session_id = ANY($1)
+            GROUP BY paper_session_id
+        `, [pageIds]);
+
+        const linkRes = await client.query(`
+            SELECT psid AS paper_session_id, status, COUNT(*)::int AS c
+            FROM (
+                SELECT paper_session_id_english AS psid, status FROM question_links
+                WHERE paper_session_id_english = ANY($1) AND status IN ('MANUALLY_CORRECTED', 'FLAGGED')
+                UNION ALL
+                SELECT paper_session_id_hindi, status FROM question_links
+                WHERE paper_session_id_hindi   = ANY($1) AND status IN ('MANUALLY_CORRECTED', 'FLAGGED')
+            ) AS x
+            GROUP BY psid, status
+        `, [pageIds]);
 
         for (const r of qvRes.rows) qvCounts[r.paper_session_id] = r.c;
         for (const r of linkRes.rows) {
