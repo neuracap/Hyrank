@@ -1,6 +1,16 @@
 import { NextResponse } from 'next/server';
-import { translate } from 'google-translate-api-x';
+import { translateText } from '@/lib/translate-helpers';
 
+const SUPPORTED = new Set(['en', 'hi']);
+
+/**
+ * POST /api/translate
+ * Body: { text, source?, target? }
+ *   - source defaults to 'en', target defaults to 'hi'.
+ *   - Only 'en' and 'hi' are supported (provider is DeepSeek; the helper's
+ *     prompt is tuned for EN↔HI exam content).
+ * Returns: { translatedText }
+ */
 export async function POST(request) {
     try {
         const { text, source, target } = await request.json();
@@ -9,46 +19,20 @@ export async function POST(request) {
             return NextResponse.json({ translatedText: '' });
         }
 
-        // Protect LaTeX and other patterns
-        const placeholders = [];
-        const replacer = (match) => {
-            placeholders.push(match);
-            return `__LATEX_${placeholders.length - 1}__`;
-        };
+        const from = (source || 'en').toLowerCase();
+        const to   = (target || 'hi').toLowerCase();
 
-        // Regex patterns to protect
-        const patterns = [
-            /\[[a-z_]+\]/g,                    // [section_key] tags like [exam_craft], [answer_logic]
-            /\\includegraphics\{[^}]+\}/g,     // images
-            /\$[^$]+\$/g,                      // $ math $
-            /\\\([^\)]+\\\)/g,                 // \( math \)
-            /\\\[[^\]]+\\\]/g,                 // \[ math \]
-            /\\[a-zA-Z]+(\{[^}]*\})?/g         // \command or \command{arg}
-        ];
+        if (!SUPPORTED.has(from) || !SUPPORTED.has(to) || from === to) {
+            return NextResponse.json(
+                { error: `Unsupported translation direction: ${from}→${to}` },
+                { status: 400 }
+            );
+        }
 
-        let protectedText = text;
-        patterns.forEach(pattern => {
-            protectedText = protectedText.replace(pattern, replacer);
-        });
-
-        // Translate
-        const res = await translate(protectedText, { from: source === 'auto' ? undefined : source, to: target });
-        let translatedText = res.text;
-
-        // Restore placeholders
-        // We use a regex to find __LATEX_N__ even if spaces inserted
-        translatedText = translatedText.replace(/__LATEX_(\d+)__/gi, (match, p1) => {
-            const idx = parseInt(p1);
-            if (idx >= 0 && idx < placeholders.length) {
-                return placeholders[idx];
-            }
-            return match;
-        });
-
-        return NextResponse.json({ translatedText: translatedText });
-
+        const translatedText = await translateText(text, { from, to });
+        return NextResponse.json({ translatedText });
     } catch (e) {
-        console.error("Translation error:", e);
+        console.error('Translation error:', e);
         return NextResponse.json({ error: e.message }, { status: 500 });
     }
 }

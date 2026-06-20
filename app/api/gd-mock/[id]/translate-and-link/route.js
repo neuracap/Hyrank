@@ -9,6 +9,11 @@ export const dynamic = 'force-dynamic';
 // 60 questions × ~6 translation calls each × ~300ms ≈ 100–180 s; pad to 5 min.
 export const maxDuration = 300;
 
+// How many EN rows we translate concurrently. Each in-flight row briefly
+// borrows ONE DB connection during the persist phase, so the cap must stay
+// well under db.js pool max (5) to leave room for unrelated traffic.
+const ROW_CONCURRENCY = 4;
+
 /**
  * POST /api/gd-mock/[id]/translate-and-link
  *
@@ -202,9 +207,15 @@ export async function POST(req, { params }) {
         }
 
         // 4. Translate + insert HI rows + link, per question, each in its own
-        //    fresh-borrow client + transaction. The slow translateToHindi
-        //    calls run BEFORE the borrow so we never hold a connection while
-        //    waiting on google-translate-api-x.
+        //    fresh-borrow client + transaction.
+        //
+        //    Concurrency: rows are processed in chunks of ROW_CONCURRENCY in
+        //    parallel. Within a row, every translateToHindi call (stem + 4
+        //    options + N solution sections + outcome fields) fires under one
+        //    Promise.all — DeepSeek tolerates the parallelism that google-
+        //    translate-api-x did not. The DB connection is borrowed AFTER all
+        //    translation completes so we never hold a pool slot during the
+        //    network wait.
         const counts = { processed: 0, reused: 0, failed: 0, by_section: {} };
         const errors = [];
 
@@ -212,7 +223,7 @@ export async function POST(req, { params }) {
             ['REASONING', 'GA', 'QUANT'].map(c => [SPEC.TARGET_SECTION_IDS[c], c])
         );
 
-        for (const r of qRes.rows) {
+        const processRow = async (r) => {
             const sectionCode = codeByGdSection[r.gd_section_id] || '?';
             counts.by_section[sectionCode] = counts.by_section[sectionCode]
                 || { processed: 0, reused: 0, failed: 0 };
@@ -220,25 +231,18 @@ export async function POST(req, { params }) {
             if (linkedByEn[r.en_qid]) {
                 counts.reused++;
                 counts.by_section[sectionCode].reused++;
-                continue;
+                return;
             }
 
             try {
-                // ---- Translate text fields (NO DB connection held) ----
+                // ---- Translate every text field for this row in parallel ----
                 const stemEn = r.en_body?.text || '';
-                const stemHi = await translateToHindi(stemEn);
-
                 const enOpts = optsByQ[`${r.en_qid}:${r.en_version_no}`] || {};
-                const hiOpts = {};
-                for (const k of ['A', 'B', 'C', 'D']) {
-                    const enText = enOpts[k]?.option_json?.text || '';
-                    hiOpts[k] = await translateToHindi(enText);
-                }
 
-                // Solution: shape-tolerant. solution_json may arrive as a JSON
+                // Solution shape-tolerance: solution_json may arrive as a JSON
                 // string, an object with display_sections, an object with a flat
-                // solution_text field, or null. Translate whichever student-facing
-                // text fields are present; preserve everything else.
+                // solution_text field, or null. Decode once, here, so all the
+                // translate calls can be issued together below.
                 let enSol = r.en_solution;
                 if (typeof enSol === 'string') {
                     try { enSol = JSON.parse(enSol); } catch { enSol = null; }
@@ -246,30 +250,56 @@ export async function POST(req, { params }) {
                 if (!enSol || typeof enSol !== 'object' || Array.isArray(enSol)) enSol = {};
 
                 const enSections = Array.isArray(enSol.display_sections) ? enSol.display_sections : [];
-                const hiSections = [];
-                for (const sec of enSections) {
-                    const content = sec?.content || '';
-                    hiSections.push({
-                        ...sec,
-                        content: content ? await translateToHindi(content) : '',
-                    });
-                }
                 const enOutcome = (enSol.answer_outcome && typeof enSol.answer_outcome === 'object')
                     ? enSol.answer_outcome : {};
+
+                // Build a flat job list whose order is preserved through Promise.all,
+                // then unpack by offset. Keeps the per-call concurrency at one round-
+                // trip per row instead of ~6-10.
+                const translateJobs = [
+                    translateToHindi(stemEn),                                          // 0   stem
+                    translateToHindi(enOpts.A?.option_json?.text || ''),               // 1   A
+                    translateToHindi(enOpts.B?.option_json?.text || ''),               // 2   B
+                    translateToHindi(enOpts.C?.option_json?.text || ''),               // 3   C
+                    translateToHindi(enOpts.D?.option_json?.text || ''),               // 4   D
+                    enOutcome.core_answer_basis                                        // 5   core_basis
+                        ? translateToHindi(enOutcome.core_answer_basis)
+                        : Promise.resolve(enOutcome.core_answer_basis || ''),
+                    enOutcome.final_answer_text                                        // 6   final_answer
+                        ? translateToHindi(enOutcome.final_answer_text)
+                        : Promise.resolve(enOutcome.final_answer_text || ''),
+                    enSol.solution_text                                                // 7   solution_text (optional)
+                        ? translateToHindi(enSol.solution_text)
+                        : Promise.resolve(null),
+                    Promise.all(enSections.map(sec =>                                  // 8   display_sections[]
+                        sec?.content ? translateToHindi(sec.content) : Promise.resolve('')
+                    )),
+                ];
+
+                const [
+                    stemHi,
+                    hiOptA, hiOptB, hiOptC, hiOptD,
+                    hiCoreBasis, hiFinalAnswer, hiSolutionText,
+                    hiSectionContents,
+                ] = await Promise.all(translateJobs);
+
+                const hiOpts = { A: hiOptA, B: hiOptB, C: hiOptC, D: hiOptD };
+                const hiSections = enSections.map((sec, i) => ({
+                    ...sec,
+                    content: hiSectionContents[i] || '',
+                }));
                 const hiOutcome = {
                     ...enOutcome,
-                    core_answer_basis: enOutcome.core_answer_basis
-                        ? await translateToHindi(enOutcome.core_answer_basis) : (enOutcome.core_answer_basis || ''),
-                    final_answer_text: enOutcome.final_answer_text
-                        ? await translateToHindi(enOutcome.final_answer_text) : (enOutcome.final_answer_text || ''),
+                    core_answer_basis: hiCoreBasis,
+                    final_answer_text: hiFinalAnswer,
                 };
                 const hiSolution = {
                     ...enSol,
                     answer_outcome: hiOutcome,
                     display_sections: hiSections,
                 };
-                if (enSol.solution_text) {
-                    hiSolution.solution_text = await translateToHindi(enSol.solution_text);
+                if (hiSolutionText !== null) {
+                    hiSolution.solution_text = hiSolutionText;
                 }
 
                 // ---- Persist (BORROW connection now, release in finally) ----
@@ -362,6 +392,15 @@ export async function POST(req, { params }) {
                 });
                 console.error(`gd-mock translate-and-link en_qid=${r.en_qid}:`, perRowErr);
             }
+        };
+
+        // Run rows in chunks of ROW_CONCURRENCY. Each chunk waits for the
+        // slowest member before the next chunk starts — a fair-but-simple
+        // bound that keeps total in-flight connections under the pool cap
+        // without pulling in a p-limit dependency.
+        for (let i = 0; i < qRes.rows.length; i += ROW_CONCURRENCY) {
+            const chunk = qRes.rows.slice(i, i + ROW_CONCURRENCY);
+            await Promise.all(chunk.map(processRow));
         }
 
         // 5. Stamp the EN mock so create-hindi-pair knows translation is done.
