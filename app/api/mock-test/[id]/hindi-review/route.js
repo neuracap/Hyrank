@@ -55,7 +55,7 @@ export async function GET(req, { params }) {
         // the resolved hindi_question_id (linked-qid model). Falls back to
         // the same question_id when no link exists (composite-key model).
         const qRes = await client.query(`
-            SELECT mtq.position, mtq.exam_section_id,
+            SELECT mtq.position, mtq.exam_section_id, mtq.group_id,
                    en.question_id AS en_qid, en.version_no AS en_version_no,
                    en.body_json     AS en_body,
                    en.correct_option_label,
@@ -128,6 +128,39 @@ export async function GET(req, { params }) {
             optsByQ[key][row.option_key] = row.option_json;
         }
 
+        // Group stimuli (DI tables, RC passages, Cloze passages). The passage
+        // text lives on question_version under qg.passage_question_id — separately
+        // for EN and HI — and is what holds the DI data table. Without this the
+        // review page renders only the question stem, leaving the table invisible.
+        const groupIds = [...new Set(qRes.rows.map(r => r.group_id).filter(Boolean))];
+        const stimuliByGroup = {};
+        if (groupIds.length > 0) {
+            const passRes = await client.query(`
+                SELECT qg.group_id, qg.group_type, qg.passage_question_id,
+                       pv_en.body_json AS en_body,
+                       pv_hi.body_json AS hi_body,
+                       pv_hi.status    AS hi_status
+                FROM question_group qg
+                LEFT JOIN question_version pv_en
+                  ON pv_en.question_id = qg.passage_question_id
+                 AND pv_en.language = 'EN'
+                LEFT JOIN question_version pv_hi
+                  ON pv_hi.question_id = qg.passage_question_id
+                 AND pv_hi.language = 'HI'
+                WHERE qg.group_id = ANY($1)
+            `, [groupIds]);
+            for (const row of passRes.rows) {
+                stimuliByGroup[row.group_id] = {
+                    group_id: row.group_id,
+                    group_type: row.group_type,
+                    passage_question_id: row.passage_question_id,
+                    en_body: row.en_body,
+                    hi_body: row.hi_body,
+                    hi_status: row.hi_status,
+                };
+            }
+        }
+
         const items = qRes.rows.map(r => ({
             position: r.position,
             section_code: codeBySectionId[r.exam_section_id] || '?',
@@ -141,6 +174,8 @@ export async function GET(req, { params }) {
             correct_option_label: r.correct_option_label,
             difficulty: r.difficulty,
             subtype: r.subtype,
+            group_id: r.group_id || null,
+            stimulus: r.group_id ? (stimuliByGroup[r.group_id] || null) : null,
             en: {
                 body_json: r.en_body,
                 options: optsByQ[`${r.en_qid}:${r.en_version_no}:EN`] || {},

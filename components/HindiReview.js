@@ -1055,6 +1055,36 @@ function BilingualCard({ item, mockTestId, busyKey, issues = [], onSave, onSaveE
                 </span>
             </div>
 
+            {item.stimulus && (item.stimulus.en_body || item.stimulus.hi_body) && (
+                <div className="mb-3 border border-sky-200 bg-sky-50/60 rounded">
+                    <div className="px-2 py-1 flex items-center gap-2 border-b border-sky-200 text-[10px] font-bold uppercase text-sky-800">
+                        <span>Shared passage</span>
+                        <span className="px-1.5 py-0.5 rounded bg-white border border-sky-200 font-mono normal-case">{item.stimulus.group_type}</span>
+                        <span className="text-sky-600 font-normal normal-case">— same data is shown on every question in this group</span>
+                    </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 divide-y lg:divide-y-0 lg:divide-x divide-sky-200">
+                        <div className="p-2">
+                            <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">EN passage</div>
+                            {item.stimulus.en_body?.text ? (
+                                <div className="text-sm"><Latex>{item.stimulus.en_body.text}</Latex></div>
+                            ) : (
+                                <div className="text-xs text-gray-400 italic">No EN passage on file.</div>
+                            )}
+                        </div>
+                        <div className="p-2">
+                            <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">HI passage</div>
+                            {item.stimulus.hi_body?.text ? (
+                                <div className="text-sm"><Latex>{item.stimulus.hi_body.text}</Latex></div>
+                            ) : (
+                                <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-1.5">
+                                    HI passage not translated yet — the data table is only visible in EN. Translate the passage in the builder / passage editor.
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 {/* EN column */}
                 <div>
