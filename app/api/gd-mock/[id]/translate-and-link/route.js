@@ -33,6 +33,13 @@ export const maxDuration = 300;
  * route creates two paper_session rows per mock (one EN, one HI) on
  * first run and stamps them on mock.stats_json.translation_paper_session_id_*
  * for stable re-use across re-runs and stage 3.
+ *
+ * Connection lifecycle: setup queries run through db.query() (the pool
+ * borrows a connection per call and returns it immediately). The per-
+ * question BEGIN/COMMIT transaction borrows a fresh client INSIDE the
+ * loop and releases it in finally. This means a connection is held
+ * for ~100ms per question (not 3 min for the whole batch), which is
+ * what keeps yoloprep's public traffic flowing while admin work runs.
  */
 export async function POST(req, { params }) {
     const user = await getCurrentUser();
@@ -56,11 +63,9 @@ export async function POST(req, { params }) {
         }
     } catch { /* no body — fine */ }
 
-    const client = await db.connect();
-
     try {
-        // 1. Load + verify mock
-        const mockRes = await client.query(
+        // 1. Load + verify mock (one-shot, pool-borrowed)
+        const mockRes = await db.query(
             `SELECT mock_test_id, exam_id, name, status, stats_json
              FROM mock_test WHERE mock_test_id = $1`,
             [mockTestId]
@@ -85,14 +90,13 @@ export async function POST(req, { params }) {
         }
 
         // 1b. Synthetic paper_session pair (one EN, one HI) — created on first
-        //     run, reused thereafter. Satisfies question_links NOT NULL +
-        //     gives the bilingual review UI a session pair to open.
+        //     run, reused thereafter. Each INSERT pool-borrows a connection.
         let enSynthSessionId = mock.stats_json?.translation_paper_session_id_en;
         let hiSynthSessionId = mock.stats_json?.translation_paper_session_id_hi;
 
         if (!enSynthSessionId || !hiSynthSessionId) {
             const baseLabel = mock.name || `GD Mock ${mockTestId.slice(0, 8)}`;
-            const enRes = await client.query(`
+            const enRes = await db.query(`
                 INSERT INTO paper_session
                   (paper_session_id, exam_id, language, session_label,
                    status, ai_processed, meta_json, created_at)
@@ -106,7 +110,7 @@ export async function POST(req, { params }) {
             ]);
             enSynthSessionId = enRes.rows[0].paper_session_id;
 
-            const hiRes = await client.query(`
+            const hiRes = await db.query(`
                 INSERT INTO paper_session
                   (paper_session_id, exam_id, language, session_label,
                    status, ai_processed, meta_json, created_at)
@@ -127,13 +131,13 @@ export async function POST(req, { params }) {
 
         // 3. Pull every EN mtq row for those sections + its EN qv + its EN options.
         //    If a single question_id was requested, narrow the batch to that row.
-        const params = [mockTestId, inScopeSectionIds];
+        const qParams = [mockTestId, inScopeSectionIds];
         let extraFilter = '';
         if (onlyQuestionId) {
-            params.push(onlyQuestionId);
-            extraFilter = ` AND mtq.question_id = $${params.length}`;
+            qParams.push(onlyQuestionId);
+            extraFilter = ` AND mtq.question_id = $${qParams.length}`;
         }
-        const qRes = await client.query(`
+        const qRes = await db.query(`
             SELECT
                 mtq.question_id        AS en_qid,
                 mtq.exam_section_id    AS gd_section_id,
@@ -158,7 +162,7 @@ export async function POST(req, { params }) {
               AND mtq.exam_section_id = ANY($2)
               ${extraFilter}
             ORDER BY mtq.exam_section_id, mtq.position
-        `, params);
+        `, qParams);
 
         if (qRes.rows.length === 0) {
             return NextResponse.json(
@@ -169,7 +173,7 @@ export async function POST(req, { params }) {
 
         // Pre-fetch all EN options in one go
         const enQids = qRes.rows.map(r => r.en_qid);
-        const optsRes = await client.query(`
+        const optsRes = await db.query(`
             SELECT question_id, version_no, option_key, option_json, is_correct
             FROM question_option
             WHERE question_id = ANY($1) AND language = 'EN'
@@ -186,24 +190,24 @@ export async function POST(req, { params }) {
         //   - A prior machine translation from us → skip (idempotent).
         // We don't filter by status: ANY link means "this EN qid already
         // has its Hindi sibling somewhere; do not mint another."
-        const existingLinksRes = await client.query(`
+        const existingLinksRes = await db.query(`
             SELECT english_question_id, english_version_no, hindi_question_id, status
             FROM question_links
             WHERE english_question_id = ANY($1)
         `, [enQids]);
         const linkedByEn = {};
         for (const row of existingLinksRes.rows) {
-            // Keep the first one seen (multiple rows per english_question_id
-            // are tolerated; create-hindi-pair will pick the "best" one).
             const key = row.english_question_id;
             if (!linkedByEn[key]) linkedByEn[key] = row;
         }
 
-        // 4. Translate + insert HI rows + link, per question, in its own transaction
+        // 4. Translate + insert HI rows + link, per question, each in its own
+        //    fresh-borrow client + transaction. The slow translateToHindi
+        //    calls run BEFORE the borrow so we never hold a connection while
+        //    waiting on google-translate-api-x.
         const counts = { processed: 0, reused: 0, failed: 0, by_section: {} };
         const errors = [];
 
-        // Reverse-lookup: GD section_id → section code (for per-section reporting)
         const codeByGdSection = Object.fromEntries(
             ['REASONING', 'GA', 'QUANT'].map(c => [SPEC.TARGET_SECTION_IDS[c], c])
         );
@@ -213,7 +217,6 @@ export async function POST(req, { params }) {
             counts.by_section[sectionCode] = counts.by_section[sectionCode]
                 || { processed: 0, reused: 0, failed: 0 };
 
-            // Already-linked HI sibling? Skip translation, reuse existing pair.
             if (linkedByEn[r.en_qid]) {
                 counts.reused++;
                 counts.by_section[sectionCode].reused++;
@@ -221,7 +224,7 @@ export async function POST(req, { params }) {
             }
 
             try {
-                // ---- Translate text fields ----
+                // ---- Translate text fields (NO DB connection held) ----
                 const stemEn = r.en_body?.text || '';
                 const stemHi = await translateToHindi(stemEn);
 
@@ -265,14 +268,11 @@ export async function POST(req, { params }) {
                     answer_outcome: hiOutcome,
                     display_sections: hiSections,
                 };
-                // Some rows use a flat {solution_text: "..."} shape with no
-                // display_sections — translate it so the Hindi paper isn't
-                // silently English.
                 if (enSol.solution_text) {
                     hiSolution.solution_text = await translateToHindi(enSol.solution_text);
                 }
 
-                // ---- Persist ----
+                // ---- Persist (BORROW connection now, release in finally) ----
                 const hiQid = crypto.randomUUID();
                 const hiMeta = {
                     source: 'gd_mock_translate',
@@ -282,75 +282,77 @@ export async function POST(req, { params }) {
                     translated_by: user.id,
                     translated_at: new Date().toISOString(),
                 };
-
-                await client.query('BEGIN');
-
-                await client.query(
-                    `INSERT INTO question (question_id, created_at) VALUES ($1, NOW())`,
-                    [hiQid]
-                );
-
-                await client.query(`
-                    INSERT INTO question_version
-                      (question_id, version_no, language, status, exam_section_id,
-                       paper_session_id,
-                       body_json, question_type, has_image, difficulty, subtype,
-                       leaf_topic_id, correct_option_label, solution_status,
-                       solution_json, source_type, meta_json,
-                       created_at, updated_at)
-                    VALUES ($1, 1, 'HI', 'DRAFT', $2,
-                            $3,
-                            $4::jsonb, $5, $6, $7, $8,
-                            $9, $10, 'PENDING',
-                            $11::jsonb, 'bank', $12::jsonb,
-                            NOW(), NOW())
-                `, [
-                    hiQid, r.gd_section_id, hiSynthSessionId,
-                    JSON.stringify({ text: stemHi, format: 'mmd' }),
-                    r.question_type || 'MCQ', r.has_image || false,
-                    r.difficulty, r.subtype,
-                    r.leaf_topic_id, r.correct_option_label,
-                    JSON.stringify(hiSolution),
-                    JSON.stringify(hiMeta),
-                ]);
-
-                for (const k of ['A', 'B', 'C', 'D']) {
-                    await client.query(`
-                        INSERT INTO question_option
-                          (question_id, version_no, language, option_key,
-                           option_json, is_correct, created_at)
-                        VALUES ($1, 1, 'HI', $2, $3::jsonb, $4, NOW())
-                    `, [
-                        hiQid, k,
-                        JSON.stringify({ text: hiOpts[k], format: 'mmd' }),
-                        r.correct_option_label === k,
-                    ]);
-                }
-
-                // paper_session_id_* columns are NOT NULL. Use the EN qv's
-                // own paper_session_id when present (preserves provenance for
-                // PYQ-sourced EN rows); fall back to the synthetic EN session
-                // for bank-sourced rows that have no paper of their own.
                 const linkEnSessionId = r.en_paper_session_id || enSynthSessionId;
 
-                await client.query(`
-                    INSERT INTO question_links
-                      (english_question_id, english_version_no, english_language,
-                       hindi_question_id, hindi_version_no, hindi_language,
-                       paper_session_id_english, paper_session_id_hindi,
-                       similarity_score, updated_score, status, created_at)
-                    VALUES ($1, $2, 'EN',
-                            $3, 1, 'HI',
-                            $4, $5,
-                            1.0, 1.0, 'MACHINE_TRANSLATED', NOW())
-                `, [r.en_qid, r.en_version_no, hiQid, linkEnSessionId, hiSynthSessionId]);
+                const client = await db.connect();
+                try {
+                    await client.query('BEGIN');
 
-                await client.query('COMMIT');
+                    await client.query(
+                        `INSERT INTO question (question_id, created_at) VALUES ($1, NOW())`,
+                        [hiQid]
+                    );
 
-                counts.processed++;
-                counts.by_section[sectionCode].processed++;
+                    await client.query(`
+                        INSERT INTO question_version
+                          (question_id, version_no, language, status, exam_section_id,
+                           paper_session_id,
+                           body_json, question_type, has_image, difficulty, subtype,
+                           leaf_topic_id, correct_option_label, solution_status,
+                           solution_json, source_type, meta_json,
+                           created_at, updated_at)
+                        VALUES ($1, 1, 'HI', 'DRAFT', $2,
+                                $3,
+                                $4::jsonb, $5, $6, $7, $8,
+                                $9, $10, 'PENDING',
+                                $11::jsonb, 'bank', $12::jsonb,
+                                NOW(), NOW())
+                    `, [
+                        hiQid, r.gd_section_id, hiSynthSessionId,
+                        JSON.stringify({ text: stemHi, format: 'mmd' }),
+                        r.question_type || 'MCQ', r.has_image || false,
+                        r.difficulty, r.subtype,
+                        r.leaf_topic_id, r.correct_option_label,
+                        JSON.stringify(hiSolution),
+                        JSON.stringify(hiMeta),
+                    ]);
+
+                    for (const k of ['A', 'B', 'C', 'D']) {
+                        await client.query(`
+                            INSERT INTO question_option
+                              (question_id, version_no, language, option_key,
+                               option_json, is_correct, created_at)
+                            VALUES ($1, 1, 'HI', $2, $3::jsonb, $4, NOW())
+                        `, [
+                            hiQid, k,
+                            JSON.stringify({ text: hiOpts[k], format: 'mmd' }),
+                            r.correct_option_label === k,
+                        ]);
+                    }
+
+                    await client.query(`
+                        INSERT INTO question_links
+                          (english_question_id, english_version_no, english_language,
+                           hindi_question_id, hindi_version_no, hindi_language,
+                           paper_session_id_english, paper_session_id_hindi,
+                           similarity_score, updated_score, status, created_at)
+                        VALUES ($1, $2, 'EN',
+                                $3, 1, 'HI',
+                                $4, $5,
+                                1.0, 1.0, 'MACHINE_TRANSLATED', NOW())
+                    `, [r.en_qid, r.en_version_no, hiQid, linkEnSessionId, hiSynthSessionId]);
+
+                    await client.query('COMMIT');
+
+                    counts.processed++;
+                    counts.by_section[sectionCode].processed++;
+                } catch (txErr) {
+                    await client.query('ROLLBACK').catch(() => {});
+                    throw txErr;
+                } finally {
+                    client.release();
+                }
             } catch (perRowErr) {
-                await client.query('ROLLBACK').catch(() => {});
                 counts.failed++;
                 counts.by_section[sectionCode].failed++;
                 errors.push({
@@ -381,7 +383,7 @@ export async function POST(req, { params }) {
                 translation_paper_session_id_en: enSynthSessionId,
                 translation_paper_session_id_hi: hiSynthSessionId,
             };
-        await client.query(
+        await db.query(
             `UPDATE mock_test SET stats_json = $1::jsonb, updated_at = NOW()
              WHERE mock_test_id = $2`,
             [JSON.stringify(newStats), mockTestId]
@@ -398,7 +400,5 @@ export async function POST(req, { params }) {
     } catch (e) {
         console.error('gd-mock/translate-and-link error:', e);
         return NextResponse.json({ error: e.message }, { status: 500 });
-    } finally {
-        client.release();
     }
 }
