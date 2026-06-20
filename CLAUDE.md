@@ -180,12 +180,15 @@ if (mode === 'admin') {
 | `CLOUDINARY_API_SECRET` | Cloudinary secret |
 | `GEMINI_API_KEY` | Google Gemini AI |
 | `ANTHROPIC_API_KEY` | Anthropic Claude AI |
+| `DEEPSEEK_API_KEY` | DeepSeek (EN↔HI translation provider for `lib/translate-helpers.js`, `/api/translate`, and the two mock-translate routes) |
+
+> Railway and Vercel envs are set per-platform — copying `.env.local` is not enough. Missing `DEEPSEEK_API_KEY` on Railway manifests as "DEEPSEEK_API_KEY is not set" inside `errors_sample` on the translate-and-link response.
 
 ## Translation Pattern
-The `/api/translate` route protects LaTeX before translating:
-1. Extract LaTeX (`$...$`) → replace with `__LATEX_N__` placeholders
-2. Translate plain text via `google-translate-api-x`
-3. Restore LaTeX from placeholders
+`lib/translate-helpers.js` (used by the translate-and-link / translate-hindi routes) and `/api/translate` both hit DeepSeek (`deepseek-v4-flash`, OpenAI-compatible `/chat/completions`). Flow:
+1. Extract LaTeX, ACRONYMS, quoted titles, etc. → swap with `__KEEP_N__` placeholders.
+2. Send the protected text to DeepSeek with a system prompt that instructs strict translation + verbatim preservation of placeholders.
+3. Strip wrapping quotes and restore placeholders from the model's response.
 
 ## Image Upload Pattern
 `POST /api/upload` accepts multipart form-data or base64 data URLs.

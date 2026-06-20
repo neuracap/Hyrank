@@ -1235,7 +1235,8 @@ function MockReview({ spec, mockTestId, onChanged }) {
             if (!res.ok || !j.success) throw new Error(j.error || `Translate failed (${res.status})`);
             await load({ silent: true });
             const c = j.counts || { processed: 0, failed: 0 };
-            const msg = `Translated ${c.processed} questions${c.failed ? `, ${c.failed} failed` : ''}. Opening Hindi review…`;
+            const errSuffix = formatTranslateErrors(j.errors_sample);
+            const msg = `Translated ${c.processed} questions${c.failed ? `, ${c.failed} failed` : ''}.${errSuffix}\n\nOpening Hindi review…`;
             alert(msg);
             window.location.href = `/mock-tests/${mockTestId}/hindi-review`;
         } catch (e) { setErr(e.message); }
@@ -1260,6 +1261,17 @@ function MockReview({ spec, mockTestId, onChanged }) {
             c.failed    ? `${c.failed} failed`        : null,
         ].filter(Boolean);
         return parts.length ? parts.join(', ') : 'no changes';
+    };
+
+    // When some rows fail, the route returns up to 10 in errors_sample. Surface
+    // the first one in the alert so the operator can see WHY without digging
+    // through Railway logs (e.g. missing API key, model name typo, etc.).
+    const formatTranslateErrors = (errors) => {
+        if (!errors || errors.length === 0) return '';
+        const first = errors[0];
+        const hint = first.section ? ` [${first.section}]` : '';
+        const more = errors.length > 1 ? ` (+${errors.length - 1} more)` : '';
+        return `\n\nFirst error${hint}: ${first.error || 'unknown'}${more}`;
     };
 
     const gdTranslateAndLink = async () => {
@@ -1305,7 +1317,8 @@ function MockReview({ spec, mockTestId, onChanged }) {
             }
             await load({ silent: true });
             const hint = j.bilingual_review_url ? `\n\nReview at: ${j.bilingual_review_url}` : '';
-            alert(`Done: ${formatTranslateCounts(j.counts)}.${hint}`);
+            const errSuffix = formatTranslateErrors(j.errors_sample);
+            alert(`Done: ${formatTranslateCounts(j.counts)}.${errSuffix}${hint}`);
         } catch (e) {
             // Network error before any HTTP status arrived (proxy dropped
             // the socket, browser timed out, etc.). Probe in case the
