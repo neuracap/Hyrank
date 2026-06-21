@@ -303,10 +303,11 @@ function EditablePanel({ lang, data, label, editState, onEditChange, onTranslate
             {/* Core Answer Basis */}
             <div className="px-3 py-1.5 border-b bg-blue-50">
                 <label className="text-[10px] text-gray-500 uppercase font-semibold block mb-0.5">Core Answer Basis</label>
-                <input type="text"
+                <textarea
                     value={editState.coreBasis || ''}
                     onChange={e => onEditChange({ ...editState, coreBasis: e.target.value })}
-                    className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-400"
+                    rows={Math.max(1, Math.ceil(((editState.coreBasis || '').length || 0) / 70) || 1)}
+                    className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-400 resize-y"
                     placeholder="One-line reason why this is correct..." />
             </div>
 
@@ -363,7 +364,7 @@ function EditablePanel({ lang, data, label, editState, onEditChange, onTranslate
                 )}
 
                 {showPreview && editState.solutionText && (
-                    <div className="mt-2 p-2 bg-gray-50 rounded border border-gray-200 text-xs space-y-1.5 max-h-64 overflow-y-auto">
+                    <div className="mt-2 p-2 bg-gray-50 rounded border border-gray-200 text-xs space-y-1.5">
                         <p className="text-[10px] font-bold text-gray-400 uppercase">Preview</p>
                         {textToSections(editState.solutionText).map((sec, i) => (
                             <div key={i}>
@@ -774,11 +775,16 @@ export default function ReviewProductionBilingual({ exams }) {
     const [loadingQuestions, setLoadingQuestions] = useState(false);
     const [filter, setFilter] = useState('all');
     const [feedback, setFeedback] = useState(null);
+    const [enUnlinked, setEnUnlinked] = useState([]);
+    const [hiUnlinked, setHiUnlinked] = useState([]);
+    const [loadingUnlinked, setLoadingUnlinked] = useState(false);
 
     const handleExamChange = async (examId) => {
         setSelectedExamId(examId);
         setSelectedPair(null);
         setQuestions([]);
+        setEnUnlinked([]);
+        setHiUnlinked([]);
         setPapers([]);
         if (!examId) return;
 
@@ -793,19 +799,31 @@ export default function ReviewProductionBilingual({ exams }) {
 
     const loadQuestions = async (enId, hiId) => {
         setLoadingQuestions(true);
+        setLoadingUnlinked(true);
         setFeedback(null);
+        setEnUnlinked([]);
+        setHiUnlinked([]);
         try {
-            const res = await fetch(`/api/solution-review/bilingual-questions?en_session_id=${enId}&hi_session_id=${hiId}`);
-            const data = await res.json();
-            if (res.ok) {
-                setQuestions(data.questions || []);
+            const [pairsRes, unlinkedRes] = await Promise.all([
+                fetch(`/api/solution-review/bilingual-questions?en_session_id=${enId}&hi_session_id=${hiId}`),
+                fetch(`/api/solution-review/bilingual-unlinked?en_session_id=${enId}&hi_session_id=${hiId}`),
+            ]);
+            const pairsData = await pairsRes.json();
+            const unlinkedData = await unlinkedRes.json();
+            if (pairsRes.ok) {
+                setQuestions(pairsData.questions || []);
             } else {
-                setFeedback({ type: 'error', msg: data.error });
+                setFeedback({ type: 'error', msg: pairsData.error });
+            }
+            if (unlinkedRes.ok) {
+                setEnUnlinked(unlinkedData.en_unlinked || []);
+                setHiUnlinked(unlinkedData.hi_unlinked || []);
             }
         } catch (e) {
             setFeedback({ type: 'error', msg: e.message });
         } finally {
             setLoadingQuestions(false);
+            setLoadingUnlinked(false);
         }
     };
 
@@ -1018,6 +1036,70 @@ export default function ReviewProductionBilingual({ exams }) {
                                 <BilingualCard pair={q} idx={idx} onDifficultyChange={handleDifficultyChange} />
                             </div>
                         ))}
+
+                        {/* Standalone Hindi (Hindi-first because the panels are HI-left) */}
+                        {hiUnlinked.length > 0 && (
+                            <div className="pt-8">
+                                <div className="mb-3 flex items-center gap-3 flex-wrap">
+                                    <h2 className="text-sm font-bold text-orange-800 uppercase tracking-wide">
+                                        Standalone Hindi Questions
+                                    </h2>
+                                    <span className="text-xs text-gray-500">
+                                        {hiUnlinked.length} unlinked
+                                    </span>
+                                </div>
+                                <div className="space-y-4">
+                                    {hiUnlinked.map((row, idx) => {
+                                        const pseudoPair = {
+                                            link_id: `hi-only-${row.question_id}`,
+                                            section_code: row.section_code,
+                                            en: null,
+                                            hi: row,
+                                        };
+                                        return (
+                                            <div key={pseudoPair.link_id} id={`bp-${pseudoPair.link_id}`}>
+                                                <BilingualCard pair={pseudoPair} idx={idx} onDifficultyChange={handleDifficultyChange} />
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Standalone English */}
+                        {enUnlinked.length > 0 && (
+                            <div className="pt-8">
+                                <div className="mb-3 flex items-center gap-3 flex-wrap">
+                                    <h2 className="text-sm font-bold text-blue-800 uppercase tracking-wide">
+                                        Standalone English Questions
+                                    </h2>
+                                    <span className="text-xs text-gray-500">
+                                        {enUnlinked.length} unlinked
+                                    </span>
+                                </div>
+                                <div className="space-y-4">
+                                    {enUnlinked.map((row, idx) => {
+                                        const pseudoPair = {
+                                            link_id: `en-only-${row.question_id}`,
+                                            section_code: row.section_code,
+                                            en: row,
+                                            hi: null,
+                                        };
+                                        return (
+                                            <div key={pseudoPair.link_id} id={`bp-${pseudoPair.link_id}`}>
+                                                <BilingualCard pair={pseudoPair} idx={idx} onDifficultyChange={handleDifficultyChange} />
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {loadingUnlinked && (
+                            <div className="pt-6 text-center text-xs text-gray-400">
+                                Loading standalone questions…
+                            </div>
+                        )}
                     </div>
                 )}
             </main>
