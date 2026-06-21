@@ -11,41 +11,56 @@ const DIFFICULTY_MAP = {
     3: { label: 'Hard', cls: 'bg-red-100 text-red-700' },
 };
 
-/**
- * Format text by adding line breaks after sentences.
- * English: after "." followed by a space or end, but not inside LaTeX ($...$) or decimals (3.14)
- * Hindi: after "।"
- */
+// Format text by adding line breaks after sentences. English: after ". " before
+// an uppercase letter, but never inside $LaTeX$ or [section_tags]. Hindi: after "।".
 function formatSentences(text) {
     if (!text) return text;
-    // Protect LaTeX blocks by replacing them with placeholders
     const latexBlocks = [];
-    let protected_ = text.replace(/\$[^$]+\$/g, (match) => {
-        latexBlocks.push(match);
-        return `__LATEX_${latexBlocks.length - 1}__`;
-    });
-    // Protect [section_key] tags
-    const sectionTags = [];
-    protected_ = protected_.replace(/\[[a-z_]+\]/g, (match) => {
-        sectionTags.push(match);
-        return `__SEC_${sectionTags.length - 1}__`;
-    });
-    // Add newline after ". " (English sentence end) — but not after decimals like 3.14
-    // A sentence-ending "." is followed by a space and an uppercase letter, or end of text
-    protected_ = protected_.replace(/\.(\s+)(?=[A-Z\u0900-\u097F])/g, '.\n');
-    // Add newline after "।" (Hindi sentence end)
-    protected_ = protected_.replace(/।\s*/g, '।\n');
-    // Remove double newlines created by formatting
-    protected_ = protected_.replace(/\n{3,}/g, '\n\n');
-    // Restore LaTeX blocks
-    for (let i = 0; i < latexBlocks.length; i++) {
-        protected_ = protected_.replace(`__LATEX_${i}__`, latexBlocks[i]);
+    let p = text.replace(/\$[^$]+\$/g, (m) => { latexBlocks.push(m); return `__LATEX_${latexBlocks.length - 1}__`; });
+    const secTags = [];
+    p = p.replace(/\[[a-z_]+\]/g, (m) => { secTags.push(m); return `__SEC_${secTags.length - 1}__`; });
+    p = p.replace(/\.(\s+)(?=[A-Zऀ-ॿ])/g, '.\n');
+    p = p.replace(/।\s*/g, '।\n');
+    p = p.replace(/\n{3,}/g, '\n\n');
+    for (let i = 0; i < latexBlocks.length; i++) p = p.replace(`__LATEX_${i}__`, latexBlocks[i]);
+    for (let i = 0; i < secTags.length; i++) p = p.replace(`__SEC_${i}__`, secTags[i]);
+    return p;
+}
+
+function toArray(val) {
+    if (!val) return [];
+    if (Array.isArray(val)) return val;
+    if (typeof val === 'string') return [val];
+    return [];
+}
+
+// Flatten a display_sections array into editable [section_key] text.
+function sectionsToText(sections) {
+    if (Array.isArray(sections)) {
+        return sections.map(s => {
+            const prefix = s.key ? `[${s.key}] ` : '';
+            const content = (s.content || '').replace(/\\n/g, '\n');
+            return prefix + content;
+        }).join('\n\n');
     }
-    // Restore section tags
-    for (let i = 0; i < sectionTags.length; i++) {
-        protected_ = protected_.replace(`__SEC_${i}__`, sectionTags[i]);
+    if (sections && typeof sections === 'object') {
+        return Object.entries(sections).map(([key, val]) => {
+            const text = typeof val === 'string' ? val : val?.approach || val?.content || '';
+            return `[${key}] ${(text || '').replace(/\\n/g, '\n')}`;
+        }).join('\n\n');
     }
-    return protected_;
+    return '';
+}
+
+// Parse the edited text back into display_sections.
+function textToSections(text) {
+    if (!text || !text.trim()) return [];
+    const parts = text.split(/^(?=\[[a-z_]+\]\s)/m).filter(b => b.trim());
+    return parts.map(part => {
+        const match = part.match(/^\[([a-z_]+)\]\s*([\s\S]*)$/);
+        if (match) return { key: match[1], content: match[2].trim() };
+        return { key: 'exam_craft', content: part.trim() };
+    });
 }
 
 function DifficultyBadge({ level }) {
@@ -111,7 +126,6 @@ export default function SolutionReview({ exams = [], paperId: propPaperId, langu
         }
     };
 
-    // Fetch papers when exam or language changes
     const fetchPapers = async (examId, language) => {
         if (!examId) { setPapers([]); return; }
         setLoadingPapers(true);
@@ -161,7 +175,6 @@ export default function SolutionReview({ exams = [], paperId: propPaperId, langu
         }
     };
 
-    // Auto-load when paperId is passed via props (from list page)
     useEffect(() => {
         if (propPaperId) {
             setSelectedPaper({ paper_session_id: propPaperId });
@@ -183,9 +196,7 @@ export default function SolutionReview({ exams = [], paperId: propPaperId, langu
 
     const solvedCount = questions.filter(q => q.solution_status === 'DONE').length;
 
-    // Handle difficulty change for a question
     const handleDifficultyChange = async (questionId, versionNo, newDifficulty) => {
-        // Optimistic update
         setQuestions(prev => prev.map(q =>
             q.question_id === questionId ? { ...q, difficulty: newDifficulty } : q
         ));
@@ -207,7 +218,6 @@ export default function SolutionReview({ exams = [], paperId: propPaperId, langu
         }
     };
 
-    // Group questions by section_code for sidebar
     const groupedQuestions = questions.reduce((acc, q) => {
         const section = q.section_code || 'Other';
         if (!acc[section]) acc[section] = [];
@@ -215,7 +225,6 @@ export default function SolutionReview({ exams = [], paperId: propPaperId, langu
         return acc;
     }, {});
 
-    // Section-wise difficulty stats
     const sectionStats = Object.entries(groupedQuestions).map(([code, qs]) => ({
         code,
         total: qs.length,
@@ -309,10 +318,6 @@ export default function SolutionReview({ exams = [], paperId: propPaperId, langu
                             <a href={`/api/pdf?path=${encodeURIComponent(selectedPaper.source_pdf_path)}`}
                                 target="_blank" rel="noopener noreferrer"
                                 className="text-xs text-red-600 hover:underline flex items-center gap-1 bg-white border border-gray-200 px-2 py-0.5 rounded">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5">
-                                    <path d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5H5.625Z" />
-                                    <path d="M12.971 1.816A5.23 5.23 0 0 1 14.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 0 1 3.434 1.279 9.768 9.768 0 0 0-6.963-6.963Z" />
-                                </svg>
                                 Source PDF
                             </a>
                         )}
@@ -423,7 +428,7 @@ export default function SolutionReview({ exams = [], paperId: propPaperId, langu
                                                         onClick={e => {
                                                             e.preventDefault();
                                                             const el = document.getElementById(`sq-${q.question_id}`);
-                                                            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                                            if (el) el.scrollIntoView({ behavior: 'auto', block: 'start' });
                                                         }}
                                                         className={`flex items-center justify-center aspect-square text-xs font-medium rounded border transition-colors ${colorClass}`}
                                                         title={`Q.${qLabel} — ${hasSolution ? 'DONE' : q.solution_status || 'PENDING'}${hasQIssue ? ' ⚠ QUALITY ISSUE' : ''}`}
@@ -471,8 +476,13 @@ export default function SolutionReview({ exams = [], paperId: propPaperId, langu
                         <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
                             {filteredQuestions.map((q, idx) => (
                                 <div key={q.question_id} id={`sq-${q.question_id}`}>
-                                    <QuestionCard q={q} idx={idx} paperId={selectedPaper.paper_session_id}
-                                        onDifficultyChange={(newDiff) => handleDifficultyChange(q.question_id, q.version_no, newDiff)} />
+                                    <QuestionCard
+                                        q={q}
+                                        idx={idx}
+                                        paperId={selectedPaper.paper_session_id}
+                                        language={selectedLanguage}
+                                        onDifficultyChange={(newDiff) => handleDifficultyChange(q.question_id, q.version_no, newDiff)}
+                                    />
                                 </div>
                             ))}
                         </div>
@@ -483,15 +493,13 @@ export default function SolutionReview({ exams = [], paperId: propPaperId, langu
     );
 }
 
-// Safely convert a value to an array (handles strings, nulls, non-arrays)
-function toArray(val) {
-    if (!val) return [];
-    if (Array.isArray(val)) return val;
-    if (typeof val === 'string') return [val];
-    return [];
-}
-
-function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
+// =========================================================
+// Single-language question card — mirrors the bilingual editor's
+// EditablePanel style: Edit Q (stem + options with paste-image),
+// A/B/C/D correct selector, Core Answer Basis textarea, sectioned
+// solution editor with [section_key] preview, figure attach/edit.
+// =========================================================
+function QuestionCard({ q, idx, paperId, language, onDifficultyChange }) {
     const hasSolution = q.solution_status === 'DONE';
     const sj = q.solution_json || {};
     const answer = q.correct_option_label || q.answer_label || sj.answer_outcome?.correct_option;
@@ -506,114 +514,130 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
     const figurePrompt = q.solution_figure_prompt || sj.answer_outcome?.figure_prompt;
     const figureHelpful = q.solution_figure_helpful || sj.answer_outcome?.figure_helpful;
 
-    // Extract explanation text from display_sections
-    const getExplanationText = () => {
-        if (!displaySections) return '';
-        if (Array.isArray(displaySections)) {
-            return displaySections.map(sec => {
-                const prefix = sec.key ? `[${sec.key.replace(/_/g, ' ')}] ` : '';
-                return prefix + (sec.content || '');
-            }).join('\n\n');
-        }
-        if (typeof displaySections === 'object') {
-            return Object.entries(displaySections).map(([key, val]) => {
-                const text = typeof val === 'string' ? val : val?.approach || val?.content || JSON.stringify(val);
-                return `[${key.replace(/_/g, ' ')}] ${text}`;
-            }).join('\n\n');
-        }
-        return '';
-    };
+    const [editingQuestion, setEditingQuestion] = useState(false);
+    const [bodyText, setBodyText] = useState(q.question_text || '');
+    const [optionEdits, setOptionEdits] = useState({}); // { A: 'text', ... } — only keys that were edited
 
-    const [explanationText, setExplanationText] = useState(getExplanationText);
+    const [explanationText, setExplanationText] = useState(() => sectionsToText(displaySections));
     const [coreBasisText, setCoreBasisText] = useState(coreBasis || '');
+    const [correctLabel, setCorrectLabel] = useState(answer || '');
+    const [showPreview, setShowPreview] = useState(true);
+
     const [isSaving, setIsSaving] = useState(false);
     const [saveMsg, setSaveMsg] = useState(null);
+    const [uploadingImage, setUploadingImage] = useState(false);
+    const [uploadErr, setUploadErr] = useState(null);
     const [mockWorthiness, setMockWorthiness] = useState(q.mock_worthiness || null);
+
     const [figureUrl, setFigureUrl] = useState(sj.answer_outcome?.figure_url || '');
     const [uploadingFigure, setUploadingFigure] = useState(false);
     const [figureNeeded, setFigureNeeded] = useState(!!(figureHelpful || figurePrompt));
     const [editingFigure, setEditingFigure] = useState(false);
     const [dismissingFigure, setDismissingFigure] = useState(false);
 
-    // Image paste upload
-    const handlePaste = (e) => {
-        const items = e.clipboardData?.items;
-        if (!items) return;
-        for (let item of items) {
-            if (item.type.startsWith('image/')) {
-                e.preventDefault();
-                const fileBlob = item.getAsFile();
+    const optionKeys = ['A', 'B', 'C', 'D'];
+    const existingOptByKey = Object.fromEntries((q.options || []).map(o => [o.opt_label, o]));
+    const draftOptionFor = (k) => {
+        if (Object.prototype.hasOwnProperty.call(optionEdits, k)) return optionEdits[k];
+        return existingOptByKey[k]?.opt_text || '';
+    };
+    const setDraftOption = (k, value) => setOptionEdits(prev => ({ ...prev, [k]: value }));
+
+    // Paste-to-upload for stem/option/solution textareas — mirrors the
+    // bilingual editor. Inserts `![](url)` markdown at the cursor.
+    const handleImagePaste = async (e, currentValue, setNewValue, optionKey, roleOverride) => {
+        const items = Array.from(e.clipboardData?.items || []);
+        const imgItem = items.find(it => it.type && it.type.startsWith('image/'));
+        if (!imgItem) return;
+        e.preventDefault();
+        const el = e.target;
+        const start = (typeof el.selectionStart === 'number') ? el.selectionStart : currentValue.length;
+        const end   = (typeof el.selectionEnd   === 'number') ? el.selectionEnd   : currentValue.length;
+        let file = imgItem.getAsFile();
+        if ((!file || file.size === 0) && e.clipboardData?.files?.length) {
+            file = e.clipboardData.files[0];
+        }
+        if (!file) return;
+        if (file.size === 0) {
+            setUploadErr('Image upload failed: clipboard image is empty (0 bytes). Try copying the image again, or use a screenshot snip (Win+Shift+S).');
+            return;
+        }
+        setUploadingImage(true);
+        setUploadErr(null);
+        try {
+            const dataUrl = await new Promise((resolve, reject) => {
                 const reader = new FileReader();
-                reader.readAsDataURL(fileBlob);
-                reader.onloadend = async () => {
-                    try {
-                        const res = await fetch('/api/upload', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                data: reader.result,
-                                question_id: q.question_id,
-                                language: 'EN',
-                                version_no: q.version_no,
-                                role: 'solution',
-                                option_key: '__SOLUTION__',
-                            }),
-                        });
-                        const data = await res.json();
-                        if (data.latexPath) {
-                            setExplanationText(prev => prev + `\n\n\\includegraphics{${data.latexPath}}`);
-                        } else {
-                            alert('Upload failed: ' + (data.error || 'Unknown error'));
-                        }
-                    } catch (err) {
-                        console.error('Image upload error:', err);
-                        alert('Upload failed');
-                    }
-                };
-                break;
-            }
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(new Error('Could not read image'));
+                reader.readAsDataURL(file);
+            });
+            const body = {
+                data: dataUrl,
+                question_id: q.question_id,
+                version_no: q.version_no || 1,
+                language,
+                role: roleOverride || (optionKey ? 'option' : 'stem'),
+            };
+            if (optionKey) body.option_key = optionKey;
+            const res = await fetch('/api/upload', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const json = await res.json();
+            const url = json.latexPath || json.secure_url || json.url;
+            if (!res.ok || !url) throw new Error(json.error || 'Upload failed');
+            const markdown = `![](${url})`;
+            setNewValue(currentValue.slice(0, start) + markdown + currentValue.slice(end));
+        } catch (err) {
+            setUploadErr('Image upload failed: ' + err.message);
+        } finally {
+            setUploadingImage(false);
         }
     };
 
-    const handleSaveExplanation = async () => {
+    const handleSave = async () => {
         setIsSaving(true);
         setSaveMsg(null);
         try {
-            // Rebuild display_sections from edited text + include figure_url
             const updatedSj = { ...sj };
-            if (Array.isArray(updatedSj.display_sections)) {
-                updatedSj.display_sections = [{ key: 'exam_craft', content: explanationText }];
-            } else {
-                updatedSj.display_sections = { exam_craft: { approach: explanationText } };
-            }
-            if (figureUrl) {
-                if (updatedSj.answer_outcome) updatedSj.answer_outcome.figure_url = figureUrl;
-            }
-            // Update core_answer_basis
+            updatedSj.display_sections = textToSections(explanationText);
             if (!updatedSj.answer_outcome) updatedSj.answer_outcome = {};
             updatedSj.answer_outcome.core_answer_basis = coreBasisText;
+            if (figureUrl) updatedSj.answer_outcome.figure_url = figureUrl;
+
+            const payload = {
+                question_id: q.question_id,
+                version_no: q.version_no,
+                language,
+                correct_option_label: correctLabel || '',
+                full_json: updatedSj,
+                difficulty: q.difficulty || '',
+                mock_worthiness: mockWorthiness,
+            };
+
+            // Include body_text only if it actually changed.
+            if (bodyText !== (q.question_text || '')) {
+                payload.body_text = bodyText;
+            }
+            // Include only options that changed.
+            const optsArr = [];
+            for (const k of Object.keys(optionEdits)) {
+                const next = optionEdits[k];
+                const prev = existingOptByKey[k]?.opt_text || '';
+                if (next !== prev) optsArr.push({ option_key: k, opt_text: next });
+            }
+            if (optsArr.length > 0) payload.options = optsArr;
 
             const res = await fetch('/api/solution-review/save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    paper_session_id: paperId,
-                    solutions: [{
-                        question_id: q.question_id,
-                        version_no: q.version_no,
-                        answer_label: answer || '',
-                        solution_text: explanationText,
-                        difficulty: q.difficulty || '',
-                        tags: '',
-                        full_json: updatedSj,
-                        mock_worthiness: mockWorthiness,
-                    }],
-                }),
+                body: JSON.stringify({ paper_session_id: paperId, solutions: [payload] }),
             });
             const data = await res.json();
             if (res.ok && data.success) {
                 setSaveMsg('Saved!');
-                setTimeout(() => setSaveMsg(null), 2000);
+                setTimeout(() => setSaveMsg(null), 2500);
             } else {
                 setSaveMsg('Error: ' + (data.error || 'Failed'));
             }
@@ -623,6 +647,26 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
         } finally {
             setIsSaving(false);
         }
+    };
+
+    // Save figure URL right after upload so a refresh keeps the image.
+    const autoSaveFigure = (url) => {
+        const updatedSj = { ...sj };
+        if (!updatedSj.answer_outcome) updatedSj.answer_outcome = {};
+        updatedSj.answer_outcome.figure_url = url;
+        return fetch('/api/solution-review/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                paper_session_id: paperId,
+                solutions: [{
+                    question_id: q.question_id,
+                    version_no: q.version_no,
+                    language,
+                    full_json: updatedSj,
+                }],
+            }),
+        }).catch(e => console.error('Auto-save figure error:', e));
     };
 
     return (
@@ -650,281 +694,336 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
                     {q.subtype && <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">{q.subtype}</span>}
                     {q.section_code && <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">{q.section_code}</span>}
                 </div>
-                {answer && (
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-500 uppercase">Answer:</span>
-                        <span className="text-sm font-bold text-green-700 bg-green-100 px-2.5 py-0.5 rounded-full">{answer}</span>
+                <div className="flex items-center gap-2">
+                    {correctLabel && (
+                        <span className="text-sm font-bold text-green-700 bg-green-100 px-2.5 py-0.5 rounded-full">Ans: {correctLabel}</span>
+                    )}
+                    <button
+                        type="button"
+                        onClick={() => setEditingQuestion(v => !v)}
+                        className={`px-2 py-1 rounded border text-xs font-semibold ${editingQuestion ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-blue-700 border-blue-300 hover:bg-blue-50'}`}
+                        title="Edit question stem and options"
+                    >
+                        {editingQuestion ? 'Done Editing Q' : 'Edit Q'}
+                    </button>
+                </div>
+            </div>
+
+            {/* Question + Options — read or edit mode */}
+            <div className="px-5 py-3 border-b border-gray-100">
+                {!editingQuestion ? (
+                    <>
+                        <div className="text-sm text-gray-800"><Latex>{bodyText || '(No question text)'}</Latex></div>
+                        <div className="grid grid-cols-2 gap-3 mt-3">
+                            {optionKeys.map(k => {
+                                const text = draftOptionFor(k);
+                                const isCorrect = correctLabel === k;
+                                const isBlank = !text || !text.trim();
+                                return (
+                                    <div key={k}
+                                        className={`flex gap-2 items-start p-3 rounded-md border ${isBlank ? 'bg-red-50 border-red-300' : isCorrect ? 'bg-green-50 border-green-400' : 'bg-white border-gray-200'}`}>
+                                        <span className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border ${isCorrect ? 'bg-green-500 text-white border-green-500' : 'bg-gray-100 text-gray-600 border-gray-300'}`}>
+                                            {k}
+                                        </span>
+                                        <div className="text-sm text-gray-700 pt-0.5 flex-1">
+                                            {isBlank ? <span className="text-red-500 italic font-semibold">BLANK</span> : <Latex>{text}</Latex>}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </>
+                ) : (
+                    <div className="space-y-2">
+                        <div>
+                            <div className="flex items-center justify-between mb-0.5">
+                                <label className="text-[10px] font-bold text-gray-500 uppercase">Stem</label>
+                                <span className="text-[10px] text-gray-400">paste image (Ctrl+V) supported</span>
+                            </div>
+                            <textarea
+                                value={bodyText}
+                                onChange={e => setBodyText(e.target.value)}
+                                onPaste={e => handleImagePaste(e, bodyText, setBodyText)}
+                                rows={Math.max(2, Math.min(10, Math.ceil((bodyText.length || 0) / 80)))}
+                                className="w-full border border-blue-300 rounded px-2 py-1 text-sm font-mono focus:ring-2 focus:ring-blue-400"
+                            />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            {optionKeys.map(k => (
+                                <label key={k} className="block">
+                                    <span className="text-[10px] font-bold text-gray-500 uppercase">Option {k}</span>
+                                    <input
+                                        type="text"
+                                        value={draftOptionFor(k)}
+                                        onChange={e => setDraftOption(k, e.target.value)}
+                                        onPaste={e => handleImagePaste(e, draftOptionFor(k), (next) => setDraftOption(k, next), k)}
+                                        className="w-full border border-gray-300 rounded px-2 py-1 text-xs font-mono"
+                                    />
+                                </label>
+                            ))}
+                        </div>
+                        {uploadingImage && (
+                            <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                                Uploading image…
+                            </div>
+                        )}
+                        {uploadErr && (
+                            <div className="text-[11px] text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">
+                                {uploadErr}
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
 
-            {/* Question Text */}
-            <div className="px-5 py-4 border-b border-gray-100">
-                <div className="text-sm text-gray-800"><Latex>{q.question_text || '(No question text)'}</Latex></div>
-            </div>
-
-            {/* Options */}
-            <div className="px-5 py-3 border-b border-gray-100">
-                <div className="grid grid-cols-2 gap-3">
-                    {(q.options || []).map(opt => {
-                        const isCorrect = answer === opt.opt_label;
-                        const isBlank = !opt.opt_text || !opt.opt_text.trim();
-                        return (
-                            <div key={opt.opt_label}
-                                className={`flex gap-2 items-start p-3 rounded-md border ${isBlank ? 'bg-red-50 border-red-300' : isCorrect ? 'bg-green-50 border-green-400' : 'bg-white border-gray-200'}`}>
-                                <span className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border ${isCorrect ? 'bg-green-500 text-white border-green-500' : 'bg-gray-100 text-gray-600 border-gray-300'}`}>
-                                    {opt.opt_label}
-                                </span>
-                                <div className="text-sm text-gray-700 pt-0.5 flex-1">
-                                    {isBlank ? <span className="text-red-500 italic font-semibold">BLANK</span> : <Latex>{opt.opt_text}</Latex>}
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            </div>
-
             {/* Quality warnings */}
             {(() => {
-                const issues = checkQuestionQuality(q.question_text, q.options?.map(o => ({ ...o, option_key: o.opt_label })), answer);
+                const issues = checkQuestionQuality(bodyText, q.options?.map(o => ({ ...o, option_key: o.opt_label })), correctLabel);
                 if (issues.length === 0) return null;
                 return (
                     <div className="px-5 py-2 border-b border-pink-200 bg-pink-50">
                         {issues.map((w, i) => (
                             <div key={i} className={`flex items-center gap-1.5 text-xs ${w.severity === 'error' ? 'text-red-700 font-semibold' : 'text-orange-700'}`}>
-                                <span>{w.severity === 'error' ? '\u26D4' : '\u26A0\uFE0F'}</span> {w.message}
+                                <span>{w.severity === 'error' ? '⛔' : '⚠️'}</span> {w.message}
                             </div>
                         ))}
                     </div>
                 );
             })()}
 
-            {/* Solution content — only show if solution exists */}
-            {hasSolution && (
-                <div>
-                    {/* Final Answer & Core Basis */}
-                    {(finalAnswerText || coreBasisText) && (
-                        <div className="px-5 py-3 border-b border-gray-100 bg-blue-50">
-                            {finalAnswerText && (
-                                <div className="mb-2">
-                                    <span className="text-xs text-gray-500 uppercase font-semibold">Final Answer: </span>
-                                    <span className="text-sm text-gray-800"><Latex>{finalAnswerText}</Latex></span>
-                                </div>
-                            )}
-                            <div>
-                                <label className="text-xs text-gray-500 uppercase font-semibold block mb-1">Core Answer Basis</label>
-                                <textarea
-                                    rows={2}
-                                    value={coreBasisText}
-                                    onChange={e => setCoreBasisText(e.target.value)}
-                                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-y"
-                                    placeholder="One-line reason why this is the correct answer..."
-                                />
-                            </div>
-                        </div>
-                    )}
+            {/* Correct answer selector — always editable */}
+            <div className="px-5 py-2 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
+                <span className="text-xs text-gray-500 font-semibold uppercase">Correct:</span>
+                {optionKeys.map(opt => (
+                    <button key={opt} onClick={() => setCorrectLabel(opt)}
+                        className={`w-7 h-7 text-xs font-bold rounded border ${correctLabel === opt ? 'bg-green-500 text-white border-green-600' : 'bg-white text-gray-600 border-gray-300 hover:border-green-400'}`}>
+                        {opt}
+                    </button>
+                ))}
+                {finalAnswerText && (
+                    <span className="text-xs text-gray-500 ml-3">
+                        Final: <Latex>{finalAnswerText}</Latex>
+                    </span>
+                )}
+            </div>
 
-                    {/* Editable Explanation */}
-                    <div className="px-5 py-3 border-b border-gray-100">
-                        <div className="flex items-center justify-between mb-2">
-                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Explanation</label>
-                            <div className="flex items-center gap-2">
-                                {saveMsg && <span className={`text-xs font-semibold ${saveMsg === 'Saved!' ? 'text-green-600' : 'text-red-600'}`}>{saveMsg}</span>}
-                                <button onClick={() => setExplanationText(formatSentences(explanationText))}
-                                    className="px-3 py-1 text-xs font-semibold rounded-md bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors"
-                                    title="Add line breaks after sentences (. and ।)">
-                                    Format
-                                </button>
-                                <div className="flex gap-0.5 border border-gray-300 rounded-md overflow-hidden">
-                                    {[{ val: 'ANCHOR', label: 'A', color: 'bg-green-600 text-white', title: 'Anchor — must include in mock' },
-                                      { val: 'ADAPTABLE', label: 'Ad', color: 'bg-blue-500 text-white', title: 'Adaptable — can include' },
-                                      { val: 'REJECT', label: 'R', color: 'bg-red-500 text-white', title: 'Reject — not mock worthy' },
-                                    ].map(w => (
-                                        <button key={w.val} onClick={() => setMockWorthiness(mockWorthiness === w.val ? null : w.val)}
-                                            className={`px-1.5 py-1 text-[10px] font-bold transition-colors ${mockWorthiness === w.val ? w.color : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-                                            title={w.title}>
-                                            {w.label}
-                                        </button>
-                                    ))}
-                                </div>
-                                <button onClick={handleSaveExplanation} disabled={isSaving}
-                                    className="px-3 py-1 text-xs font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors">
-                                    {isSaving ? 'Saving...' : 'Save'}
-                                </button>
-                            </div>
-                        </div>
-                        <textarea
-                            rows={6}
-                            value={explanationText}
-                            onChange={e => setExplanationText(e.target.value)}
-                            onPaste={handlePaste}
-                            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y mb-2"
-                            placeholder="Edit explanation... (paste images directly)"
-                        />
-                        {explanationText && (
-                            <div className="p-3 bg-gray-50 rounded border border-gray-200 text-sm">
-                                <p className="text-xs font-bold text-gray-400 uppercase mb-1">Preview</p>
-                                <Latex>{explanationText}</Latex>
-                            </div>
-                        )}
+            {/* Core Answer Basis — auto-grow */}
+            <div className="px-5 py-2 border-b border-gray-100 bg-blue-50">
+                <label className="text-[10px] text-gray-500 uppercase font-semibold block mb-0.5">Core Answer Basis</label>
+                <textarea
+                    value={coreBasisText}
+                    onChange={e => setCoreBasisText(e.target.value)}
+                    rows={Math.max(1, Math.ceil((coreBasisText.length || 0) / 90) || 1)}
+                    className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-blue-400 resize-y"
+                    placeholder="One-line reason why this is the correct answer..."
+                />
+            </div>
+
+            {/* Action row */}
+            <div className="px-5 py-2 border-b border-gray-100 bg-gray-50 flex items-center gap-2 flex-wrap">
+                <button onClick={() => setExplanationText(formatSentences(explanationText))}
+                    className="px-2 py-1 text-xs font-semibold bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                    title="Add line breaks after sentences (. and ।)">
+                    Format
+                </button>
+                <div className="flex gap-0.5 border border-gray-300 rounded overflow-hidden">
+                    {[{ val: 'ANCHOR', label: 'A', color: 'bg-green-600 text-white', title: 'Anchor — must include in mock' },
+                      { val: 'ADAPTABLE', label: 'Ad', color: 'bg-blue-500 text-white', title: 'Adaptable — can include' },
+                      { val: 'REJECT', label: 'R', color: 'bg-red-500 text-white', title: 'Reject — not mock worthy' },
+                    ].map(w => (
+                        <button key={w.val} onClick={() => setMockWorthiness(mockWorthiness === w.val ? null : w.val)}
+                            className={`px-1.5 py-1 text-[10px] font-bold transition-colors ${mockWorthiness === w.val ? w.color : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                            title={w.title}>
+                            {w.label}
+                        </button>
+                    ))}
+                </div>
+                <button onClick={() => setShowPreview(p => !p)}
+                    className="px-2 py-1 text-xs font-semibold bg-white text-gray-600 border border-gray-300 rounded hover:bg-gray-50">
+                    {showPreview ? 'Hide Preview' : 'Show Preview'}
+                </button>
+                {saveMsg && (
+                    <span className={`text-xs font-semibold ml-auto ${saveMsg === 'Saved!' ? 'text-green-600' : 'text-red-600'}`}>
+                        {saveMsg}
+                    </span>
+                )}
+                <button onClick={handleSave} disabled={isSaving}
+                    className={`px-3 py-1 text-xs font-semibold rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 ${saveMsg ? '' : 'ml-auto'}`}>
+                    {isSaving ? 'Saving...' : 'Save'}
+                </button>
+            </div>
+
+            {/* Sectioned solution editor */}
+            <div className="px-5 py-3 border-b border-gray-100">
+                <div className="text-[10px] text-gray-400 mb-1">paste image (Ctrl+V) supported</div>
+                <textarea
+                    value={explanationText}
+                    onChange={e => setExplanationText(e.target.value)}
+                    onPaste={e => handleImagePaste(e, explanationText, setExplanationText, null, 'solution_body')}
+                    rows={8}
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y"
+                    placeholder="[exam_craft] Solution text here...&#10;&#10;[toppers_insight] One-liner..."
+                />
+                {uploadingImage && (
+                    <div className="mt-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                        Uploading image…
                     </div>
+                )}
+                {uploadErr && (
+                    <div className="mt-1 text-[11px] text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">
+                        {uploadErr}
+                    </div>
+                )}
 
-                    {/* Figure Prompt + Upload */}
-                    {figureNeeded && (
-                        <div className="px-5 py-3 border-b border-gray-100 bg-amber-50">
-                            <div className="flex items-start justify-between gap-4">
-                                <div className="flex-1">
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <label className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Figure Prompt</label>
-                                        <button
-                                            disabled={dismissingFigure}
-                                            onClick={async () => {
-                                                setDismissingFigure(true);
-                                                try {
-                                                    const res = await fetch('/api/solution-review/toggle-figure', {
-                                                        method: 'POST',
-                                                        headers: { 'Content-Type': 'application/json' },
-                                                        body: JSON.stringify({ question_id: q.question_id, version_no: q.version_no, language: 'EN', value: false }),
-                                                    });
-                                                    if (res.ok) setFigureNeeded(false);
-                                                } catch (e) { console.error(e); }
-                                                finally { setDismissingFigure(false); }
-                                            }}
-                                            className="px-2 py-0.5 text-[10px] font-semibold bg-white text-red-600 border border-red-300 rounded hover:bg-red-50 disabled:opacity-50"
-                                        >
-                                            {dismissingFigure ? '...' : 'Figure Not Needed'}
-                                        </button>
+                {showPreview && explanationText && (
+                    <div className="mt-2 p-3 bg-gray-50 rounded border border-gray-200 text-sm space-y-2">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase">Preview</p>
+                        {textToSections(explanationText).map((sec, i) => (
+                            <div key={i}>
+                                <div className="font-bold text-gray-600 uppercase text-[11px] mb-0.5">{(sec.key || '').replace(/_/g, ' ')}</div>
+                                {(sec.content || '').replace(/\\n/g, '\n').split('\n').map((line, li) => (
+                                    <div key={li} className={line.trim() ? '' : 'h-2'}>
+                                        {line.trim() ? <Latex>{line}</Latex> : null}
                                     </div>
-                                    {figurePrompt && <div className="text-sm text-gray-700 mb-2">{figurePrompt}</div>}
-
-                                    {/* Figure paste/upload area */}
-                                    <div className="mt-2">
-                                        <label className="text-xs font-semibold text-gray-600 block mb-1">Generated Figure</label>
-                                        {figureUrl ? (
-                                            <div className="flex items-start gap-2">
-                                                <div className="relative inline-block">
-                                                    <img src={figureUrl} alt="Solution figure" className="max-h-48 rounded border border-gray-300 object-contain" />
-                                                    <button onClick={() => setFigureUrl('')}
-                                                        className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600"
-                                                        title="Remove figure">x</button>
-                                                </div>
-                                                <button onClick={() => setEditingFigure(true)}
-                                                    className="px-2 py-1 text-xs font-semibold bg-blue-50 text-blue-600 border border-blue-200 rounded hover:bg-blue-100">
-                                                    Edit
-                                                </button>
-                                            </div>
-                                        ) : (
-                                            <div
-                                                className="border-2 border-dashed border-amber-300 rounded-lg p-4 text-center cursor-pointer hover:border-amber-500 hover:bg-amber-100 transition-colors"
-                                                onPaste={async (e) => {
-                                                    const items = e.clipboardData?.items;
-                                                    if (!items) return;
-                                                    for (let item of items) {
-                                                        if (item.type.startsWith('image/')) {
-                                                            e.preventDefault();
-                                                            setUploadingFigure(true);
-                                                            const fileBlob = item.getAsFile();
-                                                            const reader = new FileReader();
-                                                            reader.readAsDataURL(fileBlob);
-                                                            reader.onloadend = async () => {
-                                                                try {
-                                                                    const res = await fetch('/api/upload', {
-                                                                        method: 'POST',
-                                                                        headers: { 'Content-Type': 'application/json' },
-                                                                        body: JSON.stringify({
-                                                                            data: reader.result,
-                                                                            question_id: q.question_id,
-                                                                            language: 'EN',
-                                                                            version_no: q.version_no,
-                                                                            role: 'solution_figure',
-                                                                        }),
-                                                                    });
-                                                                    const data = await res.json();
-                                                                    const url = data.url || data.secure_url || data.latexPath;
-                                                                    if (url) {
-                                                                        setFigureUrl(url);
-                                                                        // Auto-save figure URL to solution_json
-                                                                        const updatedSj = { ...sj };
-                                                                        if (!updatedSj.answer_outcome) updatedSj.answer_outcome = {};
-                                                                        updatedSj.answer_outcome.figure_url = url;
-                                                                        fetch('/api/solution-review/save', {
-                                                                            method: 'POST',
-                                                                            headers: { 'Content-Type': 'application/json' },
-                                                                            body: JSON.stringify({
-                                                                                paper_session_id: paperId,
-                                                                                solutions: [{ question_id: q.question_id, version_no: q.version_no, full_json: updatedSj }],
-                                                                            }),
-                                                                        }).catch(e => console.error('Auto-save figure error:', e));
-                                                                    } else {
-                                                                        alert('Upload failed: ' + (data.error || 'No URL returned'));
-                                                                    }
-                                                                } catch (err) {
-                                                                    console.error('Figure upload error:', err);
-                                                                    alert('Upload failed');
-                                                                } finally {
-                                                                    setUploadingFigure(false);
-                                                                }
-                                                            };
-                                                            break;
-                                                        }
-                                                    }
-                                                }}
-                                                tabIndex={0}
-                                            >
-                                                {uploadingFigure ? (
-                                                    <span className="text-xs text-amber-700">Uploading...</span>
-                                                ) : (
-                                                    <span className="text-xs text-amber-600">Paste generated figure here (Ctrl+V)</span>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
+                                ))}
                             </div>
-                        </div>
-                    )}
+                        ))}
+                    </div>
+                )}
+            </div>
 
-                    {/* Figure Editor Modal */}
-                    {editingFigure && figureUrl && (
-                        <Suspense fallback={<div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center"><span className="text-white">Loading editor...</span></div>}>
-                            <FigureEditor
-                                imageUrl={figureUrl}
-                                onSave={async (blob) => {
-                                    const reader = new FileReader();
-                                    reader.readAsDataURL(blob);
-                                    await new Promise(resolve => { reader.onloadend = resolve; });
-                                    const res = await fetch('/api/upload', {
+            {/* Figure section — always visible (toggleable "not needed") */}
+            <div className="px-5 py-3 border-b border-gray-100 bg-amber-50/60">
+                <div className="flex items-center gap-2 mb-1">
+                    <label className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Solution Figure</label>
+                    {figureNeeded && (
+                        <button
+                            disabled={dismissingFigure}
+                            onClick={async () => {
+                                setDismissingFigure(true);
+                                try {
+                                    const res = await fetch('/api/solution-review/toggle-figure', {
                                         method: 'POST',
                                         headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({
-                                            data: reader.result,
-                                            question_id: q.question_id,
-                                            language: 'EN',
-                                            version_no: q.version_no,
-                                            role: 'solution_figure',
-                                        }),
+                                        body: JSON.stringify({ question_id: q.question_id, version_no: q.version_no, language, value: false }),
                                     });
-                                    const data = await res.json();
-                                    const url = data.url || data.secure_url || data.latexPath;
-                                    if (url) {
-                                        setFigureUrl(url);
-                                        const updatedSj = { ...sj };
-                                        if (!updatedSj.answer_outcome) updatedSj.answer_outcome = {};
-                                        updatedSj.answer_outcome.figure_url = url;
-                                        fetch('/api/solution-review/save', {
-                                            method: 'POST',
-                                            headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify({ paper_session_id: paperId, solutions: [{ question_id: q.question_id, version_no: q.version_no, full_json: updatedSj }] }),
-                                        }).catch(e => console.error('Auto-save edited figure error:', e));
-                                    }
-                                    setEditingFigure(false);
-                                }}
-                                onClose={() => setEditingFigure(false)}
-                            />
-                        </Suspense>
+                                    if (res.ok) setFigureNeeded(false);
+                                } catch (e) { console.error(e); }
+                                finally { setDismissingFigure(false); }
+                            }}
+                            className="px-2 py-0.5 text-[10px] font-semibold bg-white text-red-600 border border-red-300 rounded hover:bg-red-50 disabled:opacity-50"
+                        >
+                            {dismissingFigure ? '...' : 'Figure Not Needed'}
+                        </button>
                     )}
+                </div>
+                {figurePrompt && (
+                    <div className="text-sm text-gray-700 mb-2">{figurePrompt}</div>
+                )}
+                {figureUrl ? (
+                    <div className="flex items-start gap-2">
+                        <div className="relative inline-block">
+                            <img src={figureUrl} alt="Solution figure" className="max-h-48 rounded border border-gray-300 object-contain" />
+                            <button onClick={() => setFigureUrl('')}
+                                className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600"
+                                title="Remove figure">x</button>
+                        </div>
+                        <button onClick={() => setEditingFigure(true)}
+                            className="px-2 py-1 text-xs font-semibold bg-blue-50 text-blue-600 border border-blue-200 rounded hover:bg-blue-100">
+                            Edit
+                        </button>
+                    </div>
+                ) : (
+                    <div
+                        className="border-2 border-dashed border-amber-300 rounded-lg p-4 text-center cursor-pointer hover:border-amber-500 hover:bg-amber-100 transition-colors"
+                        onPaste={async (e) => {
+                            const items = e.clipboardData?.items;
+                            if (!items) return;
+                            for (let item of items) {
+                                if (item.type.startsWith('image/')) {
+                                    e.preventDefault();
+                                    setUploadingFigure(true);
+                                    const fileBlob = item.getAsFile();
+                                    const reader = new FileReader();
+                                    reader.readAsDataURL(fileBlob);
+                                    reader.onloadend = async () => {
+                                        try {
+                                            const res = await fetch('/api/upload', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({
+                                                    data: reader.result,
+                                                    question_id: q.question_id,
+                                                    language,
+                                                    version_no: q.version_no,
+                                                    role: 'solution_figure',
+                                                }),
+                                            });
+                                            const data = await res.json();
+                                            const url = data.url || data.secure_url || data.latexPath;
+                                            if (url) {
+                                                setFigureUrl(url);
+                                                autoSaveFigure(url);
+                                            } else {
+                                                alert('Upload failed: ' + (data.error || 'No URL returned'));
+                                            }
+                                        } catch (err) {
+                                            console.error('Figure upload error:', err);
+                                            alert('Upload failed');
+                                        } finally {
+                                            setUploadingFigure(false);
+                                        }
+                                    };
+                                    break;
+                                }
+                            }
+                        }}
+                        tabIndex={0}
+                    >
+                        {uploadingFigure ? (
+                            <span className="text-xs text-amber-700">Uploading...</span>
+                        ) : (
+                            <span className="text-xs text-amber-600">Paste figure here (Ctrl+V)</span>
+                        )}
+                    </div>
+                )}
+            </div>
 
-                    {/* Diagnostic Signals */}
+            {editingFigure && figureUrl && (
+                <Suspense fallback={<div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center"><span className="text-white">Loading editor...</span></div>}>
+                    <FigureEditor
+                        imageUrl={figureUrl}
+                        onSave={async (blob) => {
+                            const reader = new FileReader();
+                            reader.readAsDataURL(blob);
+                            await new Promise(resolve => { reader.onloadend = resolve; });
+                            const res = await fetch('/api/upload', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    data: reader.result,
+                                    question_id: q.question_id,
+                                    language,
+                                    version_no: q.version_no,
+                                    role: 'solution_figure',
+                                }),
+                            });
+                            const data = await res.json();
+                            const url = data.url || data.secure_url || data.latexPath;
+                            if (url) {
+                                setFigureUrl(url);
+                                autoSaveFigure(url);
+                            }
+                            setEditingFigure(false);
+                        }}
+                        onClose={() => setEditingFigure(false)}
+                    />
+                </Suspense>
+            )}
+
+            {/* Read-only structured solution metadata (existing) */}
+            {hasSolution && (
+                <div>
                     {diagnosticSignals && (
                         <CollapsibleSection title="Diagnostic Signals">
                             {toArray(diagnosticSignals.mistake_patterns).length > 0 && (
@@ -959,8 +1058,6 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
                             )}
                         </CollapsibleSection>
                     )}
-
-                    {/* Learning Signals */}
                     {learningSignals && (
                         <CollapsibleSection title="Learning Signals">
                             {toArray(learningSignals.concepts).length > 0 && (
@@ -991,8 +1088,6 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
                             )}
                         </CollapsibleSection>
                     )}
-
-                    {/* Student Errors & Option Error Map */}
                     {studentHooks && (
                         <CollapsibleSection title="Student Errors">
                             {toArray(studentHooks.likely_errors).length > 0 && (
@@ -1008,7 +1103,7 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
                                     <span className="text-xs font-semibold text-gray-500">Option Error Map: </span>
                                     <div className="grid grid-cols-2 gap-2 mt-1">
                                         {Object.entries(studentHooks.option_error_map).map(([key, val]) => (
-                                            <div key={key} className={`text-xs p-2 rounded border ${key === answer ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                                            <div key={key} className={`text-xs p-2 rounded border ${key === correctLabel ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
                                                 <span className="font-bold">{key}:</span> <Latex>{val || '(correct)'}</Latex>
                                             </div>
                                         ))}
@@ -1017,8 +1112,6 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
                             )}
                         </CollapsibleSection>
                     )}
-
-                    {/* Quality Check */}
                     {qualityCheck && (
                         <CollapsibleSection title="Quality Check"
                             badge={qualityCheck.issue_flag ? <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-semibold">Issues Found</span> : null}>
@@ -1040,8 +1133,6 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
                             </div>
                         </CollapsibleSection>
                     )}
-
-                    {/* Indexing Metadata */}
                     {indexingMeta && (toArray(indexingMeta.keywords).length > 0 || toArray(indexingMeta.tags).length > 0) && (
                         <CollapsibleSection title="Metadata">
                             {toArray(indexingMeta?.keywords).length > 0 && (
@@ -1066,19 +1157,7 @@ function QuestionCard({ q, idx, paperId, onDifficultyChange }) {
                             )}
                         </CollapsibleSection>
                     )}
-
-                    {/* Fallback: old-format solution_text */}
-                    {!displaySections && q.solution_text && (
-                        <CollapsibleSection title="Solution Text" defaultOpen={true}>
-                            <div className="text-sm text-gray-700 whitespace-pre-wrap">{q.solution_text}</div>
-                        </CollapsibleSection>
-                    )}
                 </div>
-            )}
-
-            {/* No solution */}
-            {!hasSolution && (
-                <div className="px-5 py-4 text-sm text-gray-400 italic">No solution generated yet.</div>
             )}
         </div>
     );
