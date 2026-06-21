@@ -303,15 +303,23 @@ function EditablePanel({ lang, data, label, editState, onEditChange, onTranslate
                 ))}
             </div>
 
-            {/* Core Answer Basis */}
+            {/* Core Answer Basis — Latex-rendered when not editing the
+                solution, textarea while editingSol is true so the
+                reviewer can fix the raw \( ... \) string. */}
             <div className="px-3 py-1.5 border-b bg-blue-50">
                 <label className="text-[10px] text-gray-500 uppercase font-semibold block mb-0.5">Core Answer Basis</label>
-                <textarea
-                    value={editState.coreBasis || ''}
-                    onChange={e => onEditChange({ ...editState, coreBasis: e.target.value })}
-                    rows={Math.max(1, Math.ceil(((editState.coreBasis || '').length || 0) / 70) || 1)}
-                    className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-400 resize-y"
-                    placeholder="One-line reason why this is correct..." />
+                {editingSol ? (
+                    <textarea
+                        value={editState.coreBasis || ''}
+                        onChange={e => onEditChange({ ...editState, coreBasis: e.target.value })}
+                        rows={Math.max(1, Math.ceil(((editState.coreBasis || '').length || 0) / 70) || 1)}
+                        className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-400 resize-y"
+                        placeholder="One-line reason why this is correct..." />
+                ) : (
+                    (editState.coreBasis || '').trim()
+                        ? <div className="text-xs text-gray-800"><Latex>{editState.coreBasis}</Latex></div>
+                        : <div className="text-xs italic text-gray-400">No core answer basis.</div>
+                )}
             </div>
 
             {/* Action row — minimal when not editing, full tools when editing */}
