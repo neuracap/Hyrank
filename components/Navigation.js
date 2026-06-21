@@ -33,20 +33,29 @@ function NavDropdown({ label, items, pathname }) {
                 </svg>
             </button>
             {open && (
-                <div className="absolute top-full left-0 mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
-                    {items.map(item => (
-                        <Link
-                            key={item.href}
-                            href={item.href}
-                            onClick={() => setOpen(false)}
-                            className={`block px-4 py-2 text-sm ${pathname === item.href
-                                ? 'bg-blue-50 text-blue-700 font-semibold'
-                                : 'text-gray-700 hover:bg-gray-50'
-                                }`}
-                        >
-                            {item.label}
-                        </Link>
-                    ))}
+                <div className="absolute top-full left-0 mt-1 w-52 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                    {items.map((item, i) => {
+                        if (item.type === 'divider') {
+                            return (
+                                <div key={`div-${i}`} className="my-1 border-t border-gray-100 px-4 pt-1.5 pb-0.5 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                                    {item.label}
+                                </div>
+                            );
+                        }
+                        return (
+                            <Link
+                                key={item.href}
+                                href={item.href}
+                                onClick={() => setOpen(false)}
+                                className={`block px-4 py-2 text-sm ${pathname === item.href
+                                    ? 'bg-blue-50 text-blue-700 font-semibold'
+                                    : 'text-gray-700 hover:bg-gray-50'
+                                    }`}
+                            >
+                                {item.label}
+                            </Link>
+                        );
+                    })}
                 </div>
             )}
         </div>
@@ -58,23 +67,62 @@ export default function Navigation({ user }) {
 
     const isActive = (path) => pathname === path;
 
-    // Build "Review Tools" dropdown items based on user role
+    // ── Solutions: solution-review pages + image-solutions pages ──
+    const solutionsItems = [
+        { href: '/solution-review',               label: 'Solution Review' },
+        { href: '/solution-review-bilingual',     label: 'Bilingual Solutions' },
+        { href: '/new-solution-review-bilingual', label: 'New Bilingual' },
+        { href: '/review-production-bilingual',   label: 'Review in Production' },
+        { type: 'divider',                        label: 'Image' },
+        { href: '/image-solutions',               label: 'Image Solo' },
+        { href: '/image-solutions-bilingual',     label: 'Image Bilingual' },
+    ];
+
+    // ── Review: content QA. Flagged is visible to everyone;
+    //   Verify Unlink is admin + whitelisted reviewers (users 2 & 3);
+    //   the rest are admin-only.
     const reviewItems = [];
     if (user?.isAdmin) {
-        reviewItems.push({ href: '/question-review', label: 'Question Review' });
+        reviewItems.push({ href: '/question-review',  label: 'Question Review' });
         reviewItems.push({ href: '/answer-conflicts', label: 'Answer Conflicts' });
-        reviewItems.push({ href: '/admin/issues', label: 'Student Reports' });
-        reviewItems.push({ href: '/image-audit', label: 'Image Audit' });
-        reviewItems.push({ href: '/blank-options', label: 'Blank Options' });
     }
     if (user?.isAdmin || [2, 3].includes(user?.id)) {
-        reviewItems.push({ href: '/verify-unlink', label: 'Verify UnLink' });
+        reviewItems.push({ href: '/verify-unlink',    label: 'Verify Unlink' });
     }
-    reviewItems.push({ href: '/flagged', label: 'Flagged' });
     if (user?.isAdmin) {
-        reviewItems.push({ href: '/test', label: 'Test Page' });
-        reviewItems.push({ href: '/analytics', label: 'Analytics' });
+        reviewItems.push({ href: '/blank-options',    label: 'Blank Options' });
+        reviewItems.push({ href: '/image-audit',      label: 'Image Audit' });
     }
+    reviewItems.push({ href: '/flagged',              label: 'Flagged' });
+    if (user?.isAdmin) {
+        reviewItems.push({ href: '/admin/issues',     label: 'Student Reports' });
+    }
+
+    // ── Mocks: flat list of test types, then Tools section ──
+    const mocksItems = [
+        { href: '/mock-tests',          label: 'Mock Tests' },
+        { href: '/cgl-mock-builder',    label: 'CGL T1' },
+        { href: '/chsl-mock-builder',   label: 'CHSL T1' },
+        { href: '/gd-mock-builder',     label: 'GD T1' },
+        { type: 'divider',              label: 'Tools' },
+        { href: '/mock-test-builder',   label: 'General Builder' },
+        { href: '/section-test-builder', label: 'Section Builder' },
+        { href: '/mock-blueprint',      label: 'Blueprint Editor' },
+    ];
+
+    // ── Daily: recurring content workflows ──
+    const dailyItems = [
+        { href: '/admin/daily-quiz',      label: 'GK Approval' },
+        { href: '/admin/current-affairs', label: 'Current Affairs' },
+        { href: '/social-media',          label: 'Social Media' },
+    ];
+
+    // ── Admin: internal ops ──
+    const adminItems = [
+        { href: '/admin/maintenance', label: 'Maintenance' },
+        { href: '/test',              label: 'Test Page' },
+        { href: '/analytics',         label: 'Analytics' },
+    ];
 
     return (
         <nav className="bg-white border-b border-gray-200">
@@ -107,18 +155,6 @@ export default function Navigation({ user }) {
                                 Test Review
                             </Link>
 
-                            {user?.isAdmin && (
-                                <Link
-                                    href="/cgl-mock-builder"
-                                    className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${isActive('/cgl-mock-builder')
-                                        ? 'border-green-500 text-gray-900'
-                                        : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                                        }`}
-                                >
-                                    CGL Mock Builder
-                                </Link>
-                            )}
-
                             {!user?.isAdmin && (
                                 <Link
                                     href="/my-reviews"
@@ -130,35 +166,6 @@ export default function Navigation({ user }) {
                                     My Reviews
                                 </Link>
                             )}
-
-                            {user?.isAdmin && (
-                                <NavDropdown
-                                    label="Sol Review"
-                                    items={[
-                                        { href: '/solution-review',              label: 'Solution Review' },
-                                        { href: '/solution-review-bilingual',    label: 'Bilingual Solutions' },
-                                        { href: '/new-solution-review-bilingual', label: 'New Bilingual' },
-                                    ]}
-                                    pathname={pathname}
-                                />
-                            )}
-
-                            {user?.isAdmin && (
-                                <NavDropdown
-                                    label="Image"
-                                    items={[
-                                        { href: '/image-solutions', label: 'Solo' },
-                                        { href: '/image-solutions-bilingual', label: 'Bilingual' },
-                                    ]}
-                                    pathname={pathname}
-                                />
-                            )}
-
-                            <NavDropdown
-                                label="Review Tools"
-                                items={reviewItems}
-                                pathname={pathname}
-                            />
 
                             {user?.isAdmin && (
                                 <Link
@@ -174,51 +181,42 @@ export default function Navigation({ user }) {
 
                             {user?.isAdmin && (
                                 <NavDropdown
-                                    label="Mock"
-                                    items={[
-                                        { href: '/mock-tests',          label: 'Mock Tests' },
-                                        { href: '/mock-blueprint',      label: 'Blueprint Editor' },
-                                        { href: '/mock-test-builder',   label: 'General Builder' },
-                                        { href: '/section-test-builder', label: 'Section Builder' },
-                                    ]}
+                                    label="Solutions"
+                                    items={solutionsItems}
+                                    pathname={pathname}
+                                />
+                            )}
+
+                            {reviewItems.length > 0 && (
+                                <NavDropdown
+                                    label="Review"
+                                    items={reviewItems}
                                     pathname={pathname}
                                 />
                             )}
 
                             {user?.isAdmin && (
                                 <NavDropdown
-                                    label="Mock Builders"
-                                    items={[
-                                        { href: '/cgl-mock-builder',  label: 'CGL T1' },
-                                        { href: '/chsl-mock-builder', label: 'CHSL T1' },
-                                        { href: '/gd-mock-builder',   label: 'GD Constable' },
-                                    ]}
+                                    label="Mocks"
+                                    items={mocksItems}
                                     pathname={pathname}
                                 />
                             )}
 
                             {user?.isAdmin && (
-                                <Link
-                                    href="/social-media"
-                                    className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${isActive('/social-media')
-                                        ? 'border-cyan-500 text-gray-900'
-                                        : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                                        }`}
-                                >
-                                    Social Media
-                                </Link>
+                                <NavDropdown
+                                    label="Daily"
+                                    items={dailyItems}
+                                    pathname={pathname}
+                                />
                             )}
 
                             {user?.isAdmin && (
-                                <Link
-                                    href="/admin/daily-quiz"
-                                    className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${isActive('/admin/daily-quiz')
-                                        ? 'border-amber-500 text-gray-900'
-                                        : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                                        }`}
-                                >
-                                    GK Approval
-                                </Link>
+                                <NavDropdown
+                                    label="Admin"
+                                    items={adminItems}
+                                    pathname={pathname}
+                                />
                             )}
                         </div>
                     </div>
