@@ -109,6 +109,7 @@ function EditablePanel({ lang, data, label, editState, onEditChange, onTranslate
     const hasSolution = data.solution_status === 'DONE';
     const [showPreview, setShowPreview] = useState(true);
     const [editingQuestion, setEditingQuestion] = useState(false);
+    const [editingSol, setEditingSol] = useState(false);
     const [uploadingImage, setUploadingImage] = useState(false);
     const [uploadErr, setUploadErr] = useState(null);
 
@@ -313,72 +314,106 @@ function EditablePanel({ lang, data, label, editState, onEditChange, onTranslate
                     placeholder="One-line reason why this is correct..." />
             </div>
 
-            {/* Action buttons: Translate / Copy / Format */}
+            {/* Action row — minimal when not editing, full tools when editing */}
             <div className="px-3 py-1.5 border-b bg-gray-50 flex items-center gap-2 flex-wrap">
-                <button onClick={onTranslateFrom} disabled={translating}
-                    className="px-2 py-1 text-xs font-semibold bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50">
-                    {translating ? 'Translating...' : `Translate from ${lang === 'en' ? 'Hindi' : 'English'}`}
-                </button>
-                <button onClick={onCopyFrom}
-                    className="px-2 py-1 text-xs font-semibold bg-gray-600 text-white rounded hover:bg-gray-700">
-                    Copy from {lang === 'en' ? 'Hindi' : 'English'}
-                </button>
-                <button onClick={() => onEditChange({ ...editState, solutionText: formatSentences(editState.solutionText) })}
-                    className="px-2 py-1 text-xs font-semibold bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
-                    title="Add line breaks after sentences (. and ।)">
-                    Format
-                </button>
-                <button onClick={() => setShowPreview(!showPreview)}
-                    className="px-2 py-1 text-xs font-semibold bg-white text-gray-600 border border-gray-300 rounded hover:bg-gray-50 ml-auto">
-                    {showPreview ? 'Hide Preview' : 'Show Preview'}
-                </button>
+                {!editingSol ? (
+                    <button onClick={() => setEditingSol(true)}
+                        className="px-2 py-1 text-xs font-semibold bg-blue-600 text-white rounded hover:bg-blue-700">
+                        ✎ Edit Sol
+                    </button>
+                ) : (
+                    <>
+                        <button onClick={() => setEditingSol(false)}
+                            className="px-2 py-1 text-xs font-semibold bg-green-600 text-white rounded hover:bg-green-700">
+                            Done
+                        </button>
+                        <button onClick={onTranslateFrom} disabled={translating}
+                            className="px-2 py-1 text-xs font-semibold bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50">
+                            {translating ? 'Translating...' : `Translate from ${lang === 'en' ? 'Hindi' : 'English'}`}
+                        </button>
+                        <button onClick={onCopyFrom}
+                            className="px-2 py-1 text-xs font-semibold bg-gray-600 text-white rounded hover:bg-gray-700">
+                            Copy from {lang === 'en' ? 'Hindi' : 'English'}
+                        </button>
+                        <button onClick={() => onEditChange({ ...editState, solutionText: formatSentences(editState.solutionText) })}
+                            className="px-2 py-1 text-xs font-semibold bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                            title="Add line breaks after sentences (. and ।)">
+                            Format
+                        </button>
+                        <button onClick={() => setShowPreview(!showPreview)}
+                            className="px-2 py-1 text-xs font-semibold bg-white text-gray-600 border border-gray-300 rounded hover:bg-gray-50 ml-auto">
+                            {showPreview ? 'Hide Preview' : 'Show Preview'}
+                        </button>
+                    </>
+                )}
             </div>
 
-            {/* Editable solution text */}
+            {/* Solution body — preview only by default, textarea + preview when editing */}
             <div className="px-3 py-2 flex-1 flex flex-col">
-                <div className="text-[10px] text-gray-400 mb-1">paste image (Ctrl+V) supported</div>
-                <textarea
-                    value={editState.solutionText}
-                    onChange={e => onEditChange({ ...editState, solutionText: e.target.value })}
-                    onPaste={e => {
-                        const role = 'solution_body';
-                        handleImagePaste(
-                            e,
-                            editState.solutionText || '',
-                            (next) => onEditChange({ ...editState, solutionText: next }),
-                            null,
-                            role,
-                        );
-                    }}
-                    rows={8}
-                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y"
-                    placeholder="[exam_craft] Solution text here...&#10;&#10;[toppers_insight] One-liner..."
-                />
-                {uploadingImage && (
-                    <div className="mt-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
-                        Uploading image…
-                    </div>
-                )}
-                {uploadErr && (
-                    <div className="mt-1 text-[11px] text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">
-                        {uploadErr}
-                    </div>
-                )}
+                {!editingSol ? (
+                    editState.solutionText && editState.solutionText.trim() ? (
+                        <div className="p-2 bg-gray-50 rounded border border-gray-200 text-xs space-y-1.5">
+                            {textToSections(editState.solutionText).map((sec, i) => (
+                                <div key={i}>
+                                    <div className="font-bold text-gray-600 uppercase mb-0.5">{(sec.key || '').replace(/_/g, ' ')}</div>
+                                    {(sec.content || '').replace(/\\n/g, '\n').split('\n').map((line, li) => (
+                                        <div key={li} className={line.trim() ? '' : 'h-2'}>
+                                            {line.trim() ? <Latex>{line}</Latex> : null}
+                                        </div>
+                                    ))}
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="text-xs italic text-gray-400 p-3 text-center">No solution text yet.</div>
+                    )
+                ) : (
+                    <>
+                        <div className="text-[10px] text-gray-400 mb-1">paste image (Ctrl+V) supported</div>
+                        <textarea
+                            value={editState.solutionText}
+                            onChange={e => onEditChange({ ...editState, solutionText: e.target.value })}
+                            onPaste={e => {
+                                const role = 'solution_body';
+                                handleImagePaste(
+                                    e,
+                                    editState.solutionText || '',
+                                    (next) => onEditChange({ ...editState, solutionText: next }),
+                                    null,
+                                    role,
+                                );
+                            }}
+                            rows={8}
+                            className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y"
+                            placeholder="[exam_craft] Solution text here...&#10;&#10;[toppers_insight] One-liner..."
+                        />
+                        {uploadingImage && (
+                            <div className="mt-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                                Uploading image…
+                            </div>
+                        )}
+                        {uploadErr && (
+                            <div className="mt-1 text-[11px] text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">
+                                {uploadErr}
+                            </div>
+                        )}
 
-                {showPreview && editState.solutionText && (
-                    <div className="mt-2 p-2 bg-gray-50 rounded border border-gray-200 text-xs space-y-1.5">
-                        <p className="text-[10px] font-bold text-gray-400 uppercase">Preview</p>
-                        {textToSections(editState.solutionText).map((sec, i) => (
-                            <div key={i}>
-                                <div className="font-bold text-gray-600 uppercase mb-0.5">{(sec.key || '').replace(/_/g, ' ')}</div>
-                                {(sec.content || '').replace(/\\n/g, '\n').split('\n').map((line, li) => (
-                                    <div key={li} className={line.trim() ? '' : 'h-2'}>
-                                        {line.trim() ? <Latex>{line}</Latex> : null}
+                        {showPreview && editState.solutionText && (
+                            <div className="mt-2 p-2 bg-gray-50 rounded border border-gray-200 text-xs space-y-1.5">
+                                <p className="text-[10px] font-bold text-gray-400 uppercase">Preview</p>
+                                {textToSections(editState.solutionText).map((sec, i) => (
+                                    <div key={i}>
+                                        <div className="font-bold text-gray-600 uppercase mb-0.5">{(sec.key || '').replace(/_/g, ' ')}</div>
+                                        {(sec.content || '').replace(/\\n/g, '\n').split('\n').map((line, li) => (
+                                            <div key={li} className={line.trim() ? '' : 'h-2'}>
+                                                {line.trim() ? <Latex>{line}</Latex> : null}
+                                            </div>
+                                        ))}
                                     </div>
                                 ))}
                             </div>
-                        ))}
-                    </div>
+                        )}
+                    </>
                 )}
             </div>
         </div>
