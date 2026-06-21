@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef, memo, lazy, Suspense } from 'react';
 import Latex from '@/components/Latex';
-import { checkQuestionQuality, hasQuestionError } from '@/lib/question-checks';
+import { checkQuestionQuality, checkSolutionQuality, checkBilingualPair, hasQuestionError } from '@/lib/question-checks';
 const FigureEditor = lazy(() => import('@/components/FigureEditor'));
 
 const DIFF_LABELS = { 1: 'Easy', 2: 'Medium', 3: 'Hard' };
@@ -274,9 +274,11 @@ function EditablePanel({ lang, data, label, editState, onEditChange, onTranslate
                 )}
             </div>
 
-            {/* Quality warnings */}
+            {/* Quality warnings — question + solution, deduped */}
             {(() => {
-                const issues = checkQuestionQuality(data.text, data.options, data.correct);
+                const qIssues = checkQuestionQuality(data.text, data.options, editState.correct);
+                const sIssues = checkSolutionQuality(data);
+                const issues = [...qIssues, ...sIssues];
                 if (issues.length === 0) return null;
                 return (
                     <div className="px-3 py-1.5 border-b bg-pink-50 text-xs">
@@ -448,6 +450,32 @@ const BilingualCard = memo(function BilingualCard({ pair, idx, onDifficultyChang
     const hiLive = { correct: hiEdit.correct || getCorrectLabel(pair.hi), options: pair.hi?.options || [] };
     const answerMismatch = hasAnswerMismatch(enLive, hiLive);
 
+    // Aggregate all heuristic issues so the card border + header badge
+    // accurately reflect what the reviewer needs to fix.
+    const enQIssues  = pair.en ? checkQuestionQuality(pair.en.text, pair.en.options, enLive.correct) : [];
+    const hiQIssues  = pair.hi ? checkQuestionQuality(pair.hi.text, pair.hi.options, hiLive.correct) : [];
+    const enSolIssues = pair.en ? checkSolutionQuality(pair.en) : [];
+    const hiSolIssues = pair.hi ? checkSolutionQuality(pair.hi) : [];
+    const pairIssues  = checkBilingualPair(pair.en, pair.hi);
+    const allIssues = [
+        ...enQIssues.map(i => ({ ...i, scope: 'EN' })),
+        ...hiQIssues.map(i => ({ ...i, scope: 'HI' })),
+        ...enSolIssues.map(i => ({ ...i, scope: 'EN sol' })),
+        ...hiSolIssues.map(i => ({ ...i, scope: 'HI sol' })),
+        ...pairIssues.map(i => ({ ...i, scope: 'Pair' })),
+    ];
+    const errorCount   = allIssues.filter(i => i.severity === 'error').length;
+    const warningCount = allIssues.filter(i => i.severity === 'warning').length;
+    const issueTitle = allIssues.map(i => `[${i.scope}] ${i.message}`).join('\n');
+
+    const cardBorder = errorCount > 0
+        ? 'border-2 border-red-500 ring-2 ring-red-200 bg-red-50/30'
+        : warningCount > 0
+            ? 'border border-amber-300 bg-amber-50/20'
+            : bothDone
+                ? 'border border-gray-200'
+                : 'border border-amber-300';
+
     const handleTranslate = async (targetLang) => {
         const sourceText = targetLang === 'en' ? hiEdit.solutionText : enEdit.solutionText;
         if (!sourceText.trim()) return;
@@ -549,7 +577,7 @@ const BilingualCard = memo(function BilingualCard({ pair, idx, onDifficultyChang
     };
 
     return (
-        <div ref={rootRef} className={`border rounded-lg overflow-hidden ${answerMismatch ? 'border-red-400 ring-1 ring-red-200' : bothDone ? 'border-gray-200' : 'border-amber-300'}`}>
+        <div ref={rootRef} className={`rounded-lg overflow-hidden ${cardBorder}`}>
             {/* Pair header */}
             <div className="px-3 py-1.5 bg-gray-50 border-b flex items-center justify-between">
                 <div className="flex items-center gap-2 cursor-pointer" onClick={() => setExpanded(!expanded)}>
@@ -577,13 +605,19 @@ const BilingualCard = memo(function BilingualCard({ pair, idx, onDifficultyChang
                     })()}
                     {pair.en?.subtype && <span className="text-xs text-gray-400">{pair.en.subtype}</span>}
                     {answerMismatch && (
-                        <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold">
+                        <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold"
+                            title="Correct option is set to different choices on EN vs HI">
                             ANSWER MISMATCH: EN={enEdit.correct} HI={hiEdit.correct}
                         </span>
                     )}
-                    {!bothDone && (
-                        <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">
-                            {!enDone && !hiDone ? 'Both unsolved' : !enDone ? 'EN unsolved' : 'HI unsolved'}
+                    {errorCount > 0 && (
+                        <span className="text-xs bg-red-600 text-white px-1.5 py-0.5 rounded font-bold" title={issueTitle}>
+                            ⛔ {errorCount} error{errorCount === 1 ? '' : 's'}
+                        </span>
+                    )}
+                    {warningCount > 0 && (
+                        <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-semibold" title={issueTitle}>
+                            ⚠️ {warningCount} warning{warningCount === 1 ? '' : 's'}
                         </span>
                     )}
                     <span className="text-xs text-gray-400">{expanded ? '[-]' : '[+]'}</span>
@@ -600,6 +634,19 @@ const BilingualCard = memo(function BilingualCard({ pair, idx, onDifficultyChang
                     </button>
                 </div>
             </div>
+
+            {/* Inline pair-level issue strip — pair issues belong to the
+                whole card, not one panel, so surface them right under the
+                header instead of duplicating them on each side. */}
+            {expanded && pairIssues.length > 0 && (
+                <div className="px-3 py-1.5 bg-yellow-50 border-b border-yellow-200 text-xs space-y-0.5">
+                    {pairIssues.map((w, i) => (
+                        <div key={i} className={`flex items-center gap-1.5 ${w.severity === 'error' ? 'text-red-700 font-semibold' : 'text-orange-700'}`}>
+                            <span>{w.severity === 'error' ? '⛔' : '⚠️'}</span> {w.message}
+                        </div>
+                    ))}
+                </div>
+            )}
 
             {/* HINDI on LEFT, ENGLISH on RIGHT */}
             {expanded && !hasBeenVisible && (
@@ -868,23 +915,32 @@ export default function ReviewProductionBilingual({ exams }) {
         } catch (e) { console.error('Difficulty update error:', e); }
     }, [questions]);
 
-    const issueCache = useMemo(() => {
-        const cache = new Map();
-        const check = (side) => {
-            if (!side?.question_id) return false;
-            const key = `${side.question_id}|${side.language || ''}`;
-            if (cache.has(key)) return cache.get(key);
-            const flag = hasQuestionError(side.text, side.options, side.correct);
-            cache.set(key, flag);
-            return flag;
-        };
-        for (const q of questions) { check(q.en); check(q.hi); }
-        return cache;
+    // Comprehensive per-pair issue counts: combines question, solution,
+    // and pair heuristics into { errors, warnings } per link_id.
+    const issueCacheMap = useMemo(() => {
+        const map = new Map();
+        for (const q of questions) {
+            const key = q.link_id ?? `en-${q.en?.question_id}` ?? `hi-${q.hi?.question_id}`;
+            if (!key) continue;
+            const enCorrect = getCorrectLabel(q.en);
+            const hiCorrect = getCorrectLabel(q.hi);
+            const issues = [
+                ...(q.en ? checkQuestionQuality(q.en.text, q.en.options, enCorrect) : []),
+                ...(q.hi ? checkQuestionQuality(q.hi.text, q.hi.options, hiCorrect) : []),
+                ...(q.en ? checkSolutionQuality(q.en) : []),
+                ...(q.hi ? checkSolutionQuality(q.hi) : []),
+                ...checkBilingualPair(q.en, q.hi),
+            ];
+            const errors   = issues.filter(i => i.severity === 'error').length;
+            const warnings = issues.filter(i => i.severity === 'warning').length;
+            map.set(key, { errors, warnings });
+        }
+        return map;
     }, [questions]);
-    const issueFor = useCallback((side, lang) => {
-        if (!side?.question_id) return false;
-        return issueCache.get(`${side.question_id}|${lang}`) || false;
-    }, [issueCache]);
+    const issuesForPair = useCallback((q) => {
+        const key = q.link_id ?? `en-${q.en?.question_id}` ?? `hi-${q.hi?.question_id}`;
+        return issueCacheMap.get(key) || { errors: 0, warnings: 0 };
+    }, [issueCacheMap]);
 
     const mismatchCache = useMemo(() => {
         const cache = new Map();
@@ -898,10 +954,12 @@ export default function ReviewProductionBilingual({ exams }) {
     const filteredQuestions = useMemo(() => questions.filter(q => {
         const enDone = q.en?.solution_status === 'DONE';
         const hiDone = q.hi?.solution_status === 'DONE';
+        const counts = issuesForPair(q);
         if (filter === 'both_solved') return enDone && hiDone;
         if (filter === 'unsolved') return !enDone || !hiDone;
         if (filter === 'mismatch') return mismatchCache.get(q.link_id) || false;
-        if (filter === 'issues') return issueFor(q.en, 'EN') || issueFor(q.hi, 'HI');
+        if (filter === 'errors')   return counts.errors > 0;
+        if (filter === 'issues')   return counts.errors > 0 || counts.warnings > 0;
         return true;
     }).slice().sort((a, b) => {
         const aSec = a.section_code || 'Other';
@@ -910,17 +968,19 @@ export default function ReviewProductionBilingual({ exams }) {
         const aInt = a.hi?.q_int ?? a.en?.q_int ?? Infinity;
         const bInt = b.hi?.q_int ?? b.en?.q_int ?? Infinity;
         return aInt - bInt;
-    }), [questions, filter, mismatchCache, issueFor]);
+    }), [questions, filter, mismatchCache, issuesForPair]);
 
-    const { bothSolvedCount, mismatchCount, issueCount } = useMemo(() => {
-        let bothSolved = 0, mismatch = 0, issues = 0;
+    const { bothSolvedCount, mismatchCount, errorCount, warningCount } = useMemo(() => {
+        let bothSolved = 0, mismatch = 0, errors = 0, warnings = 0;
         for (const q of questions) {
             if (q.en?.solution_status === 'DONE' && q.hi?.solution_status === 'DONE') bothSolved++;
             if (mismatchCache.get(q.link_id)) mismatch++;
-            if (issueFor(q.en, 'EN') || issueFor(q.hi, 'HI')) issues++;
+            const c = issuesForPair(q);
+            if (c.errors > 0) errors++;
+            if (c.warnings > 0) warnings++;
         }
-        return { bothSolvedCount: bothSolved, mismatchCount: mismatch, issueCount: issues };
-    }, [questions, mismatchCache, issueFor]);
+        return { bothSolvedCount: bothSolved, mismatchCount: mismatch, errorCount: errors, warningCount: warnings };
+    }, [questions, mismatchCache, issuesForPair]);
 
     return (
         <div className="flex flex-col min-h-screen bg-white">
@@ -968,7 +1028,8 @@ export default function ReviewProductionBilingual({ exams }) {
                         <span className="text-xs text-gray-500">
                             {bothSolvedCount}/{questions.length} both solved
                             {mismatchCount > 0 && <span className="text-red-600 ml-1">({mismatchCount} mismatches)</span>}
-                            {issueCount > 0 && <span className="text-pink-600 ml-1">({issueCount} quality issues)</span>}
+                            {errorCount > 0 && <span className="text-red-700 ml-1 font-semibold">⛔ {errorCount} with errors</span>}
+                            {warningCount > 0 && <span className="text-amber-700 ml-1">⚠️ {warningCount} with warnings</span>}
                         </span>
                         {selectedPair?.en_pdf_path && (
                             <a href={`/api/pdf?path=${encodeURIComponent(selectedPair.en_pdf_path)}`}
@@ -986,14 +1047,15 @@ export default function ReviewProductionBilingual({ exams }) {
                         )}
                         <div className="flex gap-1">
                             {[
-                                { key: 'all', label: 'All' },
+                                { key: 'all',         label: 'All' },
                                 { key: 'both_solved', label: 'Both Solved' },
-                                { key: 'unsolved', label: 'Unsolved' },
-                                { key: 'mismatch', label: `Mismatches (${mismatchCount})` },
-                                { key: 'issues', label: `Issues (${issueCount})` },
+                                { key: 'unsolved',    label: 'Unsolved' },
+                                { key: 'mismatch',    label: `Mismatches (${mismatchCount})` },
+                                { key: 'errors',      label: `Errors (${errorCount})`,   active: 'bg-red-600 text-white' },
+                                { key: 'issues',      label: `All Issues (${errorCount + warningCount})` },
                             ].map(f => (
                                 <button key={f.key} onClick={() => setFilter(f.key)}
-                                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${filter === f.key ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${filter === f.key ? (f.active || 'bg-indigo-600 text-white') : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
                                     {f.label}
                                 </button>
                             ))}
