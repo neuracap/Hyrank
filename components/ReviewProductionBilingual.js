@@ -491,7 +491,7 @@ const BilingualCard = memo(function BilingualCard({ pair, idx, onDifficultyChang
     const hiQIssues  = pair.hi ? checkQuestionQuality(pair.hi.text, pair.hi.options, hiLive.correct) : [];
     const enSolIssues = pair.en ? checkSolutionQuality(pair.en) : [];
     const hiSolIssues = pair.hi ? checkSolutionQuality(pair.hi) : [];
-    const pairIssues  = checkBilingualPair(pair.en, pair.hi);
+    const pairIssues  = checkBilingualPair(pair.en, pair.hi, { section_code: pair.section_code });
     const allIssues = [
         ...enQIssues.map(i => ({ ...i, scope: 'EN' })),
         ...hiQIssues.map(i => ({ ...i, scope: 'HI' })),
@@ -964,7 +964,7 @@ export default function ReviewProductionBilingual({ exams }) {
                 ...(q.hi ? checkQuestionQuality(q.hi.text, q.hi.options, hiCorrect) : []),
                 ...(q.en ? checkSolutionQuality(q.en) : []),
                 ...(q.hi ? checkSolutionQuality(q.hi) : []),
-                ...checkBilingualPair(q.en, q.hi),
+                ...checkBilingualPair(q.en, q.hi, { section_code: q.section_code }),
             ];
             const errors   = issues.filter(i => i.severity === 'error').length;
             const warnings = issues.filter(i => i.severity === 'warning').length;
