@@ -119,6 +119,7 @@ export default function Navigation({ user }) {
 
     // ── Admin: internal ops ──
     const adminItems = [
+        { href: '/question-bank',     label: 'Question Bank' },
         { href: '/admin/maintenance', label: 'Maintenance' },
         { href: '/test',              label: 'Test Page' },
         { href: '/analytics',         label: 'Analytics' },
