@@ -13,45 +13,40 @@ function sectionPreviewLines(content) {
 }
 
 function QuestionCard({ q }) {
-    const [open, setOpen] = useState(false);
     const sj = q.solution_json || {};
     const ao = sj.answer_outcome || {};
     const sections = toArray(sj.display_sections);
     const hasSolution = q.solution_status === 'DONE';
+    const hasSolutionContent =
+        (ao.core_answer_basis && ao.core_answer_basis.trim()) ||
+        sections.length > 0 ||
+        ao.figure_url;
 
     return (
         <div className={`bg-white rounded-lg border ${hasSolution ? 'border-gray-200' : 'border-amber-300'} overflow-hidden`}>
             {/* Header */}
-            <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-mono text-gray-400">{(q.question_id || '').slice(0, 8)}</span>
-                    {q.section_code && (
-                        <span className="text-xs bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded">{q.section_code}</span>
-                    )}
-                    {q.subtype && (
-                        <span className="text-xs text-gray-500 bg-white border border-gray-200 px-1.5 py-0.5 rounded">{q.subtype}</span>
-                    )}
-                    {q.difficulty && (
-                        <span className={`text-xs px-1.5 py-0.5 rounded font-semibold ${DIFF_COLORS[q.difficulty]}`}>
-                            {DIFF_LABELS[q.difficulty]}
-                        </span>
-                    )}
-                    {q.correct && (
-                        <span className="text-xs font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded">Ans: {q.correct}</span>
-                    )}
-                    <span className={`text-xs px-1.5 py-0.5 rounded ${hasSolution ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
-                        {hasSolution ? 'Solution: DONE' : (q.solution_status || 'PENDING')}
+            <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-mono text-gray-400">{(q.question_id || '').slice(0, 8)}</span>
+                {q.section_code && (
+                    <span className="text-xs bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded">{q.section_code}</span>
+                )}
+                {q.subtype && (
+                    <span className="text-xs text-gray-500 bg-white border border-gray-200 px-1.5 py-0.5 rounded">{q.subtype}</span>
+                )}
+                {q.difficulty && (
+                    <span className={`text-xs px-1.5 py-0.5 rounded font-semibold ${DIFF_COLORS[q.difficulty]}`}>
+                        {DIFF_LABELS[q.difficulty]}
                     </span>
-                    {q.source_type && (
-                        <span className="text-xs text-gray-500 italic">{q.source_type}{q.paper_label ? ` · ${q.paper_label}` : ''}</span>
-                    )}
-                </div>
-                <button
-                    onClick={() => setOpen(o => !o)}
-                    className="text-xs font-semibold text-blue-600 hover:underline"
-                >
-                    {open ? 'Hide solution' : (hasSolution ? 'Show solution' : 'No solution')}
-                </button>
+                )}
+                {q.correct && (
+                    <span className="text-xs font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded">Ans: {q.correct}</span>
+                )}
+                <span className={`text-xs px-1.5 py-0.5 rounded ${hasSolution ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
+                    {hasSolution ? 'Solution: DONE' : (q.solution_status || 'PENDING')}
+                </span>
+                {q.source_type && (
+                    <span className="text-xs text-gray-500 italic">{q.source_type}{q.paper_label ? ` · ${q.paper_label}` : ''}</span>
+                )}
             </div>
 
             {/* Stem */}
@@ -80,10 +75,10 @@ function QuestionCard({ q }) {
                 </div>
             </div>
 
-            {/* Solution (expandable) */}
-            {open && hasSolution && (
-                <div className="px-4 py-3 bg-gray-50/40 border-b border-gray-100 space-y-3">
-                    {ao.core_answer_basis && (
+            {/* Solution — always rendered when available */}
+            {hasSolutionContent ? (
+                <div className="px-4 py-3 bg-gray-50/40 space-y-3">
+                    {ao.core_answer_basis && ao.core_answer_basis.trim() && (
                         <div>
                             <div className="text-[10px] font-bold text-gray-500 uppercase mb-0.5">Core Answer Basis</div>
                             <div className="text-sm text-gray-800"><Latex>{ao.core_answer_basis}</Latex></div>
@@ -112,6 +107,8 @@ function QuestionCard({ q }) {
                         </div>
                     )}
                 </div>
+            ) : (
+                <div className="px-4 py-2 text-xs italic text-gray-400">No solution yet.</div>
             )}
         </div>
     );
