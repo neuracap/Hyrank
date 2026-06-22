@@ -10,6 +10,20 @@ const DIFF_COLORS = { 1: 'bg-green-100 text-green-700', 2: 'bg-yellow-100 text-y
 
 function toArray(v) { return Array.isArray(v) ? v : []; }
 
+// Issue types we intentionally do NOT surface on this page.
+// (Other pages still see them via the shared lib/question-checks.js.)
+//
+//   missing_image      → "Text mentions figure/diagram but no image found"
+//   figure_missing     → "Solution flagged as needing a figure but none attached"
+//   subtype_mismatch   → "Subtype mismatch: EN=X HI=Y"
+//
+// These tend to be noisy on already-reviewed production content; the
+// reviewer wants to focus on substantive errors.
+const SUPPRESSED_ISSUE_TYPES = new Set(['missing_image', 'figure_missing', 'subtype_mismatch']);
+function filterIssues(issues) {
+    return (issues || []).filter(i => !SUPPRESSED_ISSUE_TYPES.has(i?.type));
+}
+
 function formatSentences(text) {
     if (!text) return text;
     const latexBlocks = [];
@@ -92,7 +106,7 @@ function textToSections(text) {
 // =========================================================
 // Editable Panel — Question + Options + Correct + Solution (one language)
 // =========================================================
-function EditablePanel({ lang, data, label, editState, onEditChange, onTranslateFrom, translating, onCopyFrom }) {
+function EditablePanel({ lang, data, label, editState, onEditChange, onTranslateFrom, translating, onCopyFrom, onSave, saving }) {
     if (!data) {
         return (
             <div className="flex-1 min-w-0 flex flex-col bg-gray-50/60">
@@ -194,11 +208,17 @@ function EditablePanel({ lang, data, label, editState, onEditChange, onTranslate
                     </span>
                     <button
                         type="button"
-                        onClick={() => setEditingQuestion(v => !v)}
-                        className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold ${editingQuestion ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-blue-700 border-blue-300 hover:bg-blue-50'}`}
+                        onClick={() => {
+                            // "Done" both collapses the editor AND persists —
+                            // finishing an edit should save, not just hide it.
+                            if (editingQuestion) onSave?.();
+                            setEditingQuestion(v => !v);
+                        }}
+                        disabled={editingQuestion && saving}
+                        className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold disabled:opacity-50 ${editingQuestion ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-blue-700 border-blue-300 hover:bg-blue-50'}`}
                         title="Edit question stem and options"
                     >
-                        {editingQuestion ? 'Done' : 'Edit Q'}
+                        {editingQuestion ? (saving ? 'Saving…' : 'Done') : 'Edit Q'}
                     </button>
                 </div>
             </div>
@@ -277,8 +297,8 @@ function EditablePanel({ lang, data, label, editState, onEditChange, onTranslate
 
             {/* Quality warnings — question + solution, deduped */}
             {(() => {
-                const qIssues = checkQuestionQuality(data.text, data.options, editState.correct);
-                const sIssues = checkSolutionQuality(data);
+                const qIssues = filterIssues(checkQuestionQuality(data.text, data.options, editState.correct));
+                const sIssues = filterIssues(checkSolutionQuality(data));
                 const issues = [...qIssues, ...sIssues];
                 if (issues.length === 0) return null;
                 return (
@@ -331,9 +351,11 @@ function EditablePanel({ lang, data, label, editState, onEditChange, onTranslate
                     </button>
                 ) : (
                     <>
-                        <button onClick={() => setEditingSol(false)}
-                            className="px-2 py-1 text-xs font-semibold bg-green-600 text-white rounded hover:bg-green-700">
-                            Done
+                        <button
+                            onClick={() => { setEditingSol(false); onSave?.(); }}
+                            disabled={saving}
+                            className="px-2 py-1 text-xs font-semibold bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50">
+                            {saving ? 'Saving…' : 'Done'}
                         </button>
                         <button onClick={onTranslateFrom} disabled={translating}
                             className="px-2 py-1 text-xs font-semibold bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50">
@@ -495,11 +517,11 @@ const BilingualCard = memo(function BilingualCard({ pair, idx, onDifficultyChang
 
     // Aggregate all heuristic issues so the card border + header badge
     // accurately reflect what the reviewer needs to fix.
-    const enQIssues  = pair.en ? checkQuestionQuality(pair.en.text, pair.en.options, enLive.correct) : [];
-    const hiQIssues  = pair.hi ? checkQuestionQuality(pair.hi.text, pair.hi.options, hiLive.correct) : [];
-    const enSolIssues = pair.en ? checkSolutionQuality(pair.en) : [];
-    const hiSolIssues = pair.hi ? checkSolutionQuality(pair.hi) : [];
-    const pairIssues  = checkBilingualPair(pair.en, pair.hi, { section_code: pair.section_code });
+    const enQIssues  = pair.en ? filterIssues(checkQuestionQuality(pair.en.text, pair.en.options, enLive.correct)) : [];
+    const hiQIssues  = pair.hi ? filterIssues(checkQuestionQuality(pair.hi.text, pair.hi.options, hiLive.correct)) : [];
+    const enSolIssues = pair.en ? filterIssues(checkSolutionQuality(pair.en)) : [];
+    const hiSolIssues = pair.hi ? filterIssues(checkSolutionQuality(pair.hi)) : [];
+    const pairIssues  = filterIssues(checkBilingualPair(pair.en, pair.hi, { section_code: pair.section_code }));
     const allIssues = [
         ...enQIssues.map(i => ({ ...i, scope: 'EN' })),
         ...hiQIssues.map(i => ({ ...i, scope: 'HI' })),
@@ -706,6 +728,7 @@ const BilingualCard = memo(function BilingualCard({ pair, idx, onDifficultyChang
                             onTranslateFrom={() => handleTranslate('hi')}
                             translating={translatingHi}
                             onCopyFrom={() => handleCopy('hi')}
+                            onSave={handleSave} saving={saving}
                         />
                         <EditablePanel
                             lang="en" data={pair.en} label="English"
@@ -713,6 +736,7 @@ const BilingualCard = memo(function BilingualCard({ pair, idx, onDifficultyChang
                             onTranslateFrom={() => handleTranslate('en')}
                             translating={translatingEn}
                             onCopyFrom={() => handleCopy('en')}
+                            onSave={handleSave} saving={saving}
                         />
                     </div>
 
@@ -968,11 +992,11 @@ export default function ReviewProductionBilingual({ exams }) {
             const enCorrect = getCorrectLabel(q.en);
             const hiCorrect = getCorrectLabel(q.hi);
             const issues = [
-                ...(q.en ? checkQuestionQuality(q.en.text, q.en.options, enCorrect) : []),
-                ...(q.hi ? checkQuestionQuality(q.hi.text, q.hi.options, hiCorrect) : []),
-                ...(q.en ? checkSolutionQuality(q.en) : []),
-                ...(q.hi ? checkSolutionQuality(q.hi) : []),
-                ...checkBilingualPair(q.en, q.hi, { section_code: q.section_code }),
+                ...(q.en ? filterIssues(checkQuestionQuality(q.en.text, q.en.options, enCorrect)) : []),
+                ...(q.hi ? filterIssues(checkQuestionQuality(q.hi.text, q.hi.options, hiCorrect)) : []),
+                ...(q.en ? filterIssues(checkSolutionQuality(q.en)) : []),
+                ...(q.hi ? filterIssues(checkSolutionQuality(q.hi)) : []),
+                ...filterIssues(checkBilingualPair(q.en, q.hi, { section_code: q.section_code })),
             ];
             const errors   = issues.filter(i => i.severity === 'error').length;
             const warnings = issues.filter(i => i.severity === 'warning').length;
