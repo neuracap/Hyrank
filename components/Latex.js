@@ -81,12 +81,19 @@ const Latex = ({ children }) => {
             realSrc = `/api/assets?name=${encodeURIComponent(filename)}`;
         }
 
+        // w-full + object-contain makes every image fill its container's
+        // width (so option-grid cells, stem area, etc. produce visually
+        // uniform images regardless of the source's pixel dimensions).
+        // h-48 fixes the box height so all four option-grid images line up
+        // even when their source aspect ratios differ; object-contain keeps
+        // each image undistorted inside that box. max-h-96 keeps stem
+        // images from getting too tall when the container is wide.
         return (
-            <div className="flex flex-col items-center my-4">
+            <div className="my-4 w-full">
                 <img
                     src={realSrc}
                     alt={alt}
-                    className="max-h-96 object-contain rounded border border-gray-100"
+                    className="w-full h-48 max-h-96 object-contain rounded border border-gray-100 bg-white"
                     {...props}
                     onError={(e) => {
                         e.target.style.display = 'none';
