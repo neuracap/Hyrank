@@ -23,8 +23,19 @@ function toArray(v) { return Array.isArray(v) ? v : []; }
 // These tend to be noisy on already-reviewed production content; the
 // reviewer wants to focus on substantive errors.
 const SUPPRESSED_ISSUE_TYPES = new Set(['missing_image', 'figure_missing', 'subtype_mismatch', 'q_no_mismatch']);
+
+// Issue types whose severity is bumped to 'error' on this page (and thus
+// trigger the red card border + Errors filter). Reviewer wants production
+// content to never be missing these.
+//
+//   core_basis_empty   → "Core Answer Basis is empty"  (default: warning)
+//   solution_empty is already 'error' in the shared lib, so it's already covered.
+const PROMOTED_TO_ERROR = new Set(['core_basis_empty']);
+
 function filterIssues(issues) {
-    return (issues || []).filter(i => !SUPPRESSED_ISSUE_TYPES.has(i?.type));
+    return (issues || [])
+        .filter(i => !SUPPRESSED_ISSUE_TYPES.has(i?.type))
+        .map(i => (i && PROMOTED_TO_ERROR.has(i.type)) ? { ...i, severity: 'error' } : i);
 }
 
 function formatSentences(text) {
