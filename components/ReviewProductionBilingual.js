@@ -16,10 +16,13 @@ function toArray(v) { return Array.isArray(v) ? v : []; }
 //   missing_image      → "Text mentions figure/diagram but no image found"
 //   figure_missing     → "Solution flagged as needing a figure but none attached"
 //   subtype_mismatch   → "Subtype mismatch: EN=X HI=Y"
+//   q_no_mismatch      → "Question number mismatch: EN=X HI=Y"
+//                        (papers routinely shuffle EN vs HI question order,
+//                         so a position-number mismatch isn't actionable here)
 //
 // These tend to be noisy on already-reviewed production content; the
 // reviewer wants to focus on substantive errors.
-const SUPPRESSED_ISSUE_TYPES = new Set(['missing_image', 'figure_missing', 'subtype_mismatch']);
+const SUPPRESSED_ISSUE_TYPES = new Set(['missing_image', 'figure_missing', 'subtype_mismatch', 'q_no_mismatch']);
 function filterIssues(issues) {
     return (issues || []).filter(i => !SUPPRESSED_ISSUE_TYPES.has(i?.type));
 }
