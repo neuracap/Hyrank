@@ -19,10 +19,28 @@ function toArray(v) { return Array.isArray(v) ? v : []; }
 //   q_no_mismatch      → "Question number mismatch: EN=X HI=Y"
 //                        (papers routinely shuffle EN vs HI question order,
 //                         so a position-number mismatch isn't actionable here)
+//   missing_en         → "No English counterpart linked"
+//   missing_hi         → "No Hindi counterpart linked"
+//                        (the page already renders standalones in their own
+//                         sections with a clear "no counterpart" panel — a
+//                         per-card warning on top is just noise)
+//   raw_image_ref      → "Question has raw image file reference (.jpg/.png)"
+//                        (not actionable on its own; if the image is broken
+//                         the empty_image_link / missing_image checks fire)
 //
 // These tend to be noisy on already-reviewed production content; the
-// reviewer wants to focus on substantive errors.
-const SUPPRESSED_ISSUE_TYPES = new Set(['missing_image', 'figure_missing', 'subtype_mismatch', 'q_no_mismatch']);
+// reviewer wants to focus on substantive errors: duplicated options,
+// missing correct answer, missing core answer basis, missing solution,
+// and EN↔HI answer-text mismatches.
+const SUPPRESSED_ISSUE_TYPES = new Set([
+    'missing_image',
+    'figure_missing',
+    'subtype_mismatch',
+    'q_no_mismatch',
+    'missing_en',
+    'missing_hi',
+    'raw_image_ref',
+]);
 
 // Issue types whose severity is bumped to 'error' on this page (and thus
 // trigger the red card border + Errors filter). Reviewer wants production
