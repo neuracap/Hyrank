@@ -1069,6 +1069,27 @@ export default function ReviewProductionBilingual({ exams }) {
         return aInt - bInt;
     }), [questions, filter, mismatchCache, issuesForPair]);
 
+    // Standalone (no-counterpart) rows are only useful to surface here
+    // when they have actionable issues. Otherwise they bloat the list of
+    // already-verified production content. Same heuristic stack as the
+    // pair check, minus the cross-language pair issues (the standalone
+    // panel itself signals "no counterpart" without a warning entry).
+    const standaloneHasIssues = useCallback((row) => {
+        if (!row) return false;
+        const correct = getCorrectLabel(row);
+        const qIssues = filterIssues(checkQuestionQuality(row.text, row.options, correct));
+        const sIssues = filterIssues(checkSolutionQuality(row));
+        return qIssues.length + sIssues.length > 0;
+    }, []);
+    const visibleHiUnlinked = useMemo(
+        () => hiUnlinked.filter(standaloneHasIssues),
+        [hiUnlinked, standaloneHasIssues]
+    );
+    const visibleEnUnlinked = useMemo(
+        () => enUnlinked.filter(standaloneHasIssues),
+        [enUnlinked, standaloneHasIssues]
+    );
+
     const { bothSolvedCount, mismatchCount, errorCount, warningCount } = useMemo(() => {
         let bothSolved = 0, mismatch = 0, errors = 0, warnings = 0;
         for (const q of questions) {
@@ -1198,19 +1219,22 @@ export default function ReviewProductionBilingual({ exams }) {
                             </div>
                         ))}
 
-                        {/* Standalone Hindi (Hindi-first because the panels are HI-left) */}
-                        {hiUnlinked.length > 0 && (
+                        {/* Standalone Hindi (Hindi-first because the panels are HI-left).
+                            Clean standalones are hidden — only rows with at least one
+                            actionable issue (missing solution, blank options, no
+                            correct answer, etc.) are surfaced here. */}
+                        {visibleHiUnlinked.length > 0 && (
                             <div className="pt-8">
                                 <div className="mb-3 flex items-center gap-3 flex-wrap">
                                     <h2 className="text-sm font-bold text-orange-800 uppercase tracking-wide">
                                         Standalone Hindi Questions
                                     </h2>
                                     <span className="text-xs text-gray-500">
-                                        {hiUnlinked.length} unlinked
+                                        {visibleHiUnlinked.length} with issues / {hiUnlinked.length} unlinked
                                     </span>
                                 </div>
                                 <div className="space-y-4">
-                                    {hiUnlinked.map((row, idx) => {
+                                    {visibleHiUnlinked.map((row, idx) => {
                                         const pseudoPair = {
                                             link_id: `hi-only-${row.question_id}`,
                                             section_code: row.section_code,
@@ -1227,19 +1251,19 @@ export default function ReviewProductionBilingual({ exams }) {
                             </div>
                         )}
 
-                        {/* Standalone English */}
-                        {enUnlinked.length > 0 && (
+                        {/* Standalone English — same rule: only show rows with issues. */}
+                        {visibleEnUnlinked.length > 0 && (
                             <div className="pt-8">
                                 <div className="mb-3 flex items-center gap-3 flex-wrap">
                                     <h2 className="text-sm font-bold text-blue-800 uppercase tracking-wide">
                                         Standalone English Questions
                                     </h2>
                                     <span className="text-xs text-gray-500">
-                                        {enUnlinked.length} unlinked
+                                        {visibleEnUnlinked.length} with issues / {enUnlinked.length} unlinked
                                     </span>
                                 </div>
                                 <div className="space-y-4">
-                                    {enUnlinked.map((row, idx) => {
+                                    {visibleEnUnlinked.map((row, idx) => {
                                         const pseudoPair = {
                                             link_id: `en-only-${row.question_id}`,
                                             section_code: row.section_code,
