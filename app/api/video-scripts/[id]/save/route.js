@@ -49,6 +49,10 @@ export async function POST(req, { params }) {
         sets.push(`reviewed_by = $${vals.length}`);
         sets.push('reviewed_at = NOW()');
     }
+    // Approving a script enters it into the production pipeline (if not already there).
+    if (status === 'APPROVED') {
+        sets.push(`prod_stage = CASE WHEN prod_stage = 'NONE' THEN 'QUEUED' ELSE prod_stage END`);
+    }
 
     const client = await db.connect();
     try {

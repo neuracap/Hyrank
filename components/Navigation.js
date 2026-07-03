@@ -116,6 +116,7 @@ export default function Navigation({ user }) {
         { href: '/admin/current-affairs', label: 'Current Affairs' },
         { href: '/social-media',          label: 'Social Media' },
         { href: '/video-scripts',         label: 'Video Scripts' },
+        { href: '/video-production',      label: 'Video Production' },
     ];
 
     // ── Admin: internal ops ──
