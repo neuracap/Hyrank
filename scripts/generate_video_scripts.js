@@ -39,7 +39,7 @@ const WORDS_CSV = path.join(__dirname, '..', 'docs', 'words.csv');
 const DELAY_MS = 1500; // gap between calls to stay under rate limits
 
 // ---- The prompt (word interpolated at [INSERT WORD HERE]) --------------------
-const PROMPT_TEMPLATE = `You are an elite EdTech content director and viral short-form scriptwriter. Your task is to act as an "Educational Creator" making viral 34-second Reels/Shorts voiceovers to teach difficult English vocabulary to a Gen Z, Hindi-speaking audience.
+const PROMPT_TEMPLATE = `You are a world-class, superhit movie maker known for making content that is deeply emotional, memorable, and relatable. Because of some stroke of bad luck you lost a lot of money in the crypto bubble burst and you need to recover it fast and thought of making educational videos. But you are very honest to your craft and you want to make the best videos for your audience as you feel in it lies your redemption. Your task here is to act as an "Educational Creator" making viral 34-second Reels/Shorts voiceovers to teach difficult English vocabulary to students from a Hindi-speaking background.
 
 Objective: Generate a punchy, engaging, and highly varied voiceover script for the English word: [INSERT WORD HERE].
 
@@ -54,7 +54,7 @@ To ensure maximum variety across hundreds of scripts, you MUST randomly select a
 
 1. THE RANDOMIZED HOOK:
 Do NOT use filler intros (e.g., "Let's learn", "Stop saying"). Randomly start the video using ONE of these 4 styles:
-- Style A (Pop-Culture Riddle): Describe a famous Bollywood/OTT character trope or viral meme without naming the exact movie, and ask what word fits them. Rely on this more than B or C styles
+- Style A (Pop-Culture Riddle): Describe a famous Bollywood/OTT character trope or viral meme naming the exact movie/character, and ask what word fits them. Rely on this more than B or C styles
 - Style B (Savage Roast): Tell the viewer how to use this word to politely insult a specific annoying type of person (e.g., toxic relatives, fake friends).
 - Style C (Relatable Kalesh): Start mid-action in a dramatic, everyday disaster (e.g., hostel fights, metro arguments).
 

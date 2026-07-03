@@ -22,6 +22,10 @@ export default function VideoScriptsReview() {
     const [busyKey, setBusyKey] = useState(null);
     // Local edits: id -> draft transcript text
     const [drafts, setDrafts] = useState({});
+    // Reviewer notes/references appended to the prompt on Regenerate: id -> text
+    const [regenNotes, setRegenNotes] = useState({});
+    // Which cards have the notes box expanded: id -> bool
+    const [notesOpen, setNotesOpen] = useState({});
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -76,13 +80,32 @@ export default function VideoScriptsReview() {
         finally { setBusyKey(null); }
     };
 
-    const regenerate = async (row) => {
-        if (!confirm(`Regenerate the transcript for "${row.word}"? This overwrites the current text.`)) return;
+    const setNote = (id, value) => setRegenNotes(prev => ({ ...prev, [id]: value }));
+    const toggleNotes = (id) => setNotesOpen(prev => ({ ...prev, [id]: !prev[id] }));
+    // Drop the current draft into the notes box so the reviewer can tell the model to improve on it.
+    const insertCurrentScript = (row) => {
         const id = row.video_script_id;
+        const current = drafts[id] ?? '';
+        const existing = regenNotes[id] ?? '';
+        const block = `Here is the current script — keep what works and improve on it:\n"""\n${current}\n"""`;
+        setNote(id, existing ? `${existing}\n\n${block}` : block);
+        setNotesOpen(prev => ({ ...prev, [id]: true }));
+    };
+
+    const regenerate = async (row) => {
+        const id = row.video_script_id;
+        const comments = (regenNotes[id] ?? '').trim();
+        const msg = comments
+            ? `Regenerate "${row.word}" using your notes? This overwrites the current text.`
+            : `Regenerate the transcript for "${row.word}"? This overwrites the current text.`;
+        if (!confirm(msg)) return;
         setBusyKey(`regen-${id}`);
         setErr('');
         try {
-            const res = await fetch(`/api/video-scripts/${id}/generate`, { method: 'POST' });
+            const res = await fetch(`/api/video-scripts/${id}/generate`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ comments }),
+            });
             const j = await res.json();
             if (!res.ok || !j.success) throw new Error(j.error || 'Regenerate failed');
             setRows(prev => prev.map(r => r.video_script_id === id
@@ -182,12 +205,47 @@ export default function VideoScriptsReview() {
                                     className="px-3 py-1.5 border border-gray-300 text-gray-700 text-xs font-bold rounded hover:bg-gray-50 disabled:opacity-50">
                                     {busyKey === `regen-${id}` ? 'Regenerating…' : 'Regenerate'}
                                 </button>
+                                <button
+                                    onClick={() => toggleNotes(id)}
+                                    className={`px-2.5 py-1.5 text-xs font-bold rounded border
+                                        ${(regenNotes[id] || '').trim()
+                                            ? 'border-purple-300 text-purple-700 bg-purple-50'
+                                            : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+                                    {notesOpen[id] ? 'Hide notes' : ((regenNotes[id] || '').trim() ? 'Notes ●' : '＋ Notes')}
+                                </button>
                                 {row.reviewed_at && (
                                     <span className="text-[11px] text-gray-400 ml-auto">
                                         reviewed {new Date(row.reviewed_at).toLocaleString()}
                                     </span>
                                 )}
                             </div>
+
+                            {notesOpen[id] && (
+                                <div className="mt-2 border-t border-dashed border-gray-200 pt-2">
+                                    <div className="flex items-center justify-between mb-1">
+                                        <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">
+                                            Regenerate notes / references (added to the prompt)
+                                        </label>
+                                        <button
+                                            onClick={() => insertCurrentScript(row)}
+                                            className="text-[11px] text-blue-600 hover:underline font-semibold">
+                                            + insert current script
+                                        </button>
+                                    </div>
+                                    <textarea
+                                        value={regenNotes[id] ?? ''}
+                                        onChange={e => setNote(id, e.target.value)}
+                                        rows={4}
+                                        placeholder="e.g. Make the hook a Bollywood villain instead. Keep the memory trick. Use a shorter closing. (You can also paste a reference script here.)"
+                                        className="w-full border border-gray-300 rounded p-2 text-sm
+                                            focus:outline-none focus:ring-2 focus:ring-purple-400"
+                                        style={{ resize: 'vertical' }}
+                                    />
+                                    <p className="text-[11px] text-gray-400 mt-1">
+                                        These notes are appended to the base prompt for this one regeneration (not saved). Leave empty to regenerate with the base prompt only.
+                                    </p>
+                                </div>
+                            )}
                         </div>
                     );
                 })}

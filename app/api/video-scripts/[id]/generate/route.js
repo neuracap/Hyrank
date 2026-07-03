@@ -9,6 +9,10 @@ export const maxDuration = 60;
 /**
  * POST /api/video-scripts/[id]/generate
  *
+ * Body (optional): { comments: string }
+ *   Reviewer notes / a current script to improve on / reference material — appended
+ *   to the base prompt as overriding instructions.
+ *
  * Re-runs Gemini for a single row (the "Regenerate" button in the reviewer UI).
  * Overwrites raw_transcript + transcript, resets status to GENERATED, clears the
  * previous review stamp. On failure, marks the row FAILED with the error.
@@ -19,6 +23,12 @@ export async function POST(req, { params }) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     const { id } = await params;
+
+    let comments = '';
+    try {
+        const body = await req.json();
+        if (body && typeof body.comments === 'string') comments = body.comments;
+    } catch { /* no body / not JSON — regenerate with base prompt only */ }
 
     const client = await db.connect();
     try {
@@ -32,7 +42,7 @@ export async function POST(req, { params }) {
 
         let transcript;
         try {
-            transcript = await generateVideoScript(word);
+            transcript = await generateVideoScript(word, { comments });
         } catch (genErr) {
             console.error('video-scripts/generate — Gemini error:', genErr);
             await client.query(
