@@ -32,6 +32,7 @@ export default function VideoProductionBoard() {
     const [busyKey, setBusyKey] = useState(null);
     const [elevenEnabled, setElevenEnabled] = useState(false);
     const [expanded, setExpanded] = useState({}); // id -> show script
+    const [copiedId, setCopiedId] = useState(null); // brief "Copied ✓" feedback
     // Local field drafts: id -> { video_url, audio_url, final_url, publish_url, publish_platform, prod_notes }
     const [fields, setFields] = useState({});
 
@@ -97,6 +98,17 @@ export default function VideoProductionBoard() {
     // Save fields AND advance/retreat.
     const move = (row, toStage) => patch(row, { ...(fields[row.video_script_id] || {}), prod_stage: toStage }, 'move');
     const toggleAudio = (row) => patch(row, { needs_audio: !row.needs_audio }, 'audio-toggle');
+
+    // Copy the transcript to the clipboard for pasting into NotebookLM as a source.
+    const copyScript = async (row) => {
+        try {
+            await navigator.clipboard.writeText(row.transcript || '');
+            setCopiedId(row.video_script_id);
+            setTimeout(() => setCopiedId(prev => (prev === row.video_script_id ? null : prev)), 2000);
+        } catch {
+            setErr('Clipboard copy failed — use "show script" and copy manually.');
+        }
+    };
 
     const generateAudio = async (row) => {
         const id = row.video_script_id;
@@ -185,6 +197,14 @@ export default function VideoProductionBoard() {
                                     <button onClick={() => setExpanded(p => ({ ...p, [id]: !p[id] }))}
                                         className="text-[11px] text-blue-600 hover:underline">
                                         {expanded[id] ? 'hide script' : 'show script'}
+                                    </button>
+                                    <button onClick={() => copyScript(row)}
+                                        title="Copy the transcript to paste into NotebookLM as a source"
+                                        className={`px-2 py-0.5 text-[11px] font-bold rounded border
+                                            ${copiedId === id
+                                                ? 'border-green-300 text-green-700 bg-green-50'
+                                                : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+                                        {copiedId === id ? 'Copied ✓' : '⧉ Copy for NotebookLM'}
                                     </button>
                                 </div>
                                 <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-indigo-100 text-indigo-700">
