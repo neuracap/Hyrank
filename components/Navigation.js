@@ -115,6 +115,7 @@ export default function Navigation({ user }) {
         { href: '/admin/daily-quiz',      label: 'GK Approval' },
         { href: '/admin/current-affairs', label: 'Current Affairs' },
         { href: '/social-media',          label: 'Social Media' },
+        { href: '/video-scripts',         label: 'Video Scripts' },
     ];
 
     // ── Admin: internal ops ──
