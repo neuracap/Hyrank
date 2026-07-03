@@ -2,7 +2,7 @@ import db from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-edge';
 import { NextResponse } from 'next/server';
 import { v2 as cloudinary } from 'cloudinary';
-import { generateSpeech, elevenLabsConfigured } from '@/lib/elevenlabs';
+import { generateSpeech, elevenLabsConfigured, resolveVoice, ELEVEN_VOICES } from '@/lib/elevenlabs';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -17,6 +17,9 @@ cloudinary.config({
 /**
  * POST /api/video-production/[id]/audio
  *
+ * Body (optional): { voice: 'voice1' | 'voice2' | 'voice3' | 'voice4' }
+ *   One of ELEVEN_VOICES keys; defaults to the first voice.
+ *
  * Synthesizes the approved transcript with ElevenLabs, uploads the MP3 to
  * Cloudinary (folder video-scripts/audio), and stores the hosted URL in audio_url.
  * Voiceover text = current transcript. Sets audio_status DONE/FAILED.
@@ -30,6 +33,21 @@ export async function POST(req, { params }) {
         return NextResponse.json({ error: 'ELEVENLABS_API_KEY not configured' }, { status: 501 });
     }
     const { id } = await params;
+
+    let voice = ELEVEN_VOICES[0];
+    try {
+        const body = await req.json();
+        if (body?.voice) {
+            const v = resolveVoice(body.voice);
+            if (!v) {
+                return NextResponse.json(
+                    { error: `Unknown voice. Allowed: ${ELEVEN_VOICES.map(x => x.key).join(', ')}` },
+                    { status: 400 }
+                );
+            }
+            voice = v;
+        }
+    } catch { /* no body — use default voice */ }
 
     const client = await db.connect();
     try {
@@ -50,7 +68,7 @@ export async function POST(req, { params }) {
 
         let mp3;
         try {
-            mp3 = await generateSpeech(transcript);
+            mp3 = await generateSpeech(transcript, { voiceId: voice.voiceId });
         } catch (ttsErr) {
             console.error('video-production/audio — ElevenLabs error:', ttsErr);
             await client.query(
@@ -68,7 +86,7 @@ export async function POST(req, { params }) {
             const uploadResult = await cloudinary.uploader.upload(dataURI, {
                 folder: 'video-scripts/audio',
                 resource_type: 'video',
-                public_id: `${safeWord}-${id.slice(0, 8)}`,
+                public_id: `${safeWord}-${voice.key}-${id.slice(0, 8)}`,
                 overwrite: true,
             });
             secureUrl = uploadResult.secure_url;
@@ -83,10 +101,11 @@ export async function POST(req, { params }) {
 
         const res = await client.query(
             `UPDATE video_script
-             SET audio_url = $1, audio_status = 'DONE', audio_error = NULL, prod_updated_at = NOW()
-             WHERE video_script_id = $2
-             RETURNING video_script_id, word, audio_url, audio_status`,
-            [secureUrl, id]
+             SET audio_url = $1, audio_status = 'DONE', audio_error = NULL,
+                 audio_voice = $2, prod_updated_at = NOW()
+             WHERE video_script_id = $3
+             RETURNING video_script_id, word, audio_url, audio_status, audio_voice`,
+            [secureUrl, voice.label, id]
         );
         return NextResponse.json({ success: true, row: res.rows[0] });
     } catch (e) {

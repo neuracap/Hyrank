@@ -19,6 +19,8 @@ ALTER TABLE video_script
     ADD COLUMN IF NOT EXISTS audio_url         TEXT,        -- ElevenLabs / manual audio (hosted MP3 or link)
     ADD COLUMN IF NOT EXISTS audio_status      TEXT,        -- NULL | GENERATING | DONE | FAILED
     ADD COLUMN IF NOT EXISTS audio_error       TEXT,
+    ADD COLUMN IF NOT EXISTS audio_voice       TEXT,        -- which ELEVEN_VOICES label was used
+
     ADD COLUMN IF NOT EXISTS final_url         TEXT,        -- combined/edited video (link or hosted)
     ADD COLUMN IF NOT EXISTS publish_url        TEXT,
     ADD COLUMN IF NOT EXISTS publish_platform   TEXT,        -- e.g. Instagram, YouTube Shorts

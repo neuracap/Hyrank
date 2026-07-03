@@ -31,6 +31,8 @@ export default function VideoProductionBoard() {
     const [err, setErr] = useState('');
     const [busyKey, setBusyKey] = useState(null);
     const [elevenEnabled, setElevenEnabled] = useState(false);
+    const [voices, setVoices] = useState([]);
+    const [voiceSel, setVoiceSel] = useState({}); // id -> voice key
     const [expanded, setExpanded] = useState({}); // id -> show script
     const [copiedId, setCopiedId] = useState(null); // brief "Copied ✓" feedback
     // Local field drafts: id -> { video_url, audio_url, final_url, publish_url, publish_platform, prod_notes }
@@ -51,6 +53,7 @@ export default function VideoProductionBoard() {
             setCounts(j.counts_by_stage || {});
             setTotal(j.total);
             setElevenEnabled(!!j.elevenlabs_enabled);
+            setVoices(j.voices || []);
             const seeded = {};
             for (const r of j.rows) {
                 seeded[r.video_script_id] = {
@@ -115,7 +118,10 @@ export default function VideoProductionBoard() {
         setBusyKey(`gen-audio-${id}`);
         setErr('');
         try {
-            const res = await fetch(`/api/video-production/${id}/audio`, { method: 'POST' });
+            const res = await fetch(`/api/video-production/${id}/audio`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ voice: voiceSel[id] || voices[0]?.key }),
+            });
             const j = await res.json();
             if (!res.ok || !j.success) throw new Error(j.error || 'Audio generation failed');
             setRows(prev => prev.map(r => r.video_script_id === id ? { ...r, ...j.row } : r));
@@ -240,6 +246,12 @@ export default function VideoProductionBoard() {
                                             <a href={fields[id].audio_url} target="_blank" rel="noreferrer"
                                                 className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 text-blue-600">▶</a>
                                         )}
+                                        <select
+                                            value={voiceSel[id] || voices[0]?.key || ''}
+                                            onChange={e => setVoiceSel(prev => ({ ...prev, [id]: e.target.value }))}
+                                            className="px-1.5 py-1 border border-gray-300 rounded text-xs max-w-[110px]">
+                                            {voices.map(v => <option key={v.key} value={v.key}>{v.label}</option>)}
+                                        </select>
                                         <button
                                             onClick={() => generateAudio(row)}
                                             disabled={!elevenEnabled || !row.needs_audio || busyKey === `gen-audio-${id}`}

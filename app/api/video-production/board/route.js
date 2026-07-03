@@ -1,7 +1,7 @@
 import db from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-edge';
 import { NextResponse } from 'next/server';
-import { elevenLabsConfigured } from '@/lib/elevenlabs';
+import { elevenLabsConfigured, ELEVEN_VOICES } from '@/lib/elevenlabs';
 
 export const dynamic = 'force-dynamic';
 
@@ -72,6 +72,7 @@ export async function GET(req) {
             rows: listRes.rows,
             counts_by_stage,
             elevenlabs_enabled: elevenLabsConfigured(),
+            voices: ELEVEN_VOICES.map(v => ({ key: v.key, label: v.label })),
         });
     } catch (e) {
         console.error('video-production/board error:', e);

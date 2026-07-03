@@ -1,6 +1,7 @@
 import db from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth-edge';
 import { NextResponse } from 'next/server';
+import { elevenLabsConfigured, ELEVEN_VOICES } from '@/lib/elevenlabs';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,6 +48,8 @@ export async function GET(req) {
         const listRes = await client.query(`
             SELECT video_script_id, word, word_sno, raw_transcript, transcript,
                    model, status, gen_error, reviewed_by, reviewed_at,
+                   prod_stage, needs_audio, video_url, audio_url, audio_status,
+                   audio_error, audio_voice, final_url,
                    created_at, updated_at
             FROM video_script
             WHERE ${where}
@@ -65,6 +68,8 @@ export async function GET(req) {
             total: totalRes.rows[0].c,
             rows: listRes.rows,
             counts_by_status,
+            elevenlabs_enabled: elevenLabsConfigured(),
+            voices: ELEVEN_VOICES.map(v => ({ key: v.key, label: v.label })),
         });
     } catch (e) {
         console.error('video-scripts/list error:', e);

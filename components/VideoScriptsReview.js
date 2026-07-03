@@ -26,6 +26,11 @@ export default function VideoScriptsReview() {
     const [regenNotes, setRegenNotes] = useState({});
     // Which cards have the notes box expanded: id -> bool
     const [notesOpen, setNotesOpen] = useState({});
+    // Production helpers (post-approval): clipboard feedback, ElevenLabs config
+    const [copiedId, setCopiedId] = useState(null);
+    const [elevenEnabled, setElevenEnabled] = useState(false);
+    const [voices, setVoices] = useState([]);
+    const [voiceSel, setVoiceSel] = useState({}); // id -> voice key
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -41,6 +46,8 @@ export default function VideoScriptsReview() {
             setRows(j.rows);
             setCounts(j.counts_by_status || {});
             setTotal(j.total);
+            setElevenEnabled(!!j.elevenlabs_enabled);
+            setVoices(j.voices || []);
             // Seed drafts from the saved transcript
             const seeded = {};
             for (const r of j.rows) seeded[r.video_script_id] = r.transcript || '';
@@ -68,14 +75,64 @@ export default function VideoScriptsReview() {
             });
             const j = await res.json();
             if (!res.ok || !j.success) throw new Error(j.error || 'Save failed');
-            // Reflect new status/transcript locally; if it no longer matches the filter, drop it on reload
-            if (status && status !== filterStatus) {
-                await load();
-            } else {
-                setRows(prev => prev.map(r => r.video_script_id === id
-                    ? { ...r, transcript: j.row.transcript, status: j.row.status, reviewed_at: j.row.reviewed_at }
-                    : r));
-            }
+            // Patch in place so the reviewer sees the new status immediately —
+            // the card stays visible (even if it left this filter tab) until the
+            // next reload. Adjust the tab counts locally to match.
+            setCounts(prev => {
+                if (!status || status === row.status) return prev;
+                const next = { ...prev };
+                next[row.status] = Math.max(0, (next[row.status] || 0) - 1);
+                next[j.row.status] = (next[j.row.status] || 0) + 1;
+                return next;
+            });
+            setRows(prev => prev.map(r => r.video_script_id === id
+                ? { ...r, transcript: j.row.transcript, status: j.row.status, prod_stage: j.row.prod_stage, reviewed_at: j.row.reviewed_at }
+                : r));
+        } catch (e) { setErr(e.message); }
+        finally { setBusyKey(null); }
+    };
+
+    // Copy the transcript to the clipboard for pasting into NotebookLM as a source.
+    const copyScript = async (row) => {
+        try {
+            await navigator.clipboard.writeText(drafts[row.video_script_id] ?? row.transcript ?? '');
+            setCopiedId(row.video_script_id);
+            setTimeout(() => setCopiedId(prev => (prev === row.video_script_id ? null : prev)), 2000);
+        } catch {
+            setErr('Clipboard copy failed — select the text and copy manually.');
+        }
+    };
+
+    // Patch production fields (stage transitions) on an approved script.
+    const prodPatch = async (row, body, busyLabel) => {
+        const id = row.video_script_id;
+        setBusyKey(`${busyLabel}-${id}`);
+        setErr('');
+        try {
+            const res = await fetch(`/api/video-production/${id}/update`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const j = await res.json();
+            if (!res.ok || !j.success) throw new Error(j.error || 'Update failed');
+            setRows(prev => prev.map(r => r.video_script_id === id ? { ...r, ...j.row } : r));
+        } catch (e) { setErr(e.message); }
+        finally { setBusyKey(null); }
+    };
+
+    // Send the transcript to ElevenLabs with the chosen voice.
+    const generateAudio = async (row) => {
+        const id = row.video_script_id;
+        setBusyKey(`gen-audio-${id}`);
+        setErr('');
+        try {
+            const res = await fetch(`/api/video-production/${id}/audio`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ voice: voiceSel[id] || voices[0]?.key }),
+            });
+            const j = await res.json();
+            if (!res.ok || !j.success) throw new Error(j.error || 'Audio generation failed');
+            setRows(prev => prev.map(r => r.video_script_id === id ? { ...r, ...j.row } : r));
         } catch (e) { setErr(e.message); }
         finally { setBusyKey(null); }
     };
@@ -165,6 +222,19 @@ export default function VideoScriptsReview() {
                                     <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${STATUS_STYLE[row.status] || 'bg-gray-100 text-gray-600'}`}>
                                         {row.status}
                                     </span>
+                                    {row.prod_stage && row.prod_stage !== 'NONE' && (
+                                        <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-indigo-100 text-indigo-700">
+                                            {row.prod_stage === 'VIDEO' ? 'VIDEO GENERATING' : row.prod_stage}
+                                        </span>
+                                    )}
+                                    <button onClick={() => copyScript(row)}
+                                        title="Copy the transcript to paste into NotebookLM as a source"
+                                        className={`px-2 py-0.5 text-[11px] font-bold rounded border
+                                            ${copiedId === id
+                                                ? 'border-green-300 text-green-700 bg-green-50'
+                                                : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+                                        {copiedId === id ? 'Copied ✓' : '⧉ Copy for NotebookLM'}
+                                    </button>
                                     {dirty && <span className="text-[11px] text-amber-600 font-semibold">● unsaved</span>}
                                 </div>
                                 <div className="text-[11px] text-gray-400">{row.model}</div>
@@ -244,6 +314,65 @@ export default function VideoScriptsReview() {
                                     <p className="text-[11px] text-gray-400 mt-1">
                                         These notes are appended to the base prompt for this one regeneration (not saved). Leave empty to regenerate with the base prompt only.
                                     </p>
+                                </div>
+                            )}
+
+                            {row.prod_stage && row.prod_stage !== 'NONE' && (
+                                <div className="mt-3 border-t border-gray-200 pt-2">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide mr-1">Production</span>
+
+                                        {row.prod_stage === 'QUEUED' && (
+                                            <button
+                                                onClick={() => prodPatch(row, { prod_stage: 'VIDEO' }, 'vid')}
+                                                disabled={busyKey === `vid-${id}`}
+                                                className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded hover:bg-indigo-700 disabled:opacity-50">
+                                                {busyKey === `vid-${id}` ? '…' : '🎬 Video generating'}
+                                            </button>
+                                        )}
+                                        {row.prod_stage === 'VIDEO' && (
+                                            <button
+                                                onClick={() => prodPatch(row, { prod_stage: 'EDIT' }, 'vid')}
+                                                disabled={busyKey === `vid-${id}`}
+                                                className="px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded hover:bg-green-700 disabled:opacity-50">
+                                                {busyKey === `vid-${id}` ? '…' : '✓ Video generated'}
+                                            </button>
+                                        )}
+                                        {['EDIT', 'READY', 'PUBLISHED'].includes(row.prod_stage) && (
+                                            <span className="text-xs text-green-700 font-semibold">Video generated ✓</span>
+                                        )}
+
+                                        <span className="text-gray-300">|</span>
+
+                                        <select
+                                            value={voiceSel[id] || voices[0]?.key || ''}
+                                            onChange={e => setVoiceSel(prev => ({ ...prev, [id]: e.target.value }))}
+                                            className="px-2 py-1.5 border border-gray-300 rounded text-xs">
+                                            {voices.map(v => <option key={v.key} value={v.key}>{v.label}</option>)}
+                                        </select>
+                                        <button
+                                            onClick={() => generateAudio(row)}
+                                            disabled={!elevenEnabled || busyKey === `gen-audio-${id}`}
+                                            title={!elevenEnabled ? 'ELEVENLABS_API_KEY not set' : 'Generate voiceover with ElevenLabs'}
+                                            className="px-3 py-1.5 bg-purple-600 text-white text-xs font-bold rounded hover:bg-purple-700 disabled:opacity-40">
+                                            {busyKey === `gen-audio-${id}` ? 'Generating…' : '🔊 Generate audio'}
+                                        </button>
+
+                                        {row.audio_status === 'DONE' && row.audio_url && (
+                                            <span className="text-xs text-green-700 font-semibold">
+                                                Audio ✓ {row.audio_voice ? `(${row.audio_voice})` : ''}{' '}
+                                                <a href={row.audio_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">▶ play</a>
+                                            </span>
+                                        )}
+                                        {row.audio_status === 'FAILED' && (
+                                            <span className="text-xs text-red-600" title={row.audio_error || ''}>Audio failed ✕</span>
+                                        )}
+                                    </div>
+                                    {!elevenEnabled && (
+                                        <p className="text-[11px] text-amber-600 mt-1">
+                                            ElevenLabs isn’t configured (ELEVENLABS_API_KEY) — audio generation disabled.
+                                        </p>
+                                    )}
                                 </div>
                             )}
                         </div>

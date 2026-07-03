@@ -60,7 +60,7 @@ export async function POST(req, { params }) {
         const res = await client.query(
             `UPDATE video_script SET ${sets.join(', ')}
              WHERE video_script_id = $${vals.length}
-             RETURNING video_script_id, word, status, transcript, reviewed_at`,
+             RETURNING video_script_id, word, status, prod_stage, transcript, reviewed_at`,
             vals
         );
         if (res.rows.length === 0) {
