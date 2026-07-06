@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useCallback } from 'react';
 
-const STATUS_TABS = ['GENERATED', 'EDITED', 'APPROVED', 'FAILED'];
+const STATUS_TABS = ['GENERATED', 'EDITED', 'APPROVED', 'REJECTED', 'FAILED'];
 
 const STATUS_STYLE = {
     GENERATED: 'bg-blue-100 text-blue-700',
     EDITED: 'bg-amber-100 text-amber-700',
     APPROVED: 'bg-green-100 text-green-700',
+    REJECTED: 'bg-gray-200 text-gray-600',
     FAILED: 'bg-red-100 text-red-700',
 };
 
@@ -321,6 +322,18 @@ export default function VideoScriptsReview() {
                                     className="px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded hover:bg-green-700 disabled:opacity-50">
                                     {busyKey === `APPROVED-${id}` ? 'Saving…' : 'Save & approve'}
                                 </button>
+                                {row.status !== 'REJECTED' && (
+                                    <button
+                                        onClick={() => {
+                                            if (confirm(`Reject "${row.word}" — no video will be made for it? (You can re-approve later from the REJECTED tab.)`)) {
+                                                save(row, 'REJECTED');
+                                            }
+                                        }}
+                                        disabled={busyKey === `REJECTED-${id}`}
+                                        className="px-3 py-1.5 border border-red-300 text-red-600 text-xs font-bold rounded hover:bg-red-50 disabled:opacity-50">
+                                        {busyKey === `REJECTED-${id}` ? 'Rejecting…' : '✕ Reject'}
+                                    </button>
+                                )}
                                 <button
                                     onClick={() => regenerate(row)}
                                     disabled={busyKey === `regen-${id}`}

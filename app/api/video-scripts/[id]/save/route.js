@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
-const VALID_STATUS = ['GENERATED', 'EDITED', 'APPROVED'];
+const VALID_STATUS = ['GENERATED', 'EDITED', 'APPROVED', 'REJECTED'];
 
 /**
  * POST /api/video-scripts/[id]/save
@@ -49,7 +49,7 @@ export async function POST(req, { params }) {
         sets.push(`status = $${vals.length}`);
     }
     // Any reviewer touch stamps who/when.
-    if (status === 'EDITED' || status === 'APPROVED') {
+    if (status === 'EDITED' || status === 'APPROVED' || status === 'REJECTED') {
         vals.push(user.id);
         sets.push(`reviewed_by = $${vals.length}`);
         sets.push('reviewed_at = NOW()');
@@ -57,6 +57,10 @@ export async function POST(req, { params }) {
     // Approving a script enters it into the production pipeline (if not already there).
     if (status === 'APPROVED') {
         sets.push(`prod_stage = CASE WHEN prod_stage = 'NONE' THEN 'QUEUED' ELSE prod_stage END`);
+    }
+    // Rejecting pulls it off the production board entirely (reviewer decided no video).
+    if (status === 'REJECTED') {
+        sets.push(`prod_stage = 'NONE'`);
     }
 
     const client = await db.connect();
