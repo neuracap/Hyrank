@@ -94,6 +94,10 @@ function nlm(args, { input = undefined, timeoutMs = 120000 } = {}) {
         timeout: timeoutMs,
         windowsHide: true,
         maxBuffer: 64 * 1024 * 1024,
+        // Self-healing auth: headless re-auth from the persisted browser profile,
+        // and automatic re-mint from master_token.json when present (see
+        // `notebooklm login --master-token`). Ends the re-login-every-hour cycle.
+        env: { ...process.env, NOTEBOOKLM_HEADLESS_REAUTH: '1' },
     });
     if (res.error) throw res.error;
     const out = (res.stdout || '').trim();
