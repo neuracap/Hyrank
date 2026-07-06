@@ -74,8 +74,10 @@ const pool = new Pool({
 let NLM_BASE = null;
 function resolveNlmBase() {
     for (const base of [['notebooklm'], ['python', '-m', 'notebooklm'], ['py', '-m', 'notebooklm']]) {
+        // No `shell` here: .exe binaries spawn fine without it, and shell:true on
+        // Windows concatenates args unescaped (breaks quoted titles/instructions).
         const probe = spawnSync(base[0], [...base.slice(1), '--version'], {
-            encoding: 'utf8', timeout: 30000, windowsHide: true, shell: process.platform === 'win32',
+            encoding: 'utf8', timeout: 30000, windowsHide: true,
         });
         if (!probe.error && probe.status === 0) return base;
     }
@@ -90,7 +92,6 @@ function nlm(args, { input = undefined, timeoutMs = 120000 } = {}) {
         encoding: 'utf8',
         timeout: timeoutMs,
         windowsHide: true,
-        shell: process.platform === 'win32', // resolve .exe/.cmd shims from uv/pipx on Windows
         maxBuffer: 64 * 1024 * 1024,
     });
     if (res.error) throw res.error;
