@@ -224,8 +224,9 @@ async function processWord(row) {
              WHERE video_script_id = $2`,
             [`NotebookLM generation FAILED: ${e.message.slice(0, 400)}`, row.video_script_id]
         ).catch(() => {});
-        // Quota errors mean the rest of the batch will fail too — signal the caller.
+        // Quota/auth errors mean the rest of the batch will fail too — signal the caller.
         if (/quota|rate.?limit|daily limit|429/i.test(e.message)) return 'QUOTA';
+        if (/authentication expired|re-?authenticate|accounts\.google\.com/i.test(e.message)) return 'AUTH';
         return false;
     }
 }
@@ -280,6 +281,10 @@ async function main() {
             failed++;
             if (result === 'QUOTA') {
                 console.error('\nDaily NotebookLM video quota appears exhausted — stopping. Re-run tomorrow.');
+                break;
+            }
+            if (result === 'AUTH') {
+                console.error('\nNotebookLM session expired — stopping. Re-login with: py -3.11 -m notebooklm login  then re-run.');
                 break;
             }
         }
