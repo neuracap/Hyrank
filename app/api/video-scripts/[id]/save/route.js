@@ -25,11 +25,12 @@ export async function POST(req, { params }) {
     try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 
     const hasTranscript = typeof body.transcript === 'string';
+    const hasLatin = typeof body.transcript_latin === 'string';
     const status = body.status;
     if (status && !VALID_STATUS.includes(status)) {
         return NextResponse.json({ error: `status must be one of ${VALID_STATUS.join(', ')}` }, { status: 400 });
     }
-    if (!hasTranscript && !status) {
+    if (!hasTranscript && !hasLatin && !status) {
         return NextResponse.json({ error: 'Nothing to save (provide transcript and/or status)' }, { status: 400 });
     }
 
@@ -38,6 +39,10 @@ export async function POST(req, { params }) {
     if (hasTranscript) {
         vals.push(body.transcript);
         sets.push(`transcript = $${vals.length}`);
+    }
+    if (hasLatin) {
+        vals.push(body.transcript_latin.trim() || null);
+        sets.push(`transcript_latin = $${vals.length}`);
     }
     if (status) {
         vals.push(status);
@@ -60,7 +65,7 @@ export async function POST(req, { params }) {
         const res = await client.query(
             `UPDATE video_script SET ${sets.join(', ')}
              WHERE video_script_id = $${vals.length}
-             RETURNING video_script_id, word, status, prod_stage, transcript, reviewed_at`,
+             RETURNING video_script_id, word, status, prod_stage, transcript, transcript_latin, reviewed_at`,
             vals
         );
         if (res.rows.length === 0) {

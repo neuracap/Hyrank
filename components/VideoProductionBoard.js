@@ -102,10 +102,11 @@ export default function VideoProductionBoard() {
     const move = (row, toStage) => patch(row, { ...(fields[row.video_script_id] || {}), prod_stage: toStage }, 'move');
     const toggleAudio = (row) => patch(row, { needs_audio: !row.needs_audio }, 'audio-toggle');
 
-    // Copy the transcript to the clipboard for pasting into NotebookLM as a source.
+    // Copy for NotebookLM: prefer the romanized copy (NotebookLM captions can't
+    // render Devanagari); fall back to the Devanagari transcript.
     const copyScript = async (row) => {
         try {
-            await navigator.clipboard.writeText(row.transcript || '');
+            await navigator.clipboard.writeText((row.transcript_latin || '').trim() || row.transcript || '');
             setCopiedId(row.video_script_id);
             setTimeout(() => setCopiedId(prev => (prev === row.video_script_id ? null : prev)), 2000);
         } catch {

@@ -40,6 +40,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { Pool } = require('pg');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config({ path: '.env.local' });
 
 const APPLY = process.argv.includes('--apply');
@@ -108,6 +109,41 @@ function nlm(args, { input = undefined, timeoutMs = 120000 } = {}) {
 
 const sanitize = (s) => String(s || '').replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase();
 
+// ── Transliteration fallback (Devanagari → romanized Hinglish) ───────────────
+// NotebookLM's burned-in captions can't render Devanagari, so the video source
+// must be the Latin copy (transcript_latin). Normally the reviewer generates it
+// on the review page; if it's missing we transliterate here and save it back.
+// Prompt kept in sync with lib/video-script.js (transliterateToLatin).
+const TRANSLITERATE_PROMPT = `You are transliterating a Hinglish voiceover script for an Indian audience.
+The script mixes Hindi written in Devanagari and English words in Roman script.
+
+TASK: Convert ALL Devanagari Hindi into romanized Hindi (Latin script), the way Indians casually type it (WhatsApp style). Examples: "याद है" → "yaad hai", "तुम्हारा" → "tumhara", "कर दिया" → "kar diya".
+
+RULES:
+1. Do NOT translate anything into English — only transliterate the sounds.
+2. Keep every English word exactly as it is.
+3. Keep punctuation, line breaks, and paragraph structure identical to the input.
+4. Use simple readable spellings — no diacritics, no IAST (use "hai" not "hai̯", "zaroor" not "zarūr").
+5. Return ONLY the transliterated script, no explanations, no markdown.
+
+SCRIPT:
+`;
+
+async function transliterateToLatin(text) {
+    if (!process.env.GEMINI_API_KEY) {
+        throw new Error('transcript_latin missing and GEMINI_API_KEY not set — cannot transliterate');
+    }
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: process.env.GEMINI_VIDEO_MODEL || 'gemini-3.1-pro-preview' });
+    const result = await model.generateContent({
+        contents: [{ parts: [{ text: TRANSLITERATE_PROMPT + text }] }],
+        generationConfig: { temperature: 0.1 },
+    });
+    const out = (result.response?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+    if (!out) throw new Error('Empty transliteration response from Gemini');
+    return out;
+}
+
 async function processWord(row) {
     const label = `${row.word_sno ?? '?'}-${row.word}`;
     const outFile = path.join(OUT_DIR, `${row.word_sno ?? 0}-${sanitize(row.word)}.mp4`);
@@ -121,6 +157,18 @@ async function processWord(row) {
     );
 
     try {
+        // 0. Ensure the Latin (romanized) copy exists — that's what NotebookLM gets.
+        let sourceText = (row.transcript_latin || '').trim();
+        if (!sourceText) {
+            process.stdout.write('  transliterating (no Latin copy yet) ... ');
+            sourceText = await transliterateToLatin(row.transcript);
+            await pool.query(
+                `UPDATE video_script SET transcript_latin = $1, updated_at = NOW() WHERE video_script_id = $2`,
+                [sourceText, row.video_script_id]
+            );
+            console.log('ok');
+        }
+
         // 1. Create + activate notebook
         process.stdout.write('  creating notebook ... ');
         const created = nlm(['create', `vocab-${label}`, '--use']);
@@ -128,10 +176,10 @@ async function processWord(row) {
         if (!notebookId) throw new Error(`could not read notebook id from: ${JSON.stringify(created).slice(0, 300)}`);
         console.log(notebookId);
 
-        // 2. Add the transcript as a text source (stdin)
+        // 2. Add the romanized transcript as a text source (stdin)
         process.stdout.write('  adding script source ... ');
         nlm(['source', 'add', '-', '--type', 'text', '--title', `${row.word} voiceover script`],
-            { input: row.transcript });
+            { input: sourceText });
         console.log('ok');
 
         // 3. Generate the video overview and wait
@@ -191,7 +239,7 @@ async function main() {
         where += ` AND lower(word) = $${params.length}`;
     }
     const res = await pool.query(
-        `SELECT video_script_id, word, word_sno, transcript
+        `SELECT video_script_id, word, word_sno, transcript, transcript_latin
          FROM video_script WHERE ${where}
          ORDER BY word_sno NULLS LAST, word`,
         params

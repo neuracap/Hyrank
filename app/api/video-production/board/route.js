@@ -46,7 +46,7 @@ export async function GET(req) {
         );
         params.push(limit, offset);
         const listRes = await client.query(`
-            SELECT video_script_id, word, word_sno, transcript,
+            SELECT video_script_id, word, word_sno, transcript, transcript_latin,
                    prod_stage, needs_audio, video_url, audio_url, audio_status, audio_error,
                    final_url, publish_url, publish_platform, published_at,
                    prod_notes, prod_updated_at, updated_at

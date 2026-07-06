@@ -22,6 +22,8 @@ export default function VideoScriptsReview() {
     const [busyKey, setBusyKey] = useState(null);
     // Local edits: id -> draft transcript text
     const [drafts, setDrafts] = useState({});
+    // Local edits of the romanized (Latin) copy used for NotebookLM: id -> text
+    const [latinDrafts, setLatinDrafts] = useState({});
     // Reviewer notes/references appended to the prompt on Regenerate: id -> text
     const [regenNotes, setRegenNotes] = useState({});
     // Which cards have the notes box expanded: id -> bool
@@ -50,8 +52,13 @@ export default function VideoScriptsReview() {
             setVoices(j.voices || []);
             // Seed drafts from the saved transcript
             const seeded = {};
-            for (const r of j.rows) seeded[r.video_script_id] = r.transcript || '';
+            const seededLatin = {};
+            for (const r of j.rows) {
+                seeded[r.video_script_id] = r.transcript || '';
+                seededLatin[r.video_script_id] = r.transcript_latin || '';
+            }
             setDrafts(seeded);
+            setLatinDrafts(seededLatin);
         } catch (e) { setErr(e.message); }
         finally { setLoading(false); }
     }, [filterStatus, search]);
@@ -59,15 +66,18 @@ export default function VideoScriptsReview() {
     useEffect(() => { load(); }, [load]);
 
     const setDraft = (id, value) => setDrafts(prev => ({ ...prev, [id]: value }));
+    const setLatinDraft = (id, value) => setLatinDrafts(prev => ({ ...prev, [id]: value }));
 
-    const isDirty = (row) => (drafts[row.video_script_id] ?? '') !== (row.transcript ?? '');
+    const isDirty = (row) =>
+        (drafts[row.video_script_id] ?? '') !== (row.transcript ?? '') ||
+        (latinDrafts[row.video_script_id] ?? '') !== (row.transcript_latin ?? '');
 
     const save = async (row, status) => {
         const id = row.video_script_id;
         setBusyKey(`${status || 'save'}-${id}`);
         setErr('');
         try {
-            const body = { transcript: drafts[id] ?? '' };
+            const body = { transcript: drafts[id] ?? '', transcript_latin: latinDrafts[id] ?? '' };
             if (status) body.status = status;
             const res = await fetch(`/api/video-scripts/${id}/save`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -86,21 +96,40 @@ export default function VideoScriptsReview() {
                 return next;
             });
             setRows(prev => prev.map(r => r.video_script_id === id
-                ? { ...r, transcript: j.row.transcript, status: j.row.status, prod_stage: j.row.prod_stage, reviewed_at: j.row.reviewed_at }
+                ? { ...r, transcript: j.row.transcript, transcript_latin: j.row.transcript_latin, status: j.row.status, prod_stage: j.row.prod_stage, reviewed_at: j.row.reviewed_at }
                 : r));
         } catch (e) { setErr(e.message); }
         finally { setBusyKey(null); }
     };
 
-    // Copy the transcript to the clipboard for pasting into NotebookLM as a source.
+    // Copy for NotebookLM: prefer the Latin (romanized) copy — NotebookLM's burned-in
+    // captions can't render Devanagari. Falls back to the Devanagari transcript.
     const copyScript = async (row) => {
+        const id = row.video_script_id;
+        const latin = (latinDrafts[id] ?? row.transcript_latin ?? '').trim();
         try {
-            await navigator.clipboard.writeText(drafts[row.video_script_id] ?? row.transcript ?? '');
-            setCopiedId(row.video_script_id);
-            setTimeout(() => setCopiedId(prev => (prev === row.video_script_id ? null : prev)), 2000);
+            await navigator.clipboard.writeText(latin || drafts[id] || row.transcript || '');
+            setCopiedId(id);
+            setTimeout(() => setCopiedId(prev => (prev === id ? null : prev)), 2000);
         } catch {
             setErr('Clipboard copy failed — select the text and copy manually.');
         }
+    };
+
+    // Generate/refresh the romanized copy from the current Devanagari transcript.
+    const transliterate = async (row) => {
+        const id = row.video_script_id;
+        setBusyKey(`latin-${id}`);
+        setErr('');
+        try {
+            const res = await fetch(`/api/video-scripts/${id}/transliterate`, { method: 'POST' });
+            const j = await res.json();
+            if (!res.ok || !j.success) throw new Error(j.error || 'Transliteration failed');
+            setRows(prev => prev.map(r => r.video_script_id === id
+                ? { ...r, transcript_latin: j.row.transcript_latin } : r));
+            setLatinDraft(id, j.row.transcript_latin || '');
+        } catch (e) { setErr(e.message); }
+        finally { setBusyKey(null); }
     };
 
     // Patch production fields (stage transitions) on an approved script.
@@ -255,6 +284,29 @@ export default function VideoScriptsReview() {
                                     focus:outline-none focus:ring-2 focus:ring-blue-400"
                                 style={{ resize: 'vertical' }}
                             />
+
+                            <div className="mt-2">
+                                <div className="flex items-center justify-between mb-1">
+                                    <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">
+                                        Hinglish in Latin script — sent to NotebookLM (captions can’t render Devanagari)
+                                    </label>
+                                    <button
+                                        onClick={() => transliterate(row)}
+                                        disabled={busyKey === `latin-${id}`}
+                                        className="px-2.5 py-1 text-[11px] font-bold rounded border border-teal-300 text-teal-700 bg-teal-50 hover:bg-teal-100 disabled:opacity-50">
+                                        {busyKey === `latin-${id}` ? 'Transliterating…' : ((latinDrafts[id] || '').trim() ? '↻ Re-transliterate' : 'Aa Transliterate')}
+                                    </button>
+                                </div>
+                                <textarea
+                                    value={latinDrafts[id] ?? ''}
+                                    onChange={e => setLatinDraft(id, e.target.value)}
+                                    rows={(latinDrafts[id] || '').trim() ? 8 : 2}
+                                    placeholder="Empty — click Transliterate to generate the romanized copy from the script above (auto-generated during video creation if left empty)."
+                                    className="w-full border border-teal-200 bg-teal-50/30 rounded p-3 text-sm font-normal leading-relaxed
+                                        focus:outline-none focus:ring-2 focus:ring-teal-400"
+                                    style={{ resize: 'vertical' }}
+                                />
+                            </div>
 
                             <div className="flex items-center gap-2 mt-2 flex-wrap">
                                 <button
