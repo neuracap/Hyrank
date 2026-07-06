@@ -220,9 +220,30 @@ export default function VideoProductionBoard() {
                             </div>
 
                             {expanded[id] && (
-                                <pre className="mb-3 p-3 bg-gray-50 border border-gray-200 rounded text-sm whitespace-pre-wrap font-sans leading-relaxed">
-                                    {row.transcript}
-                                </pre>
+                                <div className="mb-3 space-y-2">
+                                    {(row.transcript_latin || '').trim() ? (
+                                        <div>
+                                            <div className="text-[11px] font-bold text-teal-700 uppercase tracking-wide mb-1">
+                                                Latin script — this is what NotebookLM gets
+                                            </div>
+                                            <pre className="p-3 bg-teal-50/40 border border-teal-200 rounded text-sm whitespace-pre-wrap font-sans leading-relaxed">
+                                                {row.transcript_latin}
+                                            </pre>
+                                        </div>
+                                    ) : (
+                                        <div className="p-2 bg-amber-50 text-amber-700 border border-amber-200 rounded text-xs">
+                                            No Latin copy yet — it will be auto-transliterated during video generation, or generate it on the Video Scripts page.
+                                        </div>
+                                    )}
+                                    <div>
+                                        <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">
+                                            Devanagari original (voiceover / ElevenLabs)
+                                        </div>
+                                        <pre className="p-3 bg-gray-50 border border-gray-200 rounded text-sm whitespace-pre-wrap font-sans leading-relaxed">
+                                            {row.transcript}
+                                        </pre>
+                                    </div>
+                                </div>
                             )}
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
