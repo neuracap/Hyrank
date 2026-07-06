@@ -58,12 +58,7 @@ const GEN_TIMEOUT_S = parseInt(argValue('--timeout', '1800'), 10) || 1800;
 
 // ── The video instructions sent to NotebookLM (edit freely, or pass --instructions) ──
 const DEFAULT_INSTRUCTIONS =
-    'Create a high-energy vertical short-form video (Reel/Short, ~35 seconds) for Hindi-speaking ' +
-    'Gen Z students learning English vocabulary. The source is the exact voiceover script: narrate ' +
-    'it VERBATIM as the voiceover, in its original Hinglish (Hindi in Devanagari + English words in ' +
-    'Roman script) — do not translate, summarize, or rewrite it. Keep the pacing punchy and the tone ' +
-    'witty and empathetic. Visuals should support the hook, the word meaning, the memory trick, and ' +
-    'the mini story in the script.';
+    'make a word meaning video and stick to the exact script that is mentioned in the source';
 const INSTRUCTIONS = argValue('--instructions', DEFAULT_INSTRUCTIONS);
 
 const pool = new Pool({
